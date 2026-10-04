@@ -95,12 +95,7 @@ const BULLET_DAMAGE = 10;
 
 // ※ 적의 체력·속도·크기·접촉 대미지는 enemies.js 의 ENEMY_TYPES 에 있다.
 
-// 웨이브별 적 수. 배열의 칸 수 = 웨이브 수 (지금은 3웨이브)
-// 칸을 하나 더 추가하면 4웨이브가 생긴다!
-const WAVE_ENEMY_COUNTS = [6, 10, 15];
-
-// 웨이브 중에 적이 하나씩 나타나는 간격 (초)
-const WAVE_SPAWN_INTERVAL = 0.8;
+// ※ 웨이브별 적 구성과 등장 간격은 waves.js 의 WAVES 에 있다.
 
 // 증강 선택 화면에 보여 줄 카드 수
 const CHOICE_COUNT = 3;
@@ -317,8 +312,9 @@ let isNewBest = false; // 이번 판에 최고 점수를 새로 세웠는지
 // 현재 웨이브 번호 (1부터 시작)
 let wave = 1;
 
-// 이번 웨이브에서 아직 나오지 않은(생성할) 적의 수
-let enemiesToSpawn = 0;
+// 이번 웨이브에서 아직 나오지 않은 적들의 줄(대기열). 앞에서부터 하나씩 나온다.
+// 예: ["basic", "basic", "basic"] → 기본 적 3마리가 남아 있음
+let spawnQueue = [];
 
 // 플레이어가 가진 증강과 레벨을 기억하는 상자
 // 예: { compound: 2, variance: 1 } → 복리 탄환 Lv.2, 분산 증폭 Lv.1
@@ -454,18 +450,17 @@ function spawnEnemy(typeId) {
   enemies.push(createEnemy(typeId, x, y, wave));
 }
 
-// 웨이브 동안 정해진 수만큼 적을 하나씩 만드는 함수
+// 웨이브 동안 대기열의 적을 하나씩 만드는 함수
 function updateSpawning(dt) {
   // 이번 웨이브의 적을 이미 다 만들었으면 할 일이 없다
-  if (enemiesToSpawn <= 0) return;
+  if (spawnQueue.length === 0) return;
 
   // 남은 시간을 흐른 시간만큼 줄인다
   spawnTimer -= dt;
 
-  // 시간이 다 됐으면 적 하나를 만들고, 남은 수를 1 줄인다
+  // 시간이 다 됐으면 대기열 맨 앞의 적을 꺼내(shift) 하나 만든다
   if (spawnTimer <= 0) {
-    spawnEnemy("basic");
-    enemiesToSpawn -= 1;
+    spawnEnemy(spawnQueue.shift());
     spawnTimer = WAVE_SPAWN_INTERVAL; // 타이머를 다시 채운다
   }
 }
@@ -473,8 +468,17 @@ function updateSpawning(dt) {
 // n번째 웨이브를 시작하는 함수
 function startWave(n) {
   wave = n;
-  // 배열은 0번 칸부터 시작하므로 n번째 웨이브의 적 수는 [n - 1] 칸에 있다
-  enemiesToSpawn = WAVE_ENEMY_COUNTS[n - 1];
+
+  // 대기열 만들기: 배열은 0번 칸부터 시작하므로 n번째 웨이브는 WAVES[n - 1]
+  // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
+  spawnQueue = [];
+  // 이번 웨이브의 묶음을 하나씩 보는 반복문
+  for (const group of WAVES[n - 1]) {
+    // 같은 종류를 count 마리만큼 줄 뒤에 붙이는 반복문
+    for (let i = 0; i < group.count; i++) {
+      spawnQueue.push(group.type);
+    }
+  }
   spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
   gameState = "playing";
 
@@ -696,11 +700,11 @@ function menuButtonAt(x, y) {
 }
 
 // 웨이브가 끝났는지 검사하는 함수
-// 끝나는 조건: 더 나올 적이 없고(0), 화면에 남은 적도 없다(0)
+// 끝나는 조건: 대기열이 비었고(0), 화면에 남은 적도 없다(0)
 function checkWaveEnd() {
-  if (enemiesToSpawn > 0 || enemies.length > 0) return;
+  if (spawnQueue.length > 0 || enemies.length > 0) return;
 
-  if (wave >= WAVE_ENEMY_COUNTS.length) {
+  if (wave >= WAVES.length) {
     // 마지막 웨이브였으면 클리어!
     endGame("clear");
   } else {
@@ -1491,7 +1495,7 @@ function drawHud() {
   drawOutlinedRoundRect(12, 12, 250, 104, 14, COLORS.brown);
 
   // 웨이브 번호
-  drawOutlinedText("웨이브 " + wave + " / " + WAVE_ENEMY_COUNTS.length, 28, 34, 22, "left");
+  drawOutlinedText("웨이브 " + wave + " / " + WAVES.length, 28, 34, 22, "left");
 
   // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
   const ratio = player.hp / PLAYER_MAX_HP;
