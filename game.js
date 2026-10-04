@@ -2230,37 +2230,47 @@ function drawOverlay() {
   ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
   ctx.rotate(-0.025);
 
-  // 그림자 + 패널
-  roundRectPath(-260 + 8, -140 + 8, 520, 280, 26);
+  // 그림자 + 패널 (가로 560, 세로 330)
+  const pw = 560, ph = 330;
+  roundRectPath(-pw / 2 + 8, -ph / 2 + 8, pw, ph, 26);
   ctx.fillStyle = COLORS.outline;
   ctx.fill();
-  drawOutlinedRoundRect(-260, -140, 520, 280, 26, panelColor);
+  drawOutlinedRoundRect(-pw / 2, -ph / 2, pw, ph, 26, panelColor);
 
   // 제목
-  drawOutlinedText(title, 0, -92, 50);
+  drawOutlinedText(title, 0, -122, 48);
 
   // 점수 (새 기록이면 "NEW!" 표시)
-  drawOutlinedText("점수 " + score, 0, -30, 40, "center", COLORS.white);
+  drawOutlinedText("점수 " + score, 0, -66, 38, "center", COLORS.white);
   if (isNewBest && score > 0) {
     ctx.save();
-    ctx.translate(170, -46);
+    ctx.translate(180, -82);
     ctx.rotate(0.2);
     drawOutlinedRoundRect(-38, -16, 76, 32, 12, COLORS.green);
     drawOutlinedText("NEW!", 0, 1, 20);
     ctx.restore();
   }
-  drawOutlinedText("최고 점수 " + bestScore, 0, 12, 20);
+  drawOutlinedText("최고 점수 " + bestScore, 0, -30, 19);
 
-  // 이번 판에 모은 증강 ("복리 탄환 Lv.2 · 시간 지연 Lv.1" 처럼 한 줄로)
+  // 도달한 웨이브와 잡은 보스 수
+  drawOutlinedText("도달 웨이브 " + wave + " / " + WAVES.length + "   ·   잡은 보스 " + bossesKilled + "마리",
+    0, 4, 21, "center", COLORS.yellow);
+
+  // 이번 판에 모은 증강 (많으면 여러 줄로 나눈다)
   const owned = AUGMENTS
     .filter(function (aug) { return getAugmentLevel(aug.id) > 0; })
-    .map(function (aug) { return aug.name + " Lv." + getAugmentLevel(aug.id); });
-  const augText = owned.length > 0 ? owned.join(" · ") : "모은 증강 없음";
-  drawOutlinedText("웨이브 " + wave + "  |  " + augText, 0, 50, 18);
+    // 이름과 레벨 사이는 "줄이 바뀌지 않는 띄어쓰기"(\u00A0)로 붙여서, 줄은 " · " 에서만 바뀌게 한다
+    .map(function (aug) { return (aug.name + " Lv." + getAugmentLevel(aug.id)).replace(/ /g, "\u00A0"); });
+  const augText = owned.length > 0 ? "증강: " + owned.join(" · ") : "모은 증강 없음";
+  const augLines = wrapText(augText, pw - 60, 16).slice(0, 3);   // 최대 3줄
+  // 증강 목록을 한 줄씩 쓰는 반복문
+  for (let i = 0; i < augLines.length; i++) {
+    drawOutlinedText(augLines[i], 0, 36 + i * 22, 16);
+  }
 
   // 조작 안내
-  drawOutlinedRoundRect(-200, 84, 400, 40, 20, COLORS.outline);
-  drawOutlinedText("R : 다시 시작     M : 메뉴로", 0, 105, 20, "center", COLORS.yellow);
+  drawOutlinedRoundRect(-200, 112, 400, 40, 20, COLORS.outline);
+  drawOutlinedText("R : 다시 시작     M : 메뉴로", 0, 133, 20, "center", COLORS.yellow);
   ctx.restore();
 }
 

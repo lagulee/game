@@ -98,7 +98,9 @@ function scenarioRunner(config) {
   function setKeys(list) { for (const k in keys) keys[k] = false; for (const k of list) keys[k] = true; }
 
   const log = [];
-  function runScenario(name, seedValue, setup, frames) {
+  function runScenario(name, seedValue, setup, frames, snapEvery, drawEvery) {
+    snapEvery = snapEvery || 20;
+    drawEvery = drawEvery || 150;
     __reseed(seedValue);
     goToMenu();
     for (let i = 0; i < 20; i++) update(DT);
@@ -119,8 +121,8 @@ function scenarioRunner(config) {
         break;
       }
       update(DT);
-      if (f % 20 === 0) log.push(name + " f" + f + " " + JSON.stringify(snap()));
-      if (f % 150 === 0) { draw(); log.push(name + " f" + f + " draw " + hash(canvas.toDataURL())); }
+      if (f % snapEvery === 0) log.push(name + " f" + f + " " + JSON.stringify(snap()));
+      if (f % drawEvery === 0) { draw(); log.push(name + " f" + f + " draw " + hash(canvas.toDataURL())); }
     }
   }
 
@@ -139,7 +141,8 @@ function scenarioRunner(config) {
   } else {
     // 새 설정: 지금의 waves.js 그대로
     runScenario("N1", 2024, () => {}, 12000);
-    runScenario("N2", 31, () => { ownedAugments = { compound: 1, timeDilation: 1 }; player.hp = 1000000; }, 30000);
+    // 무적으로 30웨이브 끝까지 (기록은 성기게)
+    runScenario("N2", 31, () => { ownedAugments = { compound: 1, timeDilation: 1 }; player.hp = 1000000; }, 200000, 300, 1500);
   }
   return log;
 }

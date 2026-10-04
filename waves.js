@@ -18,6 +18,7 @@
 // type 은 enemies.js 의 ENEMY_TYPES 이름표.
 // 적은 WAVE_SPAWN_INTERVAL 초 간격으로 한 마리씩 나온다.
 // 배열에 칸을 하나 더 추가하면 웨이브가 하나 늘어난다! (마지막 웨이브를 깨면 클리어)
+// 웨이브가 올라갈수록 적이 강해지는 배율은 enemies.js 맨 위 waveSpeedMult / waveHpMult / waveDamageMult
 // =============================================================
 
 // 웨이브 중에 적이 하나씩 나타나는 간격 (초)
@@ -28,27 +29,45 @@ const BOSS_SPAWN_DELAY = 2;
 // 보스 웨이브: 보스가 나타난 뒤 졸개가 한 마리씩 나오는 간격 (초)
 const BOSS_MINION_INTERVAL = 3;
 
-// 모든 웨이브를 담는 배열 (지금은 5웨이브)
+// 모든 웨이브를 담는 배열 (30웨이브 = 6챕터 × 5웨이브, 5웨이브마다 보스)
+// 한 웨이브의 적은 5~14마리로 적게, 대신 웨이브 수가 많게. 1웨이브만 순서대로, 나머지는 mix
 const WAVES = [
-  // 1웨이브: 기본 적으로 몸풀기
-  [{ type: "basic", count: 10 }],
-
-  // 2웨이브: 돌격형 첫 등장
-  { mix: true, groups: [{ type: "basic", count: 8 }, { type: "charger", count: 4 }] },
-
-  // 3웨이브: 사인파형 첫 등장
-  { mix: true, groups: [{ type: "sine", count: 8 }, { type: "basic", count: 6 }] },
-
-  // 4웨이브: 분열형 첫 등장
-  { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "basic", count: 6 }] },
-
-  // 5웨이브: 모든 종류를 섞은 큰 웨이브 (나중에 보스가 들어갈 자리)
-  { mix: true, groups: [
-    { type: "basic", count: 10 },
-    { type: "charger", count: 5 },
-    { type: "sine", count: 5 },
-    { type: "splitter", count: 3 },
-  ] },
+  // ---- 챕터 1 ----
+  /*  1 */ [{ type: "basic", count: 5 }],  // 몸풀기 (순서대로)
+  /*  2 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 2 }] },  // 돌격형 첫 등장
+  /*  3 */ { mix: true, groups: [{ type: "sine", count: 4 }, { type: "basic", count: 3 }] },  // 사인파형 첫 등장
+  /*  4 */ { mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 2 }, { type: "basic", count: 2 }] },  // 분열형 첫 등장
+  /*  5 */ { boss: "chargerKing", mix: true, groups: [{ type: "basic", count: 4 }] },  // 보스: 돌진 대장
+  // ---- 챕터 2 ----
+  /*  6 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "sine", count: 3 }, { type: "charger", count: 2 }] },
+  /*  7 */ { mix: true, groups: [{ type: "charger", count: 4 }, { type: "splitter", count: 2 }] },
+  /*  8 */ { mix: true, groups: [{ type: "sine", count: 5 }, { type: "splitter", count: 2 }] },
+  /*  9 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 3 }, { type: "sine", count: 3 }] },
+  /* 10 */ { boss: "splitterKing", mix: true, groups: [{ type: "sine", count: 4 }] },  // 보스: 분열의 왕
+  // ---- 챕터 3 ----
+  /* 11 */ { mix: true, groups: [{ type: "basic", count: 5 }, { type: "charger", count: 3 }, { type: "splitter", count: 2 }] },
+  /* 12 */ { mix: true, groups: [{ type: "sine", count: 6 }, { type: "charger", count: 3 }] },
+  /* 13 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
+  /* 14 */ { mix: true, groups: [{ type: "charger", count: 5 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
+  /* 15 */ { boss: "chargerKing", mix: true, groups: [{ type: "charger", count: 2 }, { type: "sine", count: 4 }] },  // 보스: 돌진 대장 (체력 1.98배)
+  // ---- 챕터 4 ----
+  /* 16 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
+  /* 17 */ { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 3 }] },
+  /* 18 */ { mix: true, groups: [{ type: "sine", count: 7 }, { type: "basic", count: 4 }] },
+  /* 19 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 3 }] },
+  /* 20 */ { boss: "splitterKing", mix: true, groups: [{ type: "charger", count: 4 }, { type: "sine", count: 4 }] },  // 보스: 분열의 왕 (체력 2.33배)
+  // ---- 챕터 5 ----
+  /* 21 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }] },
+  /* 22 */ { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "sine", count: 5 }] },
+  /* 23 */ { mix: true, groups: [{ type: "charger", count: 7 }, { type: "basic", count: 5 }] },
+  /* 24 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }, { type: "basic", count: 2 }] },
+  /* 25 */ { boss: "chargerKing", mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 4 }] },  // 보스: 돌진 대장 (체력 2.68배)
+  // ---- 챕터 6 ----
+  /* 26 */ { mix: true, groups: [{ type: "sine", count: 8 }, { type: "splitter", count: 4 }] },
+  /* 27 */ { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
+  /* 28 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 6 }, { type: "charger", count: 2 }] },
+  /* 29 */ { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "charger", count: 5 }, { type: "sine", count: 4 }] },
+  /* 30 */ { boss: ["chargerKing", "splitterKing"], mix: true, groups: [] },  // 최종 보스전: 두 보스 동시 등장 (졸개 없음)
 ];
 
 // 웨이브 칸에서 묶음 목록을 꺼내는 함수 (두 가지 모양 모두 처리)

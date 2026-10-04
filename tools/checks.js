@@ -82,7 +82,7 @@ module.exports = [
       // 2) 켠 상태
       press("F2");
       press("BracketRight"); const w2 = wave;
-      press("BracketRight"); press("BracketRight"); press("BracketRight"); press("BracketRight"); press("BracketRight");
+      for (let i = 0; i < WAVES.length + 3; i++) press("BracketRight"); // 끝까지 누르면 마지막 웨이브에서 멈춘다
       const wMax = wave;
       press("BracketLeft"); const wBack = wave;
       press("Digit1", true); const l1 = getAugmentLevel(AUGMENTS[0].id);
@@ -198,50 +198,58 @@ module.exports = [
       return { ok: ok, detail: "1세대 " + gen1 + " / 점수 " + scoreA + "," + scoreB + "," + scoreC + " / 남은 적 있을 때 계속=" + stillPlaying + " / 다 죽으면 " + gameState };
     },
   },
-  // ---------------- C. 웨이브 5개 ----------------
+  // ---------------- 웨이브 구성 (30웨이브) ----------------
   {
-    name: "[C] 웨이브 5개 구성, 2~5웨이브는 섞어서 나옴, 1웨이브는 순서대로",
+    name: "[30D] 30웨이브 구성이 표와 같음, 1웨이브만 순서대로, 5웨이브마다 보스",
     run: function () {
       runMenuAction(0);
-      const want = ["basic:10", "basic:8,charger:4", "basic:6,sine:8", "basic:6,charger:4,splitter:4",
-        "basic:10,charger:5,sine:5,splitter:3"];
-      const got = []; const mixed = [];
-      for (let n = 1; n <= WAVES.length; n++) {
-        startWave(n);
-        const count = {}; for (const t of spawnQueue) count[t] = (count[t] || 0) + 1;
-        got.push(Object.keys(count).sort().map((k) => k + ":" + count[k]).join(","));
-        // 섞였는지: 같은 종류가 모두 붙어 있지 않으면 섞인 것
-        let changes = 0; for (let i = 1; i < spawnQueue.length; i++) if (spawnQueue[i] !== spawnQueue[i - 1]) changes++;
-        mixed.push(changes > Object.keys(count).length - 1);
-      }
-      const ok = WAVES.length === 5 && JSON.stringify(got) === JSON.stringify(want) &&
-        JSON.stringify(mixed) === JSON.stringify([false, true, true, true, true]);
-      return { ok: ok, detail: got.join(" | ") + " / 섞임 " + mixed.join(",") };
+      const want = ["B5", "B4 C2", "S4 B3", "P2 C2 B2", "[돌진 대장] B4", "B4 S3 C2", "C4 P2", "S5 P2", "B4 C3 S3", "[분열의 왕] S4",
+        "B5 C3 P2", "S6 C3", "P4 B4", "C5 S4 P2", "[돌진 대장] C2 S4", "B6 S4 P2", "C6 P3", "S7 B4", "P4 C4 S3", "[분열의 왕] C4 S4",
+        "B6 C4 S4", "P5 S5", "C7 B5", "P4 C4 S4 B2", "[돌진 대장] P2 C4", "S8 P4", "C6 P4 B4", "B6 S6 C2", "P5 C5 S4", "[돌진 대장 & 분열의 왕]"];
+      const abbr = { basic: "B", charger: "C", sine: "S", splitter: "P" };
+      const got = WAVES.map((w) => {
+        const bosses = waveBosses(w).map((id) => ENEMY_TYPES[id].name);
+        const g = waveGroups(w).map((x) => abbr[x.type] + x.count).join(" ");
+        return (bosses.length ? "[" + bosses.join(" & ") + "]" + (g ? " " : "") : "") + g;
+      });
+      const mixOk = WAVES.every((w, i) => waveIsMixed(w) === (i !== 0));
+      const counts = WAVES.map((w) => waveGroups(w).reduce((a, g) => a + g.count, 0));
+      const normalOk = counts.every((n, i) => (i + 1) % 5 === 0 || (n >= 5 && n <= 14));
+      const bossOk = WAVES.every((w, i) => (waveBosses(w).length > 0) === ((i + 1) % 5 === 0));
+      const bad = got.map((g, i) => g === want[i] ? null : (i + 1) + ":" + g).filter(Boolean);
+      return { ok: WAVES.length === 30 && bad.length === 0 && mixOk && normalOk && bossOk,
+        detail: "웨이브 " + WAVES.length + "개, 다른 칸 " + (bad.join(" ") || "없음") + ", mix " + mixOk + ", 보통 웨이브 5~14마리 " + normalOk + ", 5의 배수만 보스 " + bossOk };
     },
   },
   {
-    name: "[C] 새 적 안내 띠: 2웨이브 돌격형, 3웨이브 사인파형, 4웨이브 분열형, 1·5웨이브는 없음",
+    name: "[30D] 안내 띠: 2·3·4웨이브 새 적, 5·10웨이브 보스(빨강), 30웨이브 최종 보스",
     run: function () {
       runMenuAction(0);
-      const texts = [];
-      for (let n = 1; n <= 5; n++) { startWave(n); texts.push(bannerText); }
-      const ok = texts[0] === "웨이브 1" && texts[1] === "웨이브 2 · 새 적: 돌격형!" &&
-        texts[2] === "웨이브 3 · 새 적: 사인파형!" && texts[3] === "웨이브 4 · 새 적: 분열형!" && texts[4] === "웨이브 5";
-      return { ok: ok, detail: texts.join(" / ") };
+      const t = {};
+      for (const n of [1, 2, 3, 4, 5, 6, 10, 30]) { startWave(n); t[n] = bannerText + (bannerIsBoss ? " (빨강)" : ""); }
+      const ok = t[1] === "웨이브 1" && t[2] === "웨이브 2 · 새 적: 돌격형!" && t[3] === "웨이브 3 · 새 적: 사인파형!" &&
+        t[4] === "웨이브 4 · 새 적: 분열형!" && t[5] === "웨이브 5 · 보스: 돌진 대장! (빨강)" && t[6] === "웨이브 6" &&
+        t[10] === "웨이브 10 · 보스: 분열의 왕! (빨강)" && t[30] === "웨이브 30 · 최종 보스: 돌진 대장 & 분열의 왕! (빨강)";
+      return { ok: ok, detail: Object.keys(t).map((k) => t[k]).join(" / ") };
     },
   },
   {
-    name: "[C] 5웨이브를 깨면 게임 클리어 (무적으로 끝까지 플레이)",
+    name: "[30D] 무적으로 1 → 30웨이브 자동 진행 후 클리어, 보스 7마리 처치, 결과 화면",
     run: function () {
-      runMenuAction(0); player.hp = 1e9;
-      const DT = 1 / 60; const seen = [];
-      for (let f = 0; f < 60 * 60 * 20 && gameState !== "clear"; f++) {
+      runMenuAction(0); debugMode = true; debugInvincible = true;
+      const DT = 1 / 60; const seen = []; let f = 0; const waveTime = {}; let t = 0;
+      for (; f < 60 * 60 * 40 && gameState !== "clear"; f++) {
         if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
         if (seen[seen.length - 1] !== wave) seen.push(wave);
+        waveTime[wave] = (waveTime[wave] || 0) + DT;
         player.x = 480 + Math.cos(f / 60) * 300; player.y = 270 + Math.sin(f / 45) * 200;
-        update(DT);
+        update(DT); t += DT;
       }
-      return { ok: gameState === "clear" && seen.join(",") === "1,2,3,4,5", detail: "지나간 웨이브 " + seen.join(",") + " → " + gameState };
+      let order = true; for (let i = 0; i < seen.length; i++) if (seen[i] !== i + 1) order = false;
+      draw(); // 결과 화면 그리기에서 오류가 나지 않는지
+      const bossTimes = [5, 10, 15, 20, 25, 30].map((w) => w + ":" + Math.round(waveTime[w]) + "초").join(" ");
+      return { ok: gameState === "clear" && seen.length === 30 && order && bossesKilled === 7,
+        detail: "지나간 웨이브 " + seen.length + "개 (순서대로=" + order + ") → " + gameState + ", 보스 " + bossesKilled + "마리, 게임 시간 " + (t / 60).toFixed(1) + "분 / 보스 웨이브 " + bossTimes };
     },
   },
   // ---------------- 새 증강 ----------------
