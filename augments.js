@@ -15,9 +15,39 @@
 //             같은 증강을 또 고르면 다음 칸으로 레벨업한다.
 //             칸 수가 곧 최대 레벨이다.
 //
-// ※ (d) 단계에서는 카드에 보여 줄 정보만 있다.
-//   실제 효과(대미지 계산 등)는 (e) 단계에서 각 증강에 추가한다.
+// ---- 효과 함수(훅) : 필요한 것만 넣으면 된다 ----
+// game.js 가 정해진 순간에 "가지고 있는 증강"의 함수를 불러 준다.
+// stats 에는 지금 레벨의 수치(levels 의 한 칸)가 들어온다.
+//
+//   modifyDamage(damage, stats, info)
+//     총알이 적에게 맞을 때 불린다. 바꾼 대미지를 return 한다.
+//     info.streak : 같은 적을 연속으로 맞힌 횟수 (첫 명중 = 0)
+//
+//   modifyEnemySpeed(factor, stats, info)
+//     매 프레임 적마다 불린다. 바꾼 속도 배율을 return 한다. (1 = 원래 속도)
+//     info.distance      : 이 적과 플레이어 사이 거리
+//     info.playerSpeed   : 플레이어의 지금 속력 v
+//     info.playerMaxSpeed: 플레이어 최고 속도
+//
+//   drawEffect(stats, info)
+//     플레이어를 그리기 직전에 불린다. 효과 범위 같은 그림을 그린다.
 // =============================================================
+
+
+// ---- 증강 조절용 상수 (숫자를 바꿔 보며 실험해 보세요!) ----
+
+// 복리 탄환: 연속 명중 횟수 n 의 최댓값. (1.2)^10 ≈ 6.2배 까지만 커진다.
+const COMPOUND_MAX_N = 10;
+
+// 분산 증폭: 가장 약하게 맞을 때의 배율
+const VARIANCE_MIN_MULT = 0.2;
+
+// 시간 지연: 빛의 속도 역할을 하는 c = 플레이어 최고 속도 × 이 값
+// 0.85 이면 최고 속도의 85%만 내도 v/c = 1 이 되어 효과가 가장 세진다.
+const TIME_C_RATIO = 0.85;
+
+// 시간 지연: 적 속도 배율의 최솟값 (적이 완전히 멈추지는 않게)
+const TIME_MIN_FACTOR = 0.2;
 
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
@@ -39,6 +69,14 @@ const AUGMENTS = [
         desc: "복리 이율이 오른다! r = 0.15 → 0.2 (n 최대 10)",
       },
     ],
+
+    // 대미지 × (1 + r)^n
+    modifyDamage: function (damage, stats, info) {
+      // n = 연속 명중 횟수. 단, COMPOUND_MAX_N 을 넘지 않게 자른다
+      const n = Math.min(info.streak, COMPOUND_MAX_N);
+      // Math.pow(a, b) = a 의 b 제곱
+      return damage * Math.pow(1 + stats.r, n);
+    },
   },
   {
     id: "variance",
@@ -56,6 +94,33 @@ const AUGMENTS = [
         desc: "더 크게 흔들린다! 최대 배율 2.5배 → 3배 (평균은 여전히 1배)",
       },
     ],
+
+    // 대미지 × (무작위 배율). 배율의 평균이 정확히 1 이 되도록 뽑는다.
+    modifyDamage: function (damage, stats, info) {
+      const low = VARIANCE_MIN_MULT; // 가장 작은 배율 (0.2)
+      const high = stats.maxMult;    // 가장 큰 배율 (2.5 또는 3)
+
+      // [아이디어] 배율을 "1보다 작은 쪽"과 "1보다 큰 쪽" 두 구간으로 나눈다.
+      //   작은 쪽 구간 [0.2, 1]   에서 고르게 뽑으면 평균 = (0.2 + 1) / 2 = 0.6
+      //   큰 쪽 구간   [1, high]  에서 고르게 뽑으면 평균 = (1 + high) / 2
+      //   큰 쪽이 나올 확률을 p 라고 하면, 전체 평균은
+      //     0.6 × (1 − p) + 큰쪽평균 × p
+      //   이 값이 1 이 되도록 p 를 구하면
+      //     p = (1 − 0.6) / (큰쪽평균 − 0.6)
+      //   high = 2.5 → p = 0.4 / 1.15 ≈ 0.348 (약 35%)
+      //   high = 3.0 → p = 0.4 / 1.4  ≈ 0.286 (약 29%)
+      const lowMean = (low + 1) / 2;
+      const highMean = (1 + high) / 2;
+      const p = (1 - lowMean) / (highMean - lowMean);
+
+      let mult;
+      if (Math.random() < p) {
+        mult = 1 + Math.random() * (high - 1);  // 큰 쪽: 1 ~ high
+      } else {
+        mult = low + Math.random() * (1 - low); // 작은 쪽: 0.2 ~ 1
+      }
+      return damage * mult;
+    },
   },
   {
     id: "timeDilation",
@@ -73,5 +138,56 @@ const AUGMENTS = [
         desc: "시간이 느려지는 범위가 넓어진다! 반경 100px → 130px",
       },
     ],
+
+    // 반경 안의 적 속도 × √(1 − (v/c)²)
+    modifyEnemySpeed: function (factor, stats, info) {
+      // 범위 밖의 적은 영향 없음
+      if (info.distance > stats.radius) return factor;
+      return factor * timeDilationFactor(info.playerSpeed, info.playerMaxSpeed);
+    },
+
+    // 플레이어 주변에 시간 지연 범위 원을 그린다.
+    // 효과가 셀수록(배율이 작을수록) 원이 진해진다.
+    drawEffect: function (stats, info) {
+      const f = timeDilationFactor(info.playerSpeed, info.playerMaxSpeed);
+      const strength = (1 - f) / (1 - TIME_MIN_FACTOR); // 0(효과 없음) ~ 1(최대)
+
+      ctx.save();
+      // 1) 안쪽을 초록색으로 옅게 칠한다
+      ctx.globalAlpha = 0.08 + 0.17 * strength;
+      ctx.fillStyle = COLORS.green;
+      ctx.beginPath();
+      ctx.arc(info.x, info.y, stats.radius, 0, Math.PI * 2);
+      ctx.fill();
+      // 2) 테두리는 점선으로
+      ctx.globalAlpha = 0.3 + 0.5 * strength;
+      ctx.setLineDash([10, 8]);           // 10px 선, 8px 빈칸 반복
+      setOutline(SMALL_OUTLINE_WIDTH);
+      ctx.stroke();
+      ctx.restore();
+
+      // 3) 움직이는 중이면 원 아래에 지금 배율을 숫자로 보여 준다
+      if (strength > 0.01) {
+        drawOutlinedText("시간 ×" + f.toFixed(2), info.x, info.y + stats.radius + 14, 16);
+      }
+    },
   },
 ];
+
+
+// =============================================================
+// 시간 지연 계산 (상대성 이론의 "로런츠 인자" 를 게임용으로 바꾼 것)
+//   v : 플레이어의 지금 속력
+//   c : 이 게임의 "빛의 속도" = 플레이어 최고 속도 × TIME_C_RATIO
+//   배율 = √(1 − (v/c)²)
+//   - 가만히 있으면 v = 0 → √1 = 1 (적 속도 그대로)
+//   - 빠를수록 (v/c) 가 1 에 가까워져 → 배율이 0 에 가까워짐 (적이 느려짐)
+// =============================================================
+function timeDilationFactor(playerSpeed, playerMaxSpeed) {
+  const c = playerMaxSpeed * TIME_C_RATIO;
+  // v/c 가 1 을 넘으면 루트 안이 음수가 되므로 1 로 고정한다
+  const ratio = Math.min(1, playerSpeed / c);
+  const factor = Math.sqrt(1 - ratio * ratio);
+  // 너무 느려지지 않게 최솟값 아래로는 내려가지 않는다
+  return Math.max(TIME_MIN_FACTOR, factor);
+}

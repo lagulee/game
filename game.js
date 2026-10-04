@@ -5,6 +5,7 @@
 // (b) 자동 발사와 적 : 적 생성·추적, 가장 가까운 적 조준, 총알 충돌, 적 체력
 // (c) 웨이브와 체력  : 웨이브 3개, 플레이어 체력·무적 시간, 게임 오버·클리어, R 재시작
 // (d) 증강 선택 화면 : 웨이브가 끝나면 카드 3장 중 1장 고르기 (마우스 클릭 / 1·2·3 키)
+// (e) 증강 3개      : 복리 탄환, 분산 증폭, 시간 지연 효과를 augments.js 의 훅으로 연결
 // [스타일] 스티커 카툰: 두꺼운 외곽선 + 납작한 단색 + 하이라이트 한 줄
 // =============================================================
 
@@ -60,6 +61,12 @@ const PARTICLE_LIFE = 0.55;
 
 // 플레이어 최고 속도 (1초에 몇 픽셀 움직이는지)
 const PLAYER_SPEED = 220;
+
+// 플레이어 가속도 (px/초²). 1초에 속도가 얼마나 빨리 바뀌는지.
+// 800 이면 멈춰 있다가 최고 속도(220)까지 약 0.28초 걸린다.
+// → 속도가 0 과 최고 속도 사이를 부드럽게 오가서, "시간 지연" 증강이
+//   "얼마나 빠른지"에 따라 다르게 작동하는 것을 느낄 수 있다.
+const PLAYER_ACCELERATION = 800;
 
 // 플레이어 몸의 반지름 (픽셀). 얼굴을 그리기 위해 조금 크게 잡았다.
 const PLAYER_RADIUS = 18;
@@ -239,6 +246,10 @@ let bullets = [];
 // 떠오르는 대미지 숫자들의 목록 (배열)
 let popups = [];
 
+// 복리 탄환용 기록: 마지막으로 맞힌 적과, 그 적을 연속으로 맞힌 횟수 n
+let lastHitEnemy = null;
+let hitStreak = 0;
+
 // 튀어 나가는 파티클(조각)들의 목록 (배열)
 let particles = [];
 
@@ -330,17 +341,36 @@ function updatePlayer(dt) {
     dirY = dirY / length;
   }
 
-  // 속도 = 방향 × 최고 속도
-  player.vx = dirX * PLAYER_SPEED;
-  player.vy = dirY * PLAYER_SPEED;
+  // 가고 싶은 속도(목표 속도) = 방향 × 최고 속도
+  const targetVx = dirX * PLAYER_SPEED;
+  const targetVy = dirY * PLAYER_SPEED;
+
+  // 지금 속도를 목표 속도 쪽으로 "이번 프레임에 바꿀 수 있는 만큼"만 바꾼다 (가속)
+  // 예: 가속도 800, dt 0.016초 → 이번 프레임에는 최대 12.8 만큼만 변한다
+  const maxChange = PLAYER_ACCELERATION * dt;
+  player.vx += clamp(targetVx - player.vx, -maxChange, maxChange);
+  player.vy += clamp(targetVy - player.vy, -maxChange, maxChange);
+
+  // 방향을 바꾸는 도중에 최고 속도를 넘지 않도록 속력을 제한한다
+  const speed = Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+  if (speed > PLAYER_SPEED) {
+    player.vx = (player.vx / speed) * PLAYER_SPEED;
+    player.vy = (player.vy / speed) * PLAYER_SPEED;
+  }
 
   // 위치 = 위치 + 속도 × 시간
   player.x += player.vx * dt;
   player.y += player.vy * dt;
 
   // 화면 밖으로 나가지 않게 가둔다 (몸의 반지름만큼 안쪽까지만 허용)
-  player.x = clamp(player.x, PLAYER_RADIUS, CANVAS_WIDTH - PLAYER_RADIUS);
-  player.y = clamp(player.y, PLAYER_RADIUS, CANVAS_HEIGHT - PLAYER_RADIUS);
+  const clampedX = clamp(player.x, PLAYER_RADIUS, CANVAS_WIDTH - PLAYER_RADIUS);
+  const clampedY = clamp(player.y, PLAYER_RADIUS, CANVAS_HEIGHT - PLAYER_RADIUS);
+
+  // 벽에 막혔으면 그 방향 속도는 0 (벽을 밀고 있는 건 "움직이는 것"이 아니다)
+  if (clampedX !== player.x) player.vx = 0;
+  if (clampedY !== player.y) player.vy = 0;
+  player.x = clampedX;
+  player.y = clampedY;
 }
 
 // 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 적 하나를 만든다
@@ -415,6 +445,41 @@ function startWave(n) {
 // 증강의 현재 레벨을 알려 주는 함수 (안 가지고 있으면 0)
 function getAugmentLevel(id) {
   return ownedAugments[id] || 0;
+}
+
+// 가지고 있는 증강마다 "할 일"을 시키는 함수
+// 가진 증강 하나하나에 대해 work(증강, 지금 레벨의 수치) 를 불러 준다.
+function forEachOwnedAugment(work) {
+  // 모든 증강을 하나씩 보며, 가지고 있는 것만 골라 처리하는 반복문
+  for (const aug of AUGMENTS) {
+    const level = getAugmentLevel(aug.id);
+    if (level > 0) {
+      work(aug, aug.levels[level - 1]); // levels 는 0번 칸이 Lv.1
+    }
+  }
+}
+
+// 플레이어의 지금 속력 v (피타고라스 정리: √(vx² + vy²))
+function playerSpeed() {
+  return Math.sqrt(player.vx * player.vx + player.vy * player.vy);
+}
+
+// 이 적의 이번 프레임 속도 배율을 계산하는 함수 (1 = 원래 속도)
+// 가진 증강 중 modifyEnemySpeed 가 있는 것들이 차례로 배율을 바꾼다.
+function enemySpeedFactor(enemy, distanceToPlayer) {
+  let factor = 1;
+  const info = {
+    enemy: enemy,
+    distance: distanceToPlayer,
+    playerSpeed: playerSpeed(),
+    playerMaxSpeed: PLAYER_SPEED,
+  };
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.modifyEnemySpeed) {
+      factor = aug.modifyEnemySpeed(factor, stats, info);
+    }
+  });
+  return factor;
 }
 
 // 배열의 순서를 무작위로 섞는 함수 (피셔-예이츠 셔플)
@@ -552,6 +617,8 @@ function resetGame() {
   bullets = [];
   popups = [];
   particles = [];
+  lastHitEnemy = null;
+  hitStreak = 0;
 
   // 가진 증강도 모두 없앤다
   ownedAugments = {};
@@ -571,11 +638,15 @@ function updateEnemies(dt) {
     const dy = player.y - enemy.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
+    // 증강(시간 지연 등)이 정한 속도 배율. 그림 그릴 때도 쓰려고 적에 기록해 둔다
+    enemy.slowFactor = enemySpeedFactor(enemy, dist);
+    const speed = enemy.speed * enemy.slowFactor;
+
     // 거리가 0이면 나눗셈을 할 수 없으니 건너뛴다
     if (dist > 0) {
       // 방향을 길이 1로 맞춘 뒤(정규화) 속도 × 시간만큼 이동
-      enemy.x += (dx / dist) * enemy.speed * dt;
-      enemy.y += (dy / dist) * enemy.speed * dt;
+      enemy.x += (dx / dist) * speed * dt;
+      enemy.y += (dy / dist) * speed * dt;
     }
 
     // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
@@ -646,9 +717,25 @@ function updateShooting(dt) {
 }
 
 // 총알 한 발이 적에게 줄 대미지를 계산하는 함수
-// ※ 지금은 기본 대미지 그대로. (e) 단계에서 증강이 이 값을 바꾸게 된다.
+// 기본 대미지에서 시작해서, 가진 증강 중 modifyDamage 가 있는 것들이 차례로 바꾼다.
 function calcDamage(enemy) {
-  return BULLET_DAMAGE;
+  // 복리 탄환용 연속 명중 횟수 n 계산
+  //   같은 적을 또 맞혔으면 n + 1, 다른 적이면 n = 0 부터 다시
+  if (enemy === lastHitEnemy) {
+    hitStreak += 1;
+  } else {
+    hitStreak = 0;
+    lastHitEnemy = enemy;
+  }
+
+  let damage = BULLET_DAMAGE;
+  const info = { enemy: enemy, streak: hitStreak };
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.modifyDamage) {
+      damage = aug.modifyDamage(damage, stats, info);
+    }
+  });
+  return damage;
 }
 
 // 대미지 숫자 팝업 하나를 만드는 함수
@@ -1195,7 +1282,9 @@ function drawPopups() {
     ctx.globalAlpha = Math.max(0, alpha);
     ctx.translate(popup.x, popup.y);
     ctx.scale(scale, scale);                           // 크기 배율 적용
-    drawOutlinedText(String(popup.value), 0, 0, size);
+    // 기본 대미지의 2배 이상인 "큰 한 방"은 노란 글씨로 강조
+    const fill = popup.value >= BULLET_DAMAGE * 2 ? COLORS.yellow : COLORS.white;
+    drawOutlinedText(String(popup.value), 0, 0, size, "center", fill);
     ctx.restore();
   }
 }
@@ -1401,9 +1490,26 @@ function drawOverlay() {
   ctx.restore();
 }
 
+// ---- 증강 효과 그림 (시간 지연 범위 등) ----
+// 가진 증강 중 drawEffect 가 있는 것들에게 그리기를 맡긴다
+function drawAugmentEffects() {
+  const info = {
+    x: player.x,
+    y: player.y,
+    playerSpeed: playerSpeed(),
+    playerMaxSpeed: PLAYER_SPEED,
+  };
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.drawEffect) {
+      aug.drawEffect(stats, info);
+    }
+  });
+}
+
 // ---- 화면 전체 그리기 ----
 function draw() {
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
+  drawAugmentEffects(); // 증강 효과 범위 (바닥에 깔리듯이)
   drawBullets();    // 총알
   drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적
