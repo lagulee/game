@@ -1,10 +1,8 @@
 // =============================================================
 // game.js : 게임 본체
 // -------------------------------------------------------------
-// (a) 단계: 플레이어 이동
-//   - 게임 루프(1초에 약 60번 update → draw 반복)
-//   - 키보드 입력(WASD / 방향키)
-//   - 화면 밖으로 나가지 않게 막기
+// (a) 플레이어 이동 : 게임 루프, 키보드 입력, 화면 밖 제한
+// (b) 자동 발사와 적 : 적 생성·추적, 가장 가까운 적 조준, 총알 충돌, 적 체력
 // =============================================================
 
 
@@ -21,6 +19,35 @@ const PLAYER_SPEED = 220;
 
 // 플레이어 몸의 반지름 (픽셀). 원으로 그린다.
 const PLAYER_RADIUS = 14;
+
+// 자동 발사 간격 (초). 0.4 이면 1초에 2.5발
+const FIRE_INTERVAL = 0.4;
+
+// 총알 속도 (px/초)
+const BULLET_SPEED = 480;
+
+// 총알 반지름 (픽셀)
+const BULLET_RADIUS = 4;
+
+// 총알 한 발의 기본 대미지
+const BULLET_DAMAGE = 10;
+
+// 적 기본 속도 (px/초). 플레이어(220)보다 느려야 도망칠 수 있다.
+const ENEMY_BASE_SPEED = 60;
+
+// 적 반지름 (픽셀)
+const ENEMY_RADIUS = 13;
+
+// 적 최대 체력. 기본 대미지 10 × 6방 = 60
+// (5~8방 사이로 잡아서, 같은 적을 여러 번 맞히는 "복리 탄환"이 의미 있게 함)
+const ENEMY_MAX_HP = 60;
+
+// 적이 새로 나타나는 간격 (초)
+// ※ (b) 단계 시험용. (c) 단계에서 "웨이브별 적 수"로 바뀐다.
+const ENEMY_SPAWN_INTERVAL = 1.2;
+
+// 화면에 동시에 있을 수 있는 적의 최대 수 (시험용)
+const ENEMY_MAX_ON_SCREEN = 8;
 
 
 // =============================================================
@@ -70,7 +97,17 @@ const player = {
   y: CANVAS_HEIGHT / 2,  // 세로 위치 (처음엔 화면 가운데)
   vx: 0,                 // 가로 속도 (px/초). 나중에 시간 지연 증강이 사용한다
   vy: 0,                 // 세로 속도 (px/초)
+  fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
 };
+
+// 지금 화면에 있는 적들의 목록 (배열)
+let enemies = [];
+
+// 지금 날아가고 있는 총알들의 목록 (배열)
+let bullets = [];
+
+// 다음 적이 나타날 때까지 남은 시간 (초)
+let spawnTimer = 0;
 
 
 // =============================================================
@@ -81,6 +118,19 @@ const player = {
 // 예: clamp(1000, 0, 960) → 960 (화면 밖으로 못 나가게 할 때 사용)
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+// 두 점 (x1, y1), (x2, y2) 사이의 거리 (피타고라스 정리)
+function distance(x1, y1, x2, y2) {
+  const dx = x2 - x1; // 가로 차이
+  const dy = y2 - y1; // 세로 차이
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// 두 원이 겹치는지 검사하는 함수
+// 중심 사이 거리가 두 반지름의 합보다 작으면 겹친(부딪친) 것이다.
+function circlesOverlap(x1, y1, r1, x2, y2, r2) {
+  return distance(x1, y1, x2, y2) < r1 + r2;
 }
 
 
@@ -126,9 +176,175 @@ function updatePlayer(dt) {
   player.y = clamp(player.y, PLAYER_RADIUS, CANVAS_HEIGHT - PLAYER_RADIUS);
 }
 
-// 게임 전체의 값을 바꾸는 함수
+// 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 적 하나를 만든다
+function spawnEnemy() {
+  // 0, 1, 2, 3 중 하나를 무작위로 뽑아 어느 변에서 나올지 정한다
+  const side = Math.floor(Math.random() * 4);
+
+  // 적이 나타날 위치
+  let x = 0;
+  let y = 0;
+
+  // 화면 바로 바깥(반지름만큼 밖)에서 나타나게 한다
+  if (side === 0) {          // 0: 위쪽 변
+    x = Math.random() * CANVAS_WIDTH;
+    y = -ENEMY_RADIUS;
+  } else if (side === 1) {   // 1: 아래쪽 변
+    x = Math.random() * CANVAS_WIDTH;
+    y = CANVAS_HEIGHT + ENEMY_RADIUS;
+  } else if (side === 2) {   // 2: 왼쪽 변
+    x = -ENEMY_RADIUS;
+    y = Math.random() * CANVAS_HEIGHT;
+  } else {                   // 3: 오른쪽 변
+    x = CANVAS_WIDTH + ENEMY_RADIUS;
+    y = Math.random() * CANVAS_HEIGHT;
+  }
+
+  // 적 객체를 만들어 목록에 추가한다
+  enemies.push({
+    x: x,                     // 가로 위치
+    y: y,                     // 세로 위치
+    hp: ENEMY_MAX_HP,         // 현재 체력
+    maxHp: ENEMY_MAX_HP,      // 최대 체력 (체력바 그릴 때 사용)
+    speed: ENEMY_BASE_SPEED,  // 이동 속도
+    hitFlash: 0,              // 맞았을 때 하얗게 번쩍이는 남은 시간 (초)
+    dead: false,              // 죽었는지 표시. true 면 목록에서 지운다
+  });
+}
+
+// 적 생성 타이머를 돌리는 함수 (시험용, (c) 단계에서 웨이브로 바뀜)
+function updateSpawning(dt) {
+  // 남은 시간을 흐른 시간만큼 줄인다
+  spawnTimer -= dt;
+
+  // 시간이 다 됐고, 화면에 적이 너무 많지 않으면 하나 만든다
+  if (spawnTimer <= 0 && enemies.length < ENEMY_MAX_ON_SCREEN) {
+    spawnEnemy();
+    spawnTimer = ENEMY_SPAWN_INTERVAL; // 타이머를 다시 채운다
+  }
+}
+
+// 모든 적을 플레이어 쪽으로 움직이는 함수
+function updateEnemies(dt) {
+  // 적 목록을 처음부터 끝까지 하나씩 꺼내서 처리하는 반복문
+  for (const enemy of enemies) {
+    // 적 → 플레이어 방향 (가로·세로 차이)
+    const dx = player.x - enemy.x;
+    const dy = player.y - enemy.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // 거리가 0이면 나눗셈을 할 수 없으니 건너뛴다
+    if (dist > 0) {
+      // 방향을 길이 1로 맞춘 뒤(정규화) 속도 × 시간만큼 이동
+      enemy.x += (dx / dist) * enemy.speed * dt;
+      enemy.y += (dy / dist) * enemy.speed * dt;
+    }
+
+    // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
+    enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
+  }
+}
+
+// 플레이어에게서 가장 가까운 적을 찾아 돌려주는 함수 (없으면 null)
+function findNearestEnemy() {
+  let nearest = null;        // 지금까지 찾은 가장 가까운 적
+  let nearestDist = Infinity; // 그 적까지의 거리 (처음엔 무한대)
+
+  // 모든 적을 하나씩 보면서 더 가까운 적이 있으면 바꿔 기억하는 반복문
+  for (const enemy of enemies) {
+    const d = distance(player.x, player.y, enemy.x, enemy.y);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = enemy;
+    }
+  }
+  return nearest;
+}
+
+// 일정 간격마다 가장 가까운 적을 향해 총알을 쏘는 함수
+function updateShooting(dt) {
+  // 발사 타이머를 줄인다
+  player.fireTimer -= dt;
+
+  // 아직 발사할 시간이 아니면 여기서 끝
+  if (player.fireTimer > 0) return;
+
+  // 조준할 적을 찾는다. 적이 없으면 쏘지 않는다.
+  const target = findNearestEnemy();
+  if (target === null) return;
+
+  // 플레이어 → 적 방향을 구해서 길이 1로 맞춘다
+  const dx = target.x - player.x;
+  const dy = target.y - player.y;
+  const dist = Math.sqrt(dx * dx + dy * dy) || 1; // 0으로 나누기 방지
+
+  // 총알을 만들어 목록에 추가한다
+  bullets.push({
+    x: player.x,                         // 플레이어 위치에서 출발
+    y: player.y,
+    vx: (dx / dist) * BULLET_SPEED,      // 가로 속도
+    vy: (dy / dist) * BULLET_SPEED,      // 세로 속도
+    dead: false,                         // 맞았거나 화면 밖이면 true
+  });
+
+  // 다음 발사까지 기다릴 시간을 다시 채운다
+  player.fireTimer = FIRE_INTERVAL;
+}
+
+// 총알 한 발이 적에게 줄 대미지를 계산하는 함수
+// ※ 지금은 기본 대미지 그대로. (e) 단계에서 증강이 이 값을 바꾸게 된다.
+function calcDamage(enemy) {
+  return BULLET_DAMAGE;
+}
+
+// 총알을 움직이고, 적과 부딪쳤는지 검사하는 함수
+function updateBullets(dt) {
+  // 모든 총알을 하나씩 처리하는 반복문
+  for (const bullet of bullets) {
+    // 위치 = 위치 + 속도 × 시간
+    bullet.x += bullet.vx * dt;
+    bullet.y += bullet.vy * dt;
+
+    // 화면 밖으로 나가면 지울 표시를 한다
+    if (bullet.x < 0 || bullet.x > CANVAS_WIDTH ||
+        bullet.y < 0 || bullet.y > CANVAS_HEIGHT) {
+      bullet.dead = true;
+      continue; // 이 총알은 더 볼 필요 없으니 다음 총알로
+    }
+
+    // 이 총알이 어떤 적과 부딪쳤는지 모든 적을 검사하는 반복문
+    for (const enemy of enemies) {
+      // 이미 죽은 적은 건너뛴다
+      if (enemy.dead) continue;
+
+      if (circlesOverlap(bullet.x, bullet.y, BULLET_RADIUS,
+                         enemy.x, enemy.y, ENEMY_RADIUS)) {
+        // 대미지를 계산해서 적 체력을 깎는다
+        enemy.hp -= calcDamage(enemy);
+        enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
+        bullet.dead = true;      // 총알은 맞으면 사라진다
+
+        // 체력이 0 이하가 되면 적은 죽는다
+        if (enemy.hp <= 0) {
+          enemy.dead = true;
+        }
+        break; // 총알 하나는 적 하나만 맞힌다
+      }
+    }
+  }
+
+  // dead 표시가 된 것들을 목록에서 걸러 낸다(지운다)
+  bullets = bullets.filter(function (b) { return !b.dead; });
+  enemies = enemies.filter(function (e) { return !e.dead; });
+}
+
+// 게임 전체의 값을 바꾸는 함수 (순서가 중요하다)
 function update(dt) {
-  updatePlayer(dt);
+  updatePlayer(dt);    // 1) 플레이어 이동
+  updateSpawning(dt);  // 2) 적 생성
+  updateEnemies(dt);   // 3) 적 이동
+  updateShooting(dt);  // 4) 자동 발사
+  updateBullets(dt);   // 5) 총알 이동과 충돌
 }
 
 
@@ -144,12 +360,47 @@ function drawPlayer() {
   ctx.fill();                                                // 색칠하기
 }
 
+// 모든 적을 빨간 원 + 머리 위 작은 체력바로 그린다
+function drawEnemies() {
+  // 적 목록을 하나씩 꺼내 그리는 반복문
+  for (const enemy of enemies) {
+    // 맞은 직후엔 흰색, 평소엔 빨간색
+    ctx.fillStyle = enemy.hitFlash > 0 ? "#ffffff" : "#ff5d6c";
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, ENEMY_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 체력바: 회색 바탕 위에 남은 체력 비율만큼 초록색으로 칠한다
+    const barWidth = ENEMY_RADIUS * 2;              // 바 전체 길이 = 적 지름
+    const barX = enemy.x - ENEMY_RADIUS;            // 바 왼쪽 끝
+    const barY = enemy.y - ENEMY_RADIUS - 8;        // 적 머리 위
+    const ratio = Math.max(0, enemy.hp / enemy.maxHp); // 남은 체력 비율 (0~1)
+    ctx.fillStyle = "#444";
+    ctx.fillRect(barX, barY, barWidth, 4);
+    ctx.fillStyle = "#6be675";
+    ctx.fillRect(barX, barY, barWidth * ratio, 4);
+  }
+}
+
+// 모든 총알을 노란 점으로 그린다
+function drawBullets() {
+  ctx.fillStyle = "#ffe066";
+  // 총알 목록을 하나씩 꺼내 그리는 반복문
+  for (const bullet of bullets) {
+    ctx.beginPath();
+    ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // 화면 전체를 그리는 함수
 function draw() {
   // 지난 프레임의 그림을 모두 지운다
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  drawPlayer();
+  drawBullets();  // 총알 (가장 아래)
+  drawEnemies();  // 적
+  drawPlayer();   // 플레이어 (가장 위)
 }
 
 
