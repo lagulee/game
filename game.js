@@ -75,9 +75,6 @@ const PLAYER_RADIUS = 18;
 // 플레이어 최대 체력
 const PLAYER_MAX_HP = 100;
 
-// 적에게 한 번 닿았을 때 잃는 체력 (100 ÷ 20 = 5번 닿으면 게임 오버)
-const ENEMY_CONTACT_DAMAGE = 20;
-
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
 const PLAYER_INVINCIBLE_TIME = 1.0;
 
@@ -96,19 +93,7 @@ const BULLET_TAIL_LENGTH = 16;
 // 총알 한 발의 기본 대미지
 const BULLET_DAMAGE = 10;
 
-// 적 기본 속도 (px/초). 1웨이브 속도. 플레이어(220)보다 느려야 도망칠 수 있다.
-const ENEMY_BASE_SPEED = 60;
-
-// 웨이브가 하나 올라갈 때마다 늘어나는 적 속도 (px/초)
-// 1웨이브 60 → 2웨이브 80 → 3웨이브 100
-const ENEMY_SPEED_PER_WAVE = 20;
-
-// 적 반지름 (픽셀). 화난 얼굴을 그리기 위해 조금 크게 잡았다.
-const ENEMY_RADIUS = 16;
-
-// 적 최대 체력. 기본 대미지 10 × 6방 = 60
-// (5~8방 사이로 잡아서, 같은 적을 여러 번 맞히는 "복리 탄환"이 의미 있게 함)
-const ENEMY_MAX_HP = 60;
+// ※ 적의 체력·속도·크기·접촉 대미지는 enemies.js 의 ENEMY_TYPES 에 있다.
 
 // 웨이브별 적 수. 배열의 칸 수 = 웨이브 수 (지금은 3웨이브)
 // 칸을 하나 더 추가하면 4웨이브가 생긴다!
@@ -439,8 +424,10 @@ function updatePlayer(dt) {
   player.y = clampedY;
 }
 
-// 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 적 하나를 만든다
-function spawnEnemy() {
+// 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 typeId 종류의 적 하나를 만든다
+function spawnEnemy(typeId) {
+  const r = ENEMY_TYPES[typeId].radius; // 이 종류의 몸 반지름
+
   // 0, 1, 2, 3 중 하나를 무작위로 뽑아 어느 변에서 나올지 정한다
   const side = Math.floor(Math.random() * 4);
 
@@ -451,30 +438,20 @@ function spawnEnemy() {
   // 화면 바로 바깥(반지름만큼 밖)에서 나타나게 한다
   if (side === 0) {          // 0: 위쪽 변
     x = Math.random() * CANVAS_WIDTH;
-    y = -ENEMY_RADIUS;
+    y = -r;
   } else if (side === 1) {   // 1: 아래쪽 변
     x = Math.random() * CANVAS_WIDTH;
-    y = CANVAS_HEIGHT + ENEMY_RADIUS;
+    y = CANVAS_HEIGHT + r;
   } else if (side === 2) {   // 2: 왼쪽 변
-    x = -ENEMY_RADIUS;
+    x = -r;
     y = Math.random() * CANVAS_HEIGHT;
   } else {                   // 3: 오른쪽 변
-    x = CANVAS_WIDTH + ENEMY_RADIUS;
+    x = CANVAS_WIDTH + r;
     y = Math.random() * CANVAS_HEIGHT;
   }
 
-  // 적 객체를 만들어 목록에 추가한다
-  enemies.push({
-    x: x,                     // 가로 위치
-    y: y,                     // 세로 위치
-    hp: ENEMY_MAX_HP,         // 현재 체력
-    maxHp: ENEMY_MAX_HP,      // 최대 체력 (체력바 그릴 때 사용)
-    // 이동 속도: 기본 속도 + (웨이브 - 1) × 웨이브당 증가량
-    speed: ENEMY_BASE_SPEED + (wave - 1) * ENEMY_SPEED_PER_WAVE,
-    wave: wave,               // 몇 웨이브에 태어난 적인지 (나중에 모양을 바꿀 때 사용)
-    hitFlash: 0,              // 맞았을 때 하얗게 번쩍이는 남은 시간 (초)
-    dead: false,              // 죽었는지 표시. true 면 목록에서 지운다
-  });
+  // 적 객체를 만들어(enemies.js 의 createEnemy) 목록에 추가한다
+  enemies.push(createEnemy(typeId, x, y, wave));
 }
 
 // 웨이브 동안 정해진 수만큼 적을 하나씩 만드는 함수
@@ -487,7 +464,7 @@ function updateSpawning(dt) {
 
   // 시간이 다 됐으면 적 하나를 만들고, 남은 수를 1 줄인다
   if (spawnTimer <= 0) {
-    spawnEnemy();
+    spawnEnemy("basic");
     enemiesToSpawn -= 1;
     spawnTimer = WAVE_SPAWN_INTERVAL; // 타이머를 다시 채운다
   }
@@ -743,8 +720,8 @@ function updatePlayerHit(dt) {
   // 모든 적을 하나씩 보면서 플레이어와 겹치는지 검사하는 반복문
   for (const enemy of enemies) {
     if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
-                       enemy.x, enemy.y, ENEMY_RADIUS)) {
-      player.hp -= ENEMY_CONTACT_DAMAGE;              // 체력 감소
+                       enemy.x, enemy.y, enemy.radius)) {
+      player.hp -= enemyType(enemy).contactDamage;     // 체력 감소 (종류마다 다름)
       player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
 
       // 체력이 0 이하면 게임 오버
@@ -790,25 +767,18 @@ function resetGame() {
   startWave(1);
 }
 
-// 모든 적을 플레이어 쪽으로 움직이는 함수
+// 모든 적을 움직이는 함수 (어떻게 움직일지는 종류별 update 함수가 정한다)
 function updateEnemies(dt) {
   // 적 목록을 처음부터 끝까지 하나씩 꺼내서 처리하는 반복문
   for (const enemy of enemies) {
-    // 적 → 플레이어 방향 (가로·세로 차이)
-    const dx = player.x - enemy.x;
-    const dy = player.y - enemy.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    // 이 적과 플레이어 사이 거리
+    const dist = distance(enemy.x, enemy.y, player.x, player.y);
 
     // 증강(시간 지연 등)이 정한 속도 배율. 그림 그릴 때도 쓰려고 적에 기록해 둔다
     enemy.slowFactor = enemySpeedFactor(enemy, dist);
-    const speed = enemy.speed * enemy.slowFactor;
 
-    // 거리가 0이면 나눗셈을 할 수 없으니 건너뛴다
-    if (dist > 0) {
-      // 방향을 길이 1로 맞춘 뒤(정규화) 속도 × 시간만큼 이동
-      enemy.x += (dx / dist) * speed * dt;
-      enemy.y += (dy / dist) * speed * dt;
-    }
+    // 종류별 행동 함수(enemies.js)에게 움직임을 맡긴다
+    enemyType(enemy).update(enemy, dt, { speed: enemy.speed * enemy.slowFactor });
 
     // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
@@ -1027,18 +997,18 @@ function updateBullets(dt) {
       if (enemy.dead) continue;
 
       if (circlesOverlap(bullet.x, bullet.y, BULLET_RADIUS,
-                         enemy.x, enemy.y, ENEMY_RADIUS)) {
+                         enemy.x, enemy.y, enemy.radius)) {
         // 대미지를 계산해서 적 체력을 깎는다
         const damage = calcDamage(enemy);
         enemy.hp -= damage;
-        spawnPopup(enemy.x, enemy.y - ENEMY_RADIUS, damage); // 숫자 팝업
+        spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
         bullet.dead = true;      // 총알은 맞으면 사라진다
 
         // 체력이 0 이하가 되면 적은 죽는다
         if (enemy.hp <= 0) {
           enemy.dead = true;
-          spawnParticles(enemy.x, enemy.y); // 펑! 조각이 튀어 나간다
+          enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
           score += SCORE_PER_KILL * wave;   // 점수 획득 (뒤 웨이브일수록 많이)
 
           // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
@@ -1307,9 +1277,9 @@ function drawPlayer() {
 //   2웨이브: 동그란 몸 + 머리 위 뿔 2개
 //   3웨이브: 뾰족뾰족 가시 몸 + 뿔 2개
 function drawEnemy(enemy) {
-  const r = ENEMY_RADIUS;
-  // 맞은 직후엔 하얗게 번쩍, 평소엔 빨강
-  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS.red;
+  const r = enemy.radius;
+  // 맞은 직후엔 하얗게 번쩍, 평소엔 종류별 색 (기본 적: 빨강)
+  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS[enemyType(enemy).color];
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y); // 아래 좌표는 모두 적의 중심 기준
@@ -1763,6 +1733,8 @@ function drawMenu() {
   for (let i = 0; i < decoEnemies.length; i++) {
     const d = decoEnemies[i];
     drawEnemy({
+      type: "basic",
+      radius: ENEMY_TYPES.basic.radius,
       x: d.x,
       y: d.y + Math.sin(menuTime * 2 + i * 1.3) * 8, // 적마다 박자를 다르게
       wave: d.wave,
