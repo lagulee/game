@@ -50,6 +50,13 @@ const POPUP_LIFE = 0.8;
 // 대미지 숫자의 기본 글자 크기 (px). 대미지가 클수록 이보다 커진다.
 const POPUP_BASE_SIZE = 16;
 
+// 적이 죽을 때 튀어 나가는 파티클(조각) 개수: 최소 ~ 최대 사이에서 무작위
+const PARTICLE_COUNT_MIN = 6;
+const PARTICLE_COUNT_MAX = 10;
+
+// 파티클이 사라지기까지 걸리는 시간 (초)
+const PARTICLE_LIFE = 0.55;
+
 // 플레이어 최고 속도 (1초에 몇 픽셀 움직이는지)
 const PLAYER_SPEED = 220;
 
@@ -172,6 +179,9 @@ let bullets = [];
 
 // 떠오르는 대미지 숫자들의 목록 (배열)
 let popups = [];
+
+// 튀어 나가는 파티클(조각)들의 목록 (배열)
+let particles = [];
 
 // 다음 적이 나타날 때까지 남은 시간 (초)
 let spawnTimer = 0;
@@ -378,6 +388,7 @@ function resetGame() {
   enemies = [];
   bullets = [];
   popups = [];
+  particles = [];
 
   // 1웨이브부터 다시
   startWave(1);
@@ -496,6 +507,51 @@ function updatePopups(dt) {
   popups = popups.filter(function (p) { return p.age < POPUP_LIFE; });
 }
 
+// (x, y) 위치에서 파티클 여러 개를 사방으로 터뜨리는 함수
+function spawnParticles(x, y) {
+  // 최소~최대 사이의 정수 개수를 무작위로 정한다
+  const count = PARTICLE_COUNT_MIN +
+    Math.floor(Math.random() * (PARTICLE_COUNT_MAX - PARTICLE_COUNT_MIN + 1));
+
+  // 파티클이 가질 수 있는 색과 모양 (팔레트 안에서만)
+  const colors = [COLORS.red, COLORS.red, COLORS.yellow, COLORS.brown];
+  const shapes = ["circle", "square", "triangle"];
+
+  // count 개의 파티클을 만드는 반복문
+  for (let i = 0; i < count; i++) {
+    // 원을 count 등분한 방향 + 약간의 흔들림 → 고르게 사방으로 퍼진다
+    const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.6;
+    const speed = 120 + Math.random() * 160;  // 120 ~ 280 px/초
+    particles.push({
+      x: x,
+      y: y,
+      vx: Math.cos(angle) * speed,                // 가로 속도
+      vy: Math.sin(angle) * speed,                // 세로 속도
+      size: 7 + Math.random() * 4,                // 처음 크기 (반지름) 7 ~ 11
+      rotation: Math.random() * Math.PI * 2,      // 처음 회전 각도
+      spin: (Math.random() - 0.5) * 12,           // 1초에 도는 각도
+      color: colors[Math.floor(Math.random() * colors.length)],
+      shape: shapes[Math.floor(Math.random() * shapes.length)],
+      age: 0,                                     // 태어난 뒤 흐른 시간
+    });
+  }
+}
+
+// 파티클을 움직이고, 수명이 다하면 지우는 함수
+function updateParticles(dt) {
+  // 파티클 목록을 하나씩 처리하는 반복문
+  for (const p of particles) {
+    p.age += dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    // 공기 저항처럼 매 프레임 속도를 조금씩 줄인다 (1초에 약 5%만 남음)
+    p.vx *= Math.pow(0.05, dt);
+    p.vy *= Math.pow(0.05, dt);
+    p.rotation += p.spin * dt;
+  }
+  particles = particles.filter(function (p) { return p.age < PARTICLE_LIFE; });
+}
+
 // 총알을 움직이고, 적과 부딪쳤는지 검사하는 함수
 function updateBullets(dt) {
   // 모든 총알을 하나씩 처리하는 반복문
@@ -528,6 +584,7 @@ function updateBullets(dt) {
         // 체력이 0 이하가 되면 적은 죽는다
         if (enemy.hp <= 0) {
           enemy.dead = true;
+          spawnParticles(enemy.x, enemy.y); // 펑! 조각이 튀어 나간다
         }
         break; // 총알 하나는 적 하나만 맞힌다
       }
@@ -551,6 +608,7 @@ function update(dt) {
     updateBullets(dt);    // 6) 총알 이동과 충돌
     updatePlayerHit(dt);  // 7) 적에게 닿았는지 검사
     updatePopups(dt);     // 8) 대미지 숫자 떠오르기
+    updateParticles(dt);  // 9) 파티클 날아가기
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -562,6 +620,7 @@ function update(dt) {
     updateAim();
     updateBullets(dt);
     updatePopups(dt);
+    updateParticles(dt);
     player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
 
     // 쉬는 시간이 끝나면 다음 웨이브 시작
@@ -910,6 +969,36 @@ function drawBullets() {
   }
 }
 
+// ---- 파티클 ----
+// 외곽선을 두른 작은 단색 도형이 빙글빙글 돌며 점점 작아진다
+function drawParticles() {
+  // 파티클 목록을 하나씩 꺼내 그리는 반복문
+  for (const p of particles) {
+    // 크기 줄이기: t = 지난 수명 비율(0 → 1). 1 - t² 를 쓰면
+    // 처음엔 천천히 작아지다가 끝에 가서 빠르게 사라진다 (그래프가 아래로 휘는 포물선)
+    const t = p.age / PARTICLE_LIFE;
+    const s = p.size * (1 - t * t);
+    if (s < 0.5) continue; // 너무 작으면 그리지 않는다
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rotation);
+    if (p.shape === "circle") {
+      drawOutlinedCircle(0, 0, s, p.color, SMALL_OUTLINE_WIDTH);
+    } else if (p.shape === "square") {
+      drawOutlinedRoundRect(-s, -s, s * 2, s * 2, s * 0.3, p.color, SMALL_OUTLINE_WIDTH);
+    } else {
+      // 세모: 중심에서 120도 간격으로 꼭짓점 3개
+      drawOutlinedPolygon([
+        [0, -s * 1.2],
+        [s * 1.05, s * 0.6],
+        [-s * 1.05, s * 0.6],
+      ], p.color, SMALL_OUTLINE_WIDTH);
+    }
+    ctx.restore();
+  }
+}
+
 // ---- 대미지 숫자 팝업 ----
 // 바운스 크기 배율을 계산하는 함수. age = 팝업이 태어난 뒤 흐른 시간(초)
 //   0 ~ 0.1초   : 0.3배 → 1.6배 로 "뻥" 하고 커진다
@@ -1024,6 +1113,7 @@ function drawOverlay() {
 function draw() {
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
   drawBullets();    // 총알
+  drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적
   drawPlayer();     // 플레이어
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
