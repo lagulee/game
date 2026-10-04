@@ -1867,6 +1867,41 @@ function wrapText(text, maxWidth, size) {
   return lines;
 }
 
+// ---- 카드 글자 맞추기 ----
+// 카드 설명이 들어갈 자리: 첫 줄 가운데가 카드 위에서 180px, 마지막 줄 가운데는 262px 까지
+// (그 아래는 레벨 표시 자리라서 조금 여유를 둔다)
+const CARD_DESC_TOP = 180;
+const CARD_DESC_BOTTOM = 262;
+
+// 설명 글을 카드에 맞게 나누는 함수.
+// 17px 로 넣어 보고, 넘치면 16, 15 ... 13px 까지 글자를 줄여 가며 들어가는 크기를 찾는다.
+// 돌려주는 값: { size: 글자 크기, lineHeight: 줄 간격, lines: 줄 목록 }
+function fitCardDesc(text) {
+  const maxWidth = CARD_WIDTH - 40;
+  let result = null;
+  // 글자 크기를 17부터 1씩 줄여 보는 반복문
+  for (let size = 17; size >= 13; size--) {
+    const lineHeight = Math.round(size * 1.35);                   // 17px → 23px
+    const maxLines = Math.floor((CARD_DESC_BOTTOM - CARD_DESC_TOP) / lineHeight) + 1;
+    const lines = wrapText(text, maxWidth, size);
+    result = { size: size, lineHeight: lineHeight, lines: lines };
+    if (lines.length <= maxLines) break;                          // 들어가면 이 크기로 결정
+  }
+  return result;
+}
+
+// 한 줄짜리 글자가 maxWidth 안에 들어가는 가장 큰 글자 크기 (startSize 부터 줄여 본다)
+function fitTextSize(text, startSize, maxWidth) {
+  let size = startSize;
+  ctx.font = size + "px " + FONT_FAMILY;
+  // 폭이 넘치는 동안 글자를 1px 씩 줄이는 반복문
+  while (size > 12 && ctx.measureText(text).width > maxWidth) {
+    size -= 1;
+    ctx.font = size + "px " + FONT_FAMILY;
+  }
+  return size;
+}
+
 // ---- 증강 카드 한 장 ----
 // i: 몇 번째 카드인지 (0, 1, 2)
 function drawCard(aug, i) {
@@ -1903,7 +1938,7 @@ function drawCard(aug, i) {
 
   // 3) 위쪽 색 띠 + 제목
   drawOutlinedRoundRect(left + 12, top + 12, w - 24, 58, 14, accent);
-  drawOutlinedText(aug.name, 0, top + 41, 30);
+  drawOutlinedText(aug.name, 0, top + 41, fitTextSize(aug.name, 30, w - 44));
 
   // 4) 개념 이름 (작은 갈색 글자)
   ctx.font = "16px " + FONT_FAMILY;
@@ -1912,16 +1947,16 @@ function drawCard(aug, i) {
   ctx.fillStyle = COLORS.brown;
   ctx.fillText(aug.concept, 0, top + 92);
 
-  // 5) 수식 (카드의 주인공: 크게)
-  drawOutlinedText(aug.formula, 0, top + 135, 30, "center", accent);
+  // 5) 수식 (카드의 주인공: 크게. 길면 카드 폭에 맞게 줄인다)
+  drawOutlinedText(aug.formula, 0, top + 135, fitTextSize(aug.formula, 30, w - 34), "center", accent);
 
-  // 6) 설명 (여러 줄로 나눠서)
-  const lines = wrapText(info.desc, w - 40, 17);
+  // 6) 설명 (여러 줄로 나누고, 넘치면 글자를 줄인다)
+  const desc = fitCardDesc(info.desc);
   ctx.fillStyle = COLORS.outline;
-  ctx.font = "17px " + FONT_FAMILY;
-  // 줄을 하나씩 아래로 내려가며 쓰는 반복문 (한 줄 높이 23px)
-  for (let n = 0; n < lines.length; n++) {
-    ctx.fillText(lines[n], 0, top + 180 + n * 23);
+  ctx.font = desc.size + "px " + FONT_FAMILY;
+  // 줄을 하나씩 아래로 내려가며 쓰는 반복문
+  for (let n = 0; n < desc.lines.length; n++) {
+    ctx.fillText(desc.lines[n], 0, top + CARD_DESC_TOP + n * desc.lineHeight);
   }
 
   // 7) 아래쪽 레벨 표시: 처음이면 "NEW!", 가지고 있으면 "Lv.1 → Lv.2"

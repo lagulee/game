@@ -372,4 +372,40 @@ module.exports = [
         "px, 돌진 중 " + dash.dy.toFixed(1) + "px, 쉬는 중 " + rest.dy.toFixed(1) + "px" };
     },
   },
+  // ---------------- 카드 / 디버그 ----------------
+  {
+    name: "[카드] 모든 증강·레벨(과 보급 카드)의 설명·수식·이름이 카드 안에 들어감",
+    run: function () {
+      const problems = []; const sizes = [];
+      const cards = AUGMENTS.map((a) => ({ name: a.name, formula: a.formula, descs: a.levels.map((l) => l.desc) }));
+      if (typeof SUPPLIES !== "undefined") SUPPLIES.forEach((s) => cards.push({ name: s.name, formula: s.formula, descs: [s.desc] }));
+      for (const card of cards) {
+        card.descs.forEach((d, i) => {
+          const fit = fitCardDesc(d);
+          const lastLine = CARD_DESC_TOP + (fit.lines.length - 1) * fit.lineHeight;
+          ctx.font = fit.size + "px " + FONT_FAMILY;
+          const widest = Math.max.apply(null, fit.lines.map((l) => ctx.measureText(l).width));
+          if (lastLine > CARD_DESC_BOTTOM || widest > CARD_WIDTH - 40) problems.push(card.name + " Lv." + (i + 1));
+          if (fit.size < 17) sizes.push(card.name + " Lv." + (i + 1) + "=" + fit.size + "px");
+        });
+        const fs = fitTextSize(card.formula, 30, CARD_WIDTH - 34); ctx.font = fs + "px " + FONT_FAMILY;
+        if (ctx.measureText(card.formula).width > CARD_WIDTH - 34) problems.push(card.name + " 수식");
+        const ns = fitTextSize(card.name, 30, CARD_WIDTH - 44); ctx.font = ns + "px " + FONT_FAMILY;
+        if (ctx.measureText(card.name).width > CARD_WIDTH - 44) problems.push(card.name + " 이름");
+      }
+      return { ok: problems.length === 0, detail: problems.length ? "넘침: " + problems.join(", ") : "모두 들어감" + (sizes.length ? " (줄인 글자: " + sizes.join(", ") + ")" : "") };
+    },
+  },
+  {
+    name: "[디버그] Shift+1~9 로 증강 9개를 순서대로 지급",
+    run: new Function(PRESS + `
+      runMenuAction(0);
+      press("F2");
+      const got = [];
+      for (let i = 1; i <= 9; i++) { press("Digit" + i, true); }
+      for (const aug of AUGMENTS) got.push(aug.id + ":" + getAugmentLevel(aug.id));
+      const ok = AUGMENTS.length === 9 && AUGMENTS.every((a) => getAugmentLevel(a.id) === 1);
+      return { ok: ok, detail: got.join(" ") };
+    `),
+  },
 ];

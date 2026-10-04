@@ -284,7 +284,7 @@ const AUGMENTS = [
       },
       {
         d: ARITH_D[1],
-        desc: "공차가 커진다! d = 2 → 3 (k = 9 인 총알은 10 + 27 = 37)",
+        desc: "공차가 커진다! d = 2 → 3 (k = 9 이면 10 + 27 = 37)",
       },
     ],
 
@@ -319,7 +319,7 @@ const AUGMENTS = [
       {
         every: SQUARE_EVERY[0],
         maxMult: SQUARE_MAX_MULT[0],
-        desc: "3번째 명중마다 대미지 D 를 D² ÷ 10 으로! (= D × D/10, 배율 최대 5배) 단, D 가 10보다 작으면 오히려 줄어든다",
+        desc: "3번째 명중마다 대미지 D → D² ÷ 10 (= D × D/10, 최대 5배). D 가 10보다 작으면 오히려 줄어든다!",
       },
       {
         every: SQUARE_EVERY[1],
@@ -393,7 +393,7 @@ const AUGMENTS = [
       {
         fragments: FISSION_FRAGMENTS[0],
         energy: FISSION_ENERGY[0],
-        desc: "적이 죽으면 그 자리에서 파편 2개가 터져 나간다. 파편 대미지 = 죽은 적 최대 체력의 20%. 파편으로 죽인 적도 다시 터진다 (최대 2세대)",
+        desc: "적이 죽으면 파편 2개가 터져 나간다. 파편 대미지 = 죽은 적 최대 체력의 20%. 파편이 죽인 적도 터진다 (최대 2세대)",
       },
       {
         fragments: FISSION_FRAGMENTS[1],
