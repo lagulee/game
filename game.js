@@ -44,6 +44,12 @@ const FONT_FAMILY = '"Jua", "Black Han Sans", sans-serif';
 // 배경 모눈 한 칸의 크기 (px)
 const GRID_SIZE = 40;
 
+// 대미지 숫자 팝업이 화면에 머무는 시간 (초)
+const POPUP_LIFE = 0.8;
+
+// 대미지 숫자의 기본 글자 크기 (px). 대미지가 클수록 이보다 커진다.
+const POPUP_BASE_SIZE = 16;
+
 // 플레이어 최고 속도 (1초에 몇 픽셀 움직이는지)
 const PLAYER_SPEED = 220;
 
@@ -163,6 +169,9 @@ let enemies = [];
 
 // 지금 날아가고 있는 총알들의 목록 (배열)
 let bullets = [];
+
+// 떠오르는 대미지 숫자들의 목록 (배열)
+let popups = [];
 
 // 다음 적이 나타날 때까지 남은 시간 (초)
 let spawnTimer = 0;
@@ -368,6 +377,7 @@ function resetGame() {
   // 적과 총알을 모두 지운다
   enemies = [];
   bullets = [];
+  popups = [];
 
   // 1웨이브부터 다시
   startWave(1);
@@ -462,6 +472,30 @@ function calcDamage(enemy) {
   return BULLET_DAMAGE;
 }
 
+// 대미지 숫자 팝업 하나를 만드는 함수
+function spawnPopup(x, y, damage) {
+  popups.push({
+    x: x + (Math.random() - 0.5) * 14, // 숫자끼리 겹치지 않게 좌우로 살짝 흩뿌린다
+    y: y,
+    value: Math.round(damage),         // 화면에는 정수로 보여 준다
+    age: 0,                            // 태어난 뒤 흐른 시간 (초)
+  });
+}
+
+// 팝업을 위로 떠오르게 하고, 수명이 다하면 지우는 함수
+function updatePopups(dt) {
+  // 팝업 목록을 하나씩 처리하는 반복문
+  for (const popup of popups) {
+    popup.age += dt;
+    // 처음 0.15초(튀어 오르는 동안)는 제자리, 그 뒤로는 1초에 50px씩 위로
+    if (popup.age > 0.15) {
+      popup.y -= 50 * dt;
+    }
+  }
+  // 수명이 남은 것만 남긴다
+  popups = popups.filter(function (p) { return p.age < POPUP_LIFE; });
+}
+
 // 총알을 움직이고, 적과 부딪쳤는지 검사하는 함수
 function updateBullets(dt) {
   // 모든 총알을 하나씩 처리하는 반복문
@@ -485,7 +519,9 @@ function updateBullets(dt) {
       if (circlesOverlap(bullet.x, bullet.y, BULLET_RADIUS,
                          enemy.x, enemy.y, ENEMY_RADIUS)) {
         // 대미지를 계산해서 적 체력을 깎는다
-        enemy.hp -= calcDamage(enemy);
+        const damage = calcDamage(enemy);
+        enemy.hp -= damage;
+        spawnPopup(enemy.x, enemy.y - ENEMY_RADIUS, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
         bullet.dead = true;      // 총알은 맞으면 사라진다
 
@@ -514,6 +550,7 @@ function update(dt) {
     updateShooting(dt);   // 5) 자동 발사
     updateBullets(dt);    // 6) 총알 이동과 충돌
     updatePlayerHit(dt);  // 7) 적에게 닿았는지 검사
+    updatePopups(dt);     // 8) 대미지 숫자 떠오르기
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -524,6 +561,7 @@ function update(dt) {
     updatePlayer(dt);
     updateAim();
     updateBullets(dt);
+    updatePopups(dt);
     player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
 
     // 쉬는 시간이 끝나면 다음 웨이브 시작
@@ -872,6 +910,45 @@ function drawBullets() {
   }
 }
 
+// ---- 대미지 숫자 팝업 ----
+// 바운스 크기 배율을 계산하는 함수. age = 팝업이 태어난 뒤 흐른 시간(초)
+//   0 ~ 0.1초   : 0.3배 → 1.6배 로 "뻥" 하고 커진다
+//   0.1 ~ 0.25초: 1.6배 → 1배 로 다시 줄어든다
+//   그 뒤       : 1배 유지
+function popupScale(age) {
+  if (age < 0.1) {
+    const t = age / 0.1;          // 0 → 1 로 늘어나는 진행도
+    return 0.3 + (1.6 - 0.3) * t; // 0.3 에서 1.6 까지 일정하게 커짐
+  } else if (age < 0.25) {
+    const t = (age - 0.1) / 0.15; // 0 → 1
+    return 1.6 + (1 - 1.6) * t;   // 1.6 에서 1 까지 일정하게 작아짐
+  }
+  return 1;
+}
+
+function drawPopups() {
+  // 팝업 목록을 하나씩 꺼내 그리는 반복문
+  for (const popup of popups) {
+    // 큰 대미지일수록 큰 글씨. 제곱근(√)을 써서 너무 거대해지지 않게 한다.
+    // 대미지 10 → 약 25px, 40 → 약 35px, 100 → 약 46px
+    const size = POPUP_BASE_SIZE + Math.sqrt(popup.value) * 3;
+
+    // 1) 바운스: 처음 0.25초 동안 크게 튀어나왔다가 원래 크기로
+    const scale = popupScale(popup.age);
+
+    // 2) 사라지기: 마지막 40% 동안 점점 투명해진다
+    const lifeT = popup.age / POPUP_LIFE;              // 0 → 1
+    const alpha = lifeT < 0.6 ? 1 : 1 - (lifeT - 0.6) / 0.4;
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.translate(popup.x, popup.y);
+    ctx.scale(scale, scale);                           // 크기 배율 적용
+    drawOutlinedText(String(popup.value), 0, 0, size);
+    ctx.restore();
+  }
+}
+
 // ---- 체력바 (스티커 스타일) ----
 // 하얀 바탕 → 남은 비율만큼 색 채우기 → 맨 위에 두꺼운 외곽선
 function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
@@ -949,6 +1026,7 @@ function draw() {
   drawBullets();    // 총알
   drawEnemies();    // 적
   drawPlayer();     // 플레이어
+  drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바
   drawOverlay();    // 쉬는 시간·게임 오버·클리어 안내 (가장 위)
 }
