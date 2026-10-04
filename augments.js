@@ -111,6 +111,13 @@ const TIME_MIN_FACTOR = 0.2;
 
 // 등차 탄환: 발사 번호 k 가 0 부터 몇까지 올라가는지 (10 이면 0~9 를 반복)
 const ARITH_CYCLE = 10;
+// 등차 탄환: 레벨별 공차 d ([Lv.1, Lv.2, ...])
+const ARITH_D = [2, 3];
+
+// 제곱 증폭: 레벨별 "몇 번째 명중마다" 제곱하는지
+const SQUARE_EVERY = [3, 2];
+// 제곱 증폭: 레벨별 배율 상한 (D²/10 = D × D/10 에서 D/10 이 이 값을 넘지 않게)
+const SQUARE_MAX_MULT = [5, 5];
 
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
@@ -245,11 +252,11 @@ const AUGMENTS = [
     order: -10, // 덧셈이라 가장 먼저 (그 위에 복리·분산 같은 곱셈이 얹힌다)
     levels: [
       {
-        d: 2,
+        d: ARITH_D[0],
         desc: "발사할 때마다 번호 k 가 0, 1, 2 … 9 로 올라가고, 대미지 = 기본 + d × k. 10발마다 k = 0. (d = 2)",
       },
       {
-        d: 3,
+        d: ARITH_D[1],
         desc: "공차가 커진다! d = 2 → 3 (k = 9 인 총알은 10 + 27 = 37)",
       },
     ],
@@ -272,6 +279,45 @@ const AUGMENTS = [
       const k = info.bullet ? info.bullet.arithK : undefined;
       if (k === undefined) return damage; // 번호가 없는 총알(파편 등)은 그대로
       return damage + stats.d * k * info.bullet.damageScale;
+    },
+  },
+  {
+    id: "square",
+    name: "제곱 증폭",
+    concept: "수학 · 거듭제곱",
+    formula: "D² ÷ 10",
+    color: "red",
+    order: 100, // 다른 대미지 증강이 모두 적용된 "마지막 대미지"를 제곱해야 하므로 맨 마지막
+    levels: [
+      {
+        every: SQUARE_EVERY[0],
+        maxMult: SQUARE_MAX_MULT[0],
+        desc: "3번째 명중마다 대미지 D 를 D² ÷ 10 으로! (= D × D/10, 배율 최대 5배) 단, D 가 10보다 작으면 오히려 줄어든다",
+      },
+      {
+        every: SQUARE_EVERY[1],
+        maxMult: SQUARE_MAX_MULT[1],
+        desc: "더 자주 제곱한다! 3번째 → 2번째 명중마다 (배율 최대 5배)",
+      },
+    ],
+
+    // 증강이 혼자 세는 숫자: 지금까지 명중한 횟수
+    hitCount: 0,
+
+    reset: function () {
+      this.hitCount = 0;
+    },
+
+    // N번째 명중마다 D → D² / 10
+    modifyDamage: function (damage, stats, info) {
+      this.hitCount += 1;
+      if (this.hitCount % stats.every !== 0) return damage; // N의 배수 번째가 아니면 그대로
+
+      // D²/10 = D × (D/10). 곱하는 배율 D/10 은 상한까지만
+      // (거듭제곱의 성질: 1보다 큰 수는 제곱하면 커지고, 1보다 작은 수는 제곱하면 작아진다.
+      //  그래서 D 가 10보다 작으면 배율 D/10 이 1보다 작아 대미지가 줄어든다)
+      const mult = Math.min(damage / BULLET_DAMAGE, stats.maxMult);
+      return damage * mult;
     },
   },
 ];

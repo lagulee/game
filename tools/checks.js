@@ -263,4 +263,25 @@ module.exports = [
       return { ok: ok, detail: "k=" + ks.join(",") + " / k=9 대미지 " + dmg[9] + " / 등차+복리 " + both.toFixed(3) };
     },
   },
+  {
+    name: "[증강] 제곱 증폭: N번째 명중마다 D²/10 (상한 5배), 다른 증강보다 나중에 계산",
+    run: function () {
+      runMenuAction(0); ownedAugments = { square: 1 };
+      const seq = []; for (let i = 0; i < 6; i++) seq.push(calcDamage({}, { damageScale: 1 }));
+      // 등차(+d·k)가 먼저 적용된 뒤 제곱: k=9, d=2 → D=28 → 28 × 2.8 = 78.4
+      AUGMENTS.forEach((a) => a.reset && a.reset());
+      ownedAugments = { square: 2, arithmetic: 1 };
+      calcDamage({}, { damageScale: 1, arithK: 9 });
+      const afterArith = calcDamage({}, { damageScale: 1, arithK: 9 });
+      // 상한: D=80 → 배율 8 이지만 5배까지만 → 400
+      AUGMENTS.forEach((a) => a.reset && a.reset()); ownedAugments = { square: 2 };
+      calcDamage({}, { damageScale: 8 }); const capped = calcDamage({}, { damageScale: 8 });
+      // D < 10 이면 줄어든다: D = 6 → 3.6
+      AUGMENTS.forEach((a) => a.reset && a.reset());
+      calcDamage({}, { damageScale: 0.6 }); const small = calcDamage({}, { damageScale: 0.6 });
+      const ok = seq.join(",") === "10,10,10,10,10,10" && Math.abs(afterArith - 78.4) < 1e-9 &&
+        capped === 400 && Math.abs(small - 3.6) < 1e-9;
+      return { ok: ok, detail: "기본 10 은 제곱해도 10 / 등차 후 제곱 " + afterArith.toFixed(1) + " / 상한 " + capped + " / D=6 → " + small.toFixed(1) };
+    },
+  },
 ];
