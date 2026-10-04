@@ -18,19 +18,59 @@
 // ---- 효과 함수(훅) : 필요한 것만 넣으면 된다 ----
 // game.js 가 정해진 순간에 "가지고 있는 증강"의 함수를 불러 준다.
 // stats 에는 지금 레벨의 수치(levels 의 한 칸)가 들어온다.
+// 같은 훅을 가진 증강이 여러 개면 AUGMENTS 배열 순서대로 차례로 불린다.
+//
+// [값을 바꾸는 훅] 받은 값을 바꿔서 return 해야 한다
 //
 //   modifyDamage(damage, stats, info)
-//     총알이 적에게 맞을 때 불린다. 바꾼 대미지를 return 한다.
+//     언제: 총알이 적에게 맞는 순간, 대미지를 정할 때
+//     info.enemy  : 맞은 적
 //     info.streak : 같은 적을 연속으로 맞힌 횟수 (첫 명중 = 0)
+//     예: 복리 탄환, 분산 증폭
 //
 //   modifyEnemySpeed(factor, stats, info)
-//     매 프레임 적마다 불린다. 바꾼 속도 배율을 return 한다. (1 = 원래 속도)
+//     언제: 매 프레임, 적 하나하나가 움직이기 직전
+//     factor 는 속도 배율 (1 = 원래 속도, 0.5 = 절반 속도)
+//     info.enemy         : 이 적
 //     info.distance      : 이 적과 플레이어 사이 거리
 //     info.playerSpeed   : 플레이어의 지금 속력 v
 //     info.playerMaxSpeed: 플레이어 최고 속도
+//     예: 시간 지연
+//
+//   modifyFireInterval(interval, stats)
+//     언제: 총알을 한 발 쏜 직후, 다음 발사까지 기다릴 시간(초)을 정할 때
+//     작게 return 하면 더 빨리 쏜다 (0.4 → 0.2 이면 두 배 빠르게)
+//     예: 촉매
+//
+// [알림을 받는 훅] return 할 필요 없음. 필요하면 게임 상태를 직접 바꾼다
+//
+//   onFire(stats, info)
+//     언제: 가장 가까운 적을 향해 총알을 한 발 쏜 바로 다음
+//     info.bullet     : 방금 쏜 총알
+//     info.dirX, dirY : 쏜 방향 (길이 1인 화살표)
+//     info.target     : 조준한 적
+//     info.player     : 플레이어 (반동으로 밀어낼 때 player.vx, vy 를 바꾼다)
+//     총알을 더 쏘려면 createBullet(방향x, 방향y) 를 부르면 된다. (onFire 는 다시 안 불림)
+//     예: 3방향 탄, 반동
+//
+//   onKill(stats, info)
+//     언제: 총알에 맞은 적의 체력이 0 이 되어 죽는 순간 (점수를 더한 바로 다음)
+//     info.enemy  : 죽은 적
+//     info.x, y   : 죽은 위치
+//     info.bullet : 마지막 한 방을 날린 총알
+//     예: 핵분열 (죽은 자리에서 총알이 갈라져 나감), 발열 반응
+//
+//   onBulletUpdate(bullet, stats, dt)
+//     언제: 매 프레임, 날아가는 총알 하나하나가 움직이기 직전
+//     bullet.vx, vy 를 바꾸면 방향이 바뀌고, bullet.age 는 날아간 시간(초)
+//     예: 유도 탄환, 푸리에 탄환
+//
+// [그리는 훅]
 //
 //   drawEffect(stats, info)
-//     플레이어를 그리기 직전에 불린다. 효과 범위 같은 그림을 그린다.
+//     언제: 매 프레임, 배경을 그린 직후 (캐릭터들보다 아래에 깔린다)
+//     info.x, y : 플레이어 위치 / info.playerSpeed, playerMaxSpeed
+//     예: 시간 지연 범위 원
 // =============================================================
 
 

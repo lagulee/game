@@ -861,20 +861,51 @@ function updateShooting(dt) {
   const dy = target.y - player.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1; // 0으로 나누기 방지
 
-  // 총알이 대포 끝(총구)에서 나오도록 출발점을 몸 반지름 + 10 만큼 앞으로
-  const muzzle = PLAYER_RADIUS + 10;
+  // 가장 가까운 적을 향해 한 발 쏜다
+  const bullet = createBullet(dx / dist, dy / dist);
 
-  // 총알을 만들어 목록에 추가한다
-  bullets.push({
-    x: player.x + (dx / dist) * muzzle,  // 총구 위치에서 출발
-    y: player.y + (dy / dist) * muzzle,
-    vx: (dx / dist) * BULLET_SPEED,      // 가로 속도
-    vy: (dy / dist) * BULLET_SPEED,      // 세로 속도
-    dead: false,                         // 맞았거나 화면 밖이면 true
+  // [훅] onFire: 총알을 쏜 순간 증강에게 알린다 (3방향 탄, 반동 등)
+  const fireInfo = {
+    bullet: bullet,       // 방금 쏜 총알
+    dirX: dx / dist,      // 쏜 방향 (길이 1)
+    dirY: dy / dist,
+    target: target,       // 조준한 적
+    player: player,
+  };
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.onFire) aug.onFire(stats, fireInfo);
   });
 
   // 다음 발사까지 기다릴 시간을 다시 채운다
-  player.fireTimer = FIRE_INTERVAL;
+  player.fireTimer = fireInterval();
+}
+
+// 총알 하나를 만들어 목록에 넣고, 만든 총알을 돌려주는 함수
+// dirX, dirY: 날아갈 방향 (길이 1인 화살표)
+// ※ 증강(3방향 탄 등)도 이 함수로 총알을 더 만들 수 있다.
+function createBullet(dirX, dirY) {
+  // 총알이 대포 끝(총구)에서 나오도록 출발점을 몸 반지름 + 10 만큼 앞으로
+  const muzzle = PLAYER_RADIUS + 10;
+  const bullet = {
+    x: player.x + dirX * muzzle,  // 총구 위치에서 출발
+    y: player.y + dirY * muzzle,
+    vx: dirX * BULLET_SPEED,      // 가로 속도
+    vy: dirY * BULLET_SPEED,      // 세로 속도
+    age: 0,                       // 날아간 시간 (초). 푸리에 탄환 같은 증강이 사용
+    dead: false,                  // 맞았거나 화면 밖이면 true
+  };
+  bullets.push(bullet);
+  return bullet;
+}
+
+// 지금 발사 간격(초)을 계산하는 함수
+// 기본 간격에서 시작해서, 가진 증강 중 modifyFireInterval 이 있는 것들이 차례로 바꾼다.
+function fireInterval() {
+  let interval = FIRE_INTERVAL;
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.modifyFireInterval) interval = aug.modifyFireInterval(interval, stats);
+  });
+  return interval;
 }
 
 // 총알 한 발이 적에게 줄 대미지를 계산하는 함수
@@ -972,6 +1003,13 @@ function updateParticles(dt) {
 function updateBullets(dt) {
   // 모든 총알을 하나씩 처리하는 반복문
   for (const bullet of bullets) {
+    // [훅] onBulletUpdate: 움직이기 직전에 증강이 총알을 바꿀 기회를 준다
+    //      (유도탄은 vx·vy 방향을 틀고, 푸리에 탄환은 출렁이게 만든다)
+    bullet.age += dt;
+    forEachOwnedAugment(function (aug, stats) {
+      if (aug.onBulletUpdate) aug.onBulletUpdate(bullet, stats, dt);
+    });
+
     // 위치 = 위치 + 속도 × 시간
     bullet.x += bullet.vx * dt;
     bullet.y += bullet.vy * dt;
@@ -1002,6 +1040,12 @@ function updateBullets(dt) {
           enemy.dead = true;
           spawnParticles(enemy.x, enemy.y); // 펑! 조각이 튀어 나간다
           score += SCORE_PER_KILL * wave;   // 점수 획득 (뒤 웨이브일수록 많이)
+
+          // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
+          const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: bullet };
+          forEachOwnedAugment(function (aug, stats) {
+            if (aug.onKill) aug.onKill(stats, killInfo);
+          });
         }
         break; // 총알 하나는 적 하나만 맞힌다
       }
