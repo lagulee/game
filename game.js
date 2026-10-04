@@ -74,8 +74,12 @@ const PLAYER_ACCELERATION = 800;
 // 플레이어 몸의 반지름 (픽셀). 얼굴을 그리기 위해 조금 크게 잡았다.
 const PLAYER_RADIUS = 18;
 
-// 플레이어 최대 체력
+// 플레이어 최대 체력 (게임을 시작할 때의 값. 보급 카드 "세포 분열"로 늘어날 수 있어서
+// 게임 중에는 player.maxHp 를 쓴다)
 const PLAYER_MAX_HP = 100;
+
+// 체력이 최대 체력의 이 비율보다 낮으면, 카드 3장 중 1장은 반드시 보급 카드가 나온다
+const LOW_HP_RATIO = 0.4;
 
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
 const PLAYER_INVINCIBLE_TIME = 1.0;
@@ -113,6 +117,9 @@ const CHOICE_INPUT_DELAY = 0.4;
 
 // 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
 const BANNER_TIME = 1.8;
+
+// 가진 증강이 이 개수 이상이면 오른쪽 위 목록을 2열로 작게 그린다
+const AUGMENT_LIST_COMPACT_FROM = 5;
 
 // ※ 적 한 마리 처치 점수 = 종류별 score(enemies.js) × 웨이브 번호
 
@@ -336,6 +343,7 @@ const player = {
   vy: 0,                 // 세로 속도 (px/초)
   fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
   hp: PLAYER_MAX_HP,     // 현재 체력
+  maxHp: PLAYER_MAX_HP,  // 최대 체력 (세포 분열 보급 카드로 늘어난다)
   invincibleTimer: 0,    // 남은 무적 시간 (초). 0보다 크면 맞지 않는다
   facing: 0,             // 바라보는 방향 (각도, 라디안). 0 = 오른쪽. 총구와 눈이 이쪽을 향한다
 };
@@ -647,12 +655,42 @@ function shuffle(array) {
 
 // 선택 화면에 보여 줄 카드를 최대 CHOICE_COUNT 장 고르는 함수
 // 이미 최대 레벨인 증강은 더 올릴 수 없으므로 후보에서 뺀다.
+//
+// 뽑기 규칙
+//   1) 최대 레벨이 아닌 증강을 섞어서 최대 3장
+//   2) 증강이 3장보다 적으면, 남는 자리를 보급 카드(SUPPLIES)로 채운다
+//   3) 체력이 최대 체력의 40% 아래면, 3장 중 1장은 반드시 보급 카드
 function pickChoices() {
   const candidates = AUGMENTS.filter(function (aug) {
     return getAugmentLevel(aug.id) < aug.levels.length;
   });
-  // 섞은 뒤 앞에서부터 CHOICE_COUNT 장만 자른다
-  return shuffle(candidates).slice(0, CHOICE_COUNT);
+  // 1) 섞은 뒤 앞에서부터 CHOICE_COUNT 장만 자른다
+  const picks = shuffle(candidates).slice(0, CHOICE_COUNT);
+
+  // 2) 남는 자리를 보급 카드로 채운다 (보급 카드끼리는 겹치지 않게 섞어서)
+  if (picks.length < CHOICE_COUNT && SUPPLIES.length > 0) {
+    const supplies = shuffle(SUPPLIES.slice());
+    // 자리가 남아 있는 동안 보급 카드를 하나씩 넣는 반복문
+    for (const supply of supplies) {
+      if (picks.length >= CHOICE_COUNT) break;
+      picks.push(supply);
+    }
+  }
+
+  // 3) 체력이 낮은데 보급 카드가 하나도 없으면, 마지막 카드를 보급 카드로 바꾼다
+  const lowHp = player.hp < player.maxHp * LOW_HP_RATIO;
+  const hasSupply = picks.some(function (card) { return card.isSupply; });
+  if (lowHp && !hasSupply && SUPPLIES.length > 0) {
+    const supply = SUPPLIES[Math.floor(Math.random() * SUPPLIES.length)];
+    if (picks.length < CHOICE_COUNT) picks.push(supply);
+    else picks[picks.length - 1] = supply;
+  }
+  return picks;
+}
+
+// 플레이어 체력을 amount 만큼 회복하는 함수 (최대 체력을 넘지 않게)
+function healPlayer(amount) {
+  player.hp = Math.min(player.maxHp, player.hp + amount);
 }
 
 // 증강 선택 화면을 여는 함수
@@ -678,11 +716,20 @@ function chooseAugment(index) {
   if (index < 0 || index >= choices.length) return;
 
   const aug = choices[index];
+  canvas.style.cursor = "default";
+
+  // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
+  if (aug.isSupply) {
+    aug.apply();
+    startWave(wave + 1);
+    bannerSubText = aug.name + ": " + aug.formula;
+    return;
+  }
+
   const newLevel = getAugmentLevel(aug.id) + 1;
   ownedAugments[aug.id] = newLevel; // 레벨 기록 (처음이면 1, 또 고르면 2 ...)
 
   // 다음 웨이브 시작 + 안내 띠에 무엇을 얻었는지 함께 보여 준다
-  canvas.style.cursor = "default";
   startWave(wave + 1);
   bannerSubText = aug.name + " Lv." + newLevel + (newLevel > 1 ? " 레벨업!" : " 획득!");
 }
@@ -851,7 +898,8 @@ function resetGame() {
   player.y = CANVAS_HEIGHT / 2;
   player.vx = 0;
   player.vy = 0;
-  player.hp = PLAYER_MAX_HP;
+  player.maxHp = PLAYER_MAX_HP;
+  player.hp = player.maxHp;
   player.fireTimer = 0;
   player.invincibleTimer = 0;
   player.facing = 0;
@@ -1780,7 +1828,7 @@ function drawHud() {
   drawOutlinedText("웨이브 " + wave + " / " + WAVES.length, 28, 34, 22, "left");
 
   // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
-  const ratio = player.hp / PLAYER_MAX_HP;
+  const ratio = player.hp / player.maxHp;
   drawBar(28, 54, 218, 18, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
 
   // 점수 (노란 글씨)
@@ -1797,6 +1845,12 @@ function drawAugmentList() {
     return getAugmentLevel(aug.id) > 0;
   });
   if (owned.length === 0) return;
+
+  // 증강이 많으면 두 줄(2열)로 작게 그려서 화면을 덜 가린다
+  if (owned.length > AUGMENT_LIST_COMPACT_FROM - 1) {
+    drawAugmentListCompact(owned);
+    return;
+  }
 
   const w = 220;                    // 패널 폭
   const rowH = 32;                  // 한 줄 높이
@@ -1815,6 +1869,32 @@ function drawAugmentList() {
     drawOutlinedCircle(x + 26, rowY, 9, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
     drawOutlinedText(aug.name, x + 44, rowY, 18, "left");
     drawOutlinedText("Lv." + getAugmentLevel(aug.id), x + w - 16, rowY, 18, "right", COLORS.yellow);
+  }
+}
+
+// 증강이 많을 때의 작은 목록: 2열로, 글자도 조금 작게
+function drawAugmentListCompact(owned) {
+  const colW = 156;                          // 한 열의 폭
+  const rowH = 24;                           // 한 줄 높이
+  const rows = Math.ceil(owned.length / 2);  // 2열이니 줄 수는 절반(올림)
+  const w = colW * 2 + 16;
+  const x = CANVAS_WIDTH - 12 - w;
+  const y = 12;
+  const h = 40 + rows * rowH;
+
+  drawOutlinedRoundRect(x, y, w, h, 14, COLORS.brown);
+  drawOutlinedText("증강 " + owned.length + "개", x + 14, y + 20, 17, "left");
+
+  // 가진 증강을 위→아래, 왼쪽 열 → 오른쪽 열 순서로 그리는 반복문
+  for (let i = 0; i < owned.length; i++) {
+    const aug = owned[i];
+    const col = Math.floor(i / rows);        // 0 = 왼쪽 열, 1 = 오른쪽 열
+    const row = i % rows;
+    const cx = x + 8 + col * colW;
+    const rowY = y + 46 + row * rowH;
+    drawOutlinedCircle(cx + 14, rowY, 7, COLORS[aug.color], SMALL_OUTLINE_WIDTH * 0.8);
+    drawOutlinedText(aug.name, cx + 27, rowY, 15, "left");
+    drawOutlinedText(String(getAugmentLevel(aug.id)), cx + colW - 10, rowY, 15, "right", COLORS.yellow);
   }
 }
 
@@ -1907,7 +1987,8 @@ function fitTextSize(text, startSize, maxWidth) {
 function drawCard(aug, i) {
   const pos = cardPosition(i);
   const level = getAugmentLevel(aug.id);           // 지금 레벨 (없으면 0)
-  const info = aug.levels[level];                  // 고르면 얻게 될 레벨의 정보
+  // 고르면 얻게 될 레벨의 정보 (보급 카드는 레벨이 없으니 카드 자체의 설명)
+  const info = aug.isSupply ? aug : aug.levels[level];
   const isHover = i === hoverIndex;
 
   // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다
@@ -1959,9 +2040,14 @@ function drawCard(aug, i) {
     ctx.fillText(desc.lines[n], 0, top + CARD_DESC_TOP + n * desc.lineHeight);
   }
 
-  // 7) 아래쪽 레벨 표시: 처음이면 "NEW!", 가지고 있으면 "Lv.1 → Lv.2"
-  const levelText = level === 0 ? "NEW!" : "Lv." + level + " → Lv." + (level + 1);
-  drawOutlinedRoundRect(-70, top + h - 46, 140, 32, 16, level === 0 ? COLORS.yellow : COLORS.green);
+  // 7) 아래쪽 레벨 표시: 처음이면 "NEW!", 가지고 있으면 "Lv.1 → Lv.2", 보급 카드는 "보급"
+  let levelText = level === 0 ? "NEW!" : "Lv." + level + " → Lv." + (level + 1);
+  let badgeColor = level === 0 ? COLORS.yellow : COLORS.green;
+  if (aug.isSupply) {
+    levelText = "보급";
+    badgeColor = COLORS.orange;
+  }
+  drawOutlinedRoundRect(-70, top + h - 46, 140, 32, 16, badgeColor);
   drawOutlinedText(levelText, 0, top + h - 30, 18);
 
   // 8) 왼쪽 위 번호 배지 (이 번호 키를 눌러도 고를 수 있다)

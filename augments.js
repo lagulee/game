@@ -559,3 +559,47 @@ function timeDilationFactor(playerSpeed, playerMaxSpeed) {
   // 너무 느려지지 않게 최솟값 아래로는 내려가지 않는다
   return Math.max(TIME_MIN_FACTOR, factor);
 }
+
+
+// =============================================================
+// 보급 카드 : 레벨이 없고, 몇 번이든 고를 수 있는 카드
+// -------------------------------------------------------------
+// 증강 카드가 3장보다 적을 때 남는 자리를 채우고,
+// 체력이 낮으면(최대 체력의 40% 아래) 3장 중 1장은 반드시 나온다.
+//   isSupply: true  → game.js 가 보급 카드로 알아본다
+//   apply()         → 고른 순간 한 번 실행되는 효과
+// =============================================================
+
+// 항상성: 회복하는 체력
+const SUPPLY_HEAL = 40;
+// 세포 분열: 늘어나는 최대 체력과 함께 회복하는 체력
+const SUPPLY_MAX_HP_UP = 20;
+const SUPPLY_DIVISION_HEAL = 20;
+
+const SUPPLIES = [
+  {
+    id: "homeostasis",
+    isSupply: true,
+    name: "항상성",
+    concept: "생물 · 항상성",
+    formula: "체력 +40",
+    color: "green",
+    desc: "몸은 언제나 원래 상태로 돌아가려 한다(항상성). 체력을 40 회복한다",
+    apply: function () {
+      healPlayer(SUPPLY_HEAL);
+    },
+  },
+  {
+    id: "cellDivision",
+    isSupply: true,
+    name: "세포 분열",
+    concept: "생물 · 세포 분열",
+    formula: "최대 체력 +20",
+    color: "purple",
+    desc: "세포가 둘로 나뉘며 몸이 자란다. 최대 체력이 20 늘고, 체력도 20 회복한다",
+    apply: function () {
+      player.maxHp += SUPPLY_MAX_HP_UP;
+      healPlayer(SUPPLY_DIVISION_HEAL);
+    },
+  },
+];

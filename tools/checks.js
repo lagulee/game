@@ -14,17 +14,18 @@ const PRESS = "function press(code, shift) {" +
 
 module.exports = [
   {
-    name: "최대 레벨 증강은 카드 후보에서 빠진다",
+    name: "최대 레벨 증강은 카드 후보에서 빠진다 (빈자리는 보급 카드)",
     run: function () {
       const maxed = {};
       for (const aug of AUGMENTS) maxed[aug.id] = aug.levels.length;
       ownedAugments = Object.assign({}, maxed);
-      const none = pickChoices().length === 0;
+      const all = pickChoices();
+      const onlySupplies = all.length > 0 && all.every((c) => c.isSupply);
       const first = AUGMENTS[0];
       ownedAugments = {}; ownedAugments[first.id] = first.levels.length;
       let leaked = false;
       for (let i = 0; i < 50; i++) if (pickChoices().some((a) => a.id === first.id)) leaked = true;
-      return { ok: none && !leaked, detail: "전부 최대 → 후보 " + (none ? "0장" : "있음") + ", 최대 레벨 증강 섞임: " + leaked };
+      return { ok: onlySupplies && !leaked, detail: "전부 최대 → " + all.map((c) => c.name).join(",") + " / 최대 레벨 증강 섞임: " + leaked };
     },
   },
   // ---------------- A. 준비 작업 ----------------
@@ -422,6 +423,37 @@ module.exports = [
       for (let i = 0; i < 200000; i++) { const d = calcDamage({}, { damageScale: 1 }); sum += d; max = Math.max(max, d); }
       const mean = sum / 200000;
       return { ok: ok && Math.abs(mean - 10) < 0.05 && max <= 35, detail: "3레벨=" + allThree + ", 분산 Lv3 평균 " + mean.toFixed(3) + " 최대 " + max.toFixed(1) };
+    },
+  },
+  // ---------------- 보급 카드 ----------------
+  {
+    name: "[보급] 빈자리 채우기, 체력 40% 미만이면 보급 1장 보장, 효과와 maxHp",
+    run: function () {
+      runMenuAction(0);
+      // 증강 후보가 1장뿐 → 1장 + 보급 2장
+      ownedAugments = {}; for (const a of AUGMENTS) ownedAugments[a.id] = a.levels.length;
+      delete ownedAugments.catalyst;
+      const one = pickChoices().map((c) => c.isSupply ? "보급" : c.id).sort().join(",");
+      // 체력 30/100 → 매번 보급 정확히 1장 / 체력 50 → 보급 0장
+      ownedAugments = {}; let lowOk = true, highOk = true;
+      player.hp = 30; for (let i = 0; i < 200; i++) { const p = pickChoices(); if (p.length !== 3 || p.filter((c) => c.isSupply).length !== 1) lowOk = false; }
+      player.hp = 50; for (let i = 0; i < 200; i++) { if (pickChoices().some((c) => c.isSupply)) highOk = false; }
+      // 효과
+      const homeo = SUPPLIES.find((s) => s.id === "homeostasis"), cell = SUPPLIES.find((s) => s.id === "cellDivision");
+      player.hp = 30; homeo.apply(); const h1 = player.hp;
+      player.hp = 90; homeo.apply(); const h2 = player.hp;              // 100 을 넘지 않음
+      cell.apply(); const m1 = player.maxHp, h3 = player.hp;            // 최대 120, 체력 100 → 120
+      // 체력 40% 기준도 maxHp 를 따른다: 최대 120 일 때 체력 45 는 37.5% → 보급 보장
+      player.hp = 45; const p45 = pickChoices().filter((c) => c.isSupply).length;
+      // 카드로 고르기: 보급은 레벨 기록 없이 몇 번이든
+      ownedAugments = {}; player.hp = 10; let picks = 0;
+      for (let n = 0; n < 3; n++) { gameState = "choosing"; choosingTime = 1; choices = [homeo]; wave = 1; chooseAugment(0); picks++; }
+      const healedTwice = player.hp === Math.min(player.maxHp, 10 + 40 * 3) && Object.keys(ownedAugments).length === 0;
+      resetGame(); const reset = player.maxHp === 100 && player.hp === 100;
+      const ok = one === "catalyst,보급,보급" && lowOk && highOk && h1 === 70 && h2 === 100 && m1 === 120 && h3 === 120 &&
+        p45 === 1 && healedTwice && reset;
+      return { ok: ok, detail: "후보 1장 → " + one + " / 저체력 보장 " + lowOk + " / 50%에선 없음 " + highOk +
+        " / 항상성 30→" + h1 + ", 90→" + h2 + " / 세포 분열 최대 " + m1 + " 체력 " + h3 + " / 3번 고르기 " + healedTwice + " / 다시 시작 시 100: " + reset };
     },
   },
 ];
