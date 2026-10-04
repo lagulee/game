@@ -97,4 +97,103 @@ module.exports = [
         ", 증강 Lv" + l1 + "→" + l2 + ", 무적=" + invOk + ", 끈 뒤 피격=" + offHurt };
     `),
   },
+  // ---------------- B. 새 적 3종 ----------------
+  {
+    name: "[B] 돌격형: 접근→예고 0.6→돌진 0.5→쉬기 1.0, 돌진은 고정 방향·3배 속도",
+    run: function () {
+      runMenuAction(0); spawnQueue = []; bannerTimer = 0;
+      player.x = 100; player.y = 270;
+      const e = createEnemy("charger", 900, 270, 1); enemies = [e];
+      const DT = 1 / 60;
+      const log = []; let last = e.state, t = 0, dashStart = null, dirAtDash = null, dashSpeed = 0;
+      for (let f = 0; f < 60 * 8; f++) {
+        const px = e.x, py = e.y;
+        player.fireTimer = 1e9; // 이 검사에서는 플레이어가 쏘지 않는다 (돌격형이 죽지 않게)
+        update(DT); t += DT;
+        if (e.state !== last) { log.push(e.state + "@" + t.toFixed(2)); last = e.state;
+          if (e.state === "dash") dirAtDash = [e.dirX, e.dirY]; }
+        if (e.state === "dash" && e.stateTime > DT * 1.5) dashSpeed = distance(px, py, e.x, e.y) / DT;
+        if (e.state === "dash" && dirAtDash && (e.dirX !== dirAtDash[0] || e.dirY !== dirAtDash[1])) return { ok: false, detail: "돌진 중 방향이 바뀜" };
+        player.y = 270 + Math.sin(t * 3) * 120; // 플레이어가 위아래로 움직여도 돌진 방향은 고정
+      }
+      // 상태가 바뀐 시각 사이 간격
+      const times = log.map((x) => Number(x.split("@")[1]));
+      const gaps = []; for (let i = 1; i < times.length; i++) gaps.push(+(times[i] - times[i - 1]).toFixed(2));
+      const seq = log.map((x) => x.split("@")[0]).slice(0, 5).join(">");
+      const ok = seq === "warn>dash>rest>approach>warn" && Math.abs(gaps[0] - 0.6) < 0.03 &&
+        Math.abs(gaps[1] - 0.5) < 0.03 && Math.abs(gaps[2] - 1.0) < 0.03 && Math.abs(dashSpeed - 210) < 1;
+      return { ok: ok, detail: seq + " / 간격 " + gaps.slice(0, 3).join(", ") + "초 / 돌진 속도 " + dashSpeed.toFixed(1) + " (평소 70의 3배)" };
+    },
+  },
+  {
+    name: "[B] 돌격형: 시간 지연 배율 0.5 를 받으면 예고·돌진·쉬기 시간이 모두 2배",
+    run: function () {
+      AUGMENTS.push({ id: "slow", name: "s", levels: [{}], modifyEnemySpeed: function (f) { return f * 0.5; } });
+      runMenuAction(0); spawnQueue = []; ownedAugments = { slow: 1 };
+      player.x = 100; player.y = 270;
+      const e = createEnemy("charger", 260, 270, 1); enemies = [e]; // 가까워서 바로 예고 시작
+      const DT = 1 / 60; let last = e.state, t = 0; const times = [];
+      for (let f = 0; f < 60 * 8; f++) {
+        player.fireTimer = 1e9; player.invincibleTimer = 1e9;
+        update(DT); t += DT; if (e.state !== last) { times.push(t); last = e.state; }
+      }
+      const gaps = []; for (let i = 1; i < times.length; i++) gaps.push(+(times[i] - times[i - 1]).toFixed(2));
+      const ok = Math.abs(gaps[0] - 1.2) < 0.04 && Math.abs(gaps[1] - 1.0) < 0.04 && Math.abs(gaps[2] - 2.0) < 0.04;
+      return { ok: ok, detail: "예고 " + gaps[0] + "초, 돌진 " + gaps[1] + "초, 쉬기 " + gaps[2] + "초" };
+    },
+  },
+  {
+    name: "[B] 사인파형: 옆 흔들림 폭 2A = 80px, 주기 2π/ω ≈ 2.51초, 위상은 적마다 다름",
+    run: function () {
+      runMenuAction(0); spawnQueue = [];
+      player.x = 480; player.y = 1e6; // 아주 아래쪽 → 진행 방향은 아래, 옆 방향은 x
+      const e = createEnemy("sine", 480, 100, 1); e.speed = 0; enemies = [e]; // 앞으로는 안 가고 흔들림만
+      const DT = 1 / 600; let minX = 1e9, maxX = -1e9; const peaks = []; let prev = e.x, prevV = 0;
+      for (let f = 0; f < 600 * 6; f++) {
+        enemyType(e).update(e, DT, { speed: 0, timeScale: 1, localDt: DT });
+        minX = Math.min(minX, e.x); maxX = Math.max(maxX, e.x);
+        const v = e.x - prev; if (prevV > 0 && v <= 0) peaks.push(f * DT); prev = e.x; prevV = v;
+      }
+      const period = peaks.length > 1 ? peaks[1] - peaks[0] : 0;
+      const phases = new Set(); for (let i = 0; i < 5; i++) phases.add(createEnemy("sine", 0, 0, 1).phase.toFixed(3));
+      // 시간 배율 0.5 → 폭은 그대로, 주기는 2배
+      const e2 = createEnemy("sine", 480, 100, 1); let p2 = []; prev = e2.x; prevV = 0;
+      for (let f = 0; f < 600 * 12; f++) {
+        enemyType(e2).update(e2, DT, { speed: 0, timeScale: 0.5, localDt: DT * 0.5 });
+        const v = e2.x - prev; if (prevV > 0 && v <= 0) p2.push(f * DT); prev = e2.x; prevV = v;
+      }
+      const period2 = p2[1] - p2[0];
+      const ok = Math.abs(maxX - minX - 80) < 0.5 && Math.abs(period - 2 * Math.PI / 2.5) < 0.01 &&
+        phases.size === 5 && Math.abs(period2 - 2 * period) < 0.02;
+      return { ok: ok, detail: "폭 " + (maxX - minX).toFixed(2) + "px, 주기 " + period.toFixed(3) + "초, 느려졌을 때 주기 " + period2.toFixed(3) + "초" };
+    },
+  },
+  {
+    name: "[B] 분열형: 2→4마리로 갈라지고 손자는 안 갈라짐, 모두 죽어야 웨이브 끝, 점수 150/60/30",
+    run: function () {
+      runMenuAction(0);
+      WAVES.splice(0, WAVES.length, [{ type: "splitter", count: 1 }], [{ type: "basic", count: 1 }]);
+      startWave(1); spawnQueue = [];
+      enemies = [createEnemy("splitter", 480, 270, 1)];
+      const kill = (e) => { e.hp = 0.0001; bullets = [{ x: e.x, y: e.y, vx: 0, vy: 0, age: 0, damageScale: 1, dead: false }]; updateBullets(0); };
+      const s0 = score;
+      kill(enemies[0]);
+      const gen1 = enemies.map((e) => e.type + "@" + e.x).join(",");
+      const scoreA = score - s0;
+      kill(enemies[0]);
+      const gen2 = enemies.map((e) => e.type).sort().join(",");
+      const scoreB = score - s0 - scoreA;
+      checkWaveEnd(); const stillPlaying = gameState === "playing";
+      const gc = enemies.find((e) => e.type === "splitterGrandchild");
+      kill(gc);
+      const scoreC = score - s0 - scoreA - scoreB;
+      const noSplit = enemies.filter((e) => e.type === "splitterGrandchild").length === 1;
+      while (enemies.length) kill(enemies[0]); // 갈라져 나온 적까지 전부
+      checkWaveEnd();
+      const ok = gen1 === "splitterChild@460,splitterChild@500" &&
+        gen2 === "splitterChild,splitterGrandchild,splitterGrandchild" && stillPlaying && noSplit &&
+        scoreA === 150 && scoreB === 60 && scoreC === 30 && gameState === "choosing";
+      return { ok: ok, detail: "1세대 " + gen1 + " / 점수 " + scoreA + "," + scoreB + "," + scoreC + " / 남은 적 있을 때 계속=" + stillPlaying + " / 다 죽으면 " + gameState };
+    },
+  },
 ];

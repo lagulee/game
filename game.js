@@ -29,7 +29,9 @@ const COLORS = {
   yellow: "#F2C14E",     // 노랑 (총알, 강조)
   red: "#D9482B",        // 빨강 (적)
   green: "#6FB04A",      // 초록 (플레이어)
-  brown: "#C98A4B",      // 갈색 (보조: 총구, 패널)
+  brown: "#C98A4B",      // 갈색 (보조: 총구, 패널, 돌격형)
+  purple: "#8A63B8",     // 보라 (사인파형)
+  orange: "#E8913A",     // 주황 (분열형)
 };
 
 // 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
@@ -112,8 +114,7 @@ const CHOICE_INPUT_DELAY = 0.4;
 // 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
 const BANNER_TIME = 1.8;
 
-// 점수: 적 한 마리 처치 점수 = 이 값 × 웨이브 번호 (뒤 웨이브일수록 더 많이)
-const SCORE_PER_KILL = 100;
+// ※ 적 한 마리 처치 점수 = 종류별 score(enemies.js) × 웨이브 번호
 
 // 점수: 클리어했을 때 남은 체력 1 당 보너스 점수
 const SCORE_PER_HP_LEFT = 10;
@@ -857,7 +858,14 @@ function updateEnemies(dt) {
     enemy.slowFactor = enemySpeedFactor(enemy, dist);
 
     // 종류별 행동 함수(enemies.js)에게 움직임을 맡긴다
-    enemyType(enemy).update(enemy, dt, { speed: enemy.speed * enemy.slowFactor });
+    //   speed     : 기본 속도 × 배율 (이동에 사용)
+    //   timeScale : 배율 그 자체 = 이 적의 시간이 흐르는 빠르기
+    //   localDt   : 이 적의 시계로 흐른 시간 (예고·돌진·흔들림 같은 행동 시간에 사용)
+    enemyType(enemy).update(enemy, dt, {
+      speed: enemy.speed * enemy.slowFactor,
+      timeScale: enemy.slowFactor,
+      localDt: dt * enemy.slowFactor,
+    });
 
     // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
@@ -1025,13 +1033,15 @@ function updatePopups(dt) {
 }
 
 // (x, y) 위치에서 파티클 여러 개를 사방으로 터뜨리는 함수
-function spawnParticles(x, y) {
+// mainColor: 조각의 주된 색 (생략하면 빨강). 죽은 적의 몸 색을 넣는다
+function spawnParticles(x, y, mainColor) {
   // 최소~최대 사이의 정수 개수를 무작위로 정한다
   const count = PARTICLE_COUNT_MIN +
     Math.floor(Math.random() * (PARTICLE_COUNT_MAX - PARTICLE_COUNT_MIN + 1));
 
   // 파티클이 가질 수 있는 색과 모양 (팔레트 안에서만)
-  const colors = [COLORS.red, COLORS.red, COLORS.yellow, COLORS.brown];
+  const main = mainColor || COLORS.red;
+  const colors = [main, main, COLORS.yellow, COLORS.brown];
   const shapes = ["circle", "square", "triangle"];
 
   // count 개의 파티클을 만드는 반복문
@@ -1116,7 +1126,7 @@ function updateBullets(dt) {
         if (killed) {
           enemy.dead = true;
           enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
-          score += SCORE_PER_KILL * wave;   // 점수 획득 (뒤 웨이브일수록 많이)
+          score += enemyType(enemy).score * wave; // 점수 획득 (종류별 점수 × 웨이브)
 
           // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
           const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: bullet };
@@ -1380,18 +1390,52 @@ function drawPlayer() {
 }
 
 // ---- 적 ----
-// 빨간 몸 + 화난 눈썹과 눈. 태어난 웨이브가 높을수록 험악해진다.
-//   1웨이브: 동그란 몸
-//   2웨이브: 동그란 몸 + 머리 위 뿔 2개
-//   3웨이브: 뾰족뾰족 가시 몸 + 뿔 2개
+// 모든 적은 "종류별 몸통 + 공통 화난 얼굴" 로 그린다.
+// 몸통 모양은 enemies.js 의 shape 로 정한다.
+//   basic    : 빨간 원. 태어난 웨이브가 높을수록 험악해진다
+//              (1웨이브 동그란 몸 / 2웨이브 뿔 2개 / 3웨이브 이상 가시 몸 + 뿔)
+//   arrow    : 갈색 화살촉 (돌격형). 바라보는 방향을 뾰족한 끝이 가리킨다
+//   diamond  : 보라 마름모 (사인파형). 움직이는 방향으로 살짝 기운다
+//   splitter : 주황 원 + 몸 안에 비쳐 보이는 작은 원 (분열형)
 function drawEnemy(enemy) {
+  const type = enemyType(enemy);
   const r = enemy.radius;
   // 맞은 직후엔 하얗게 번쩍, 평소엔 종류별 색 (기본 적: 빨강)
-  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS[enemyType(enemy).color];
+  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS[type.color];
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y); // 아래 좌표는 모두 적의 중심 기준
 
+  // 돌격형이 예고 중이면 부르르 떤다 (곧 돌진한다는 신호)
+  if (enemy.state === "warn") {
+    ctx.translate(Math.sin(enemy.stateTime * 90) * 1.8, 0);
+  }
+
+  if (type.shape === "arrow") {
+    drawArrowBody(enemy, r, bodyColor);
+  } else if (type.shape === "diamond") {
+    drawDiamondBody(enemy, r, bodyColor);
+  } else if (type.shape === "splitter") {
+    drawSplitterBody(type, r, bodyColor);
+  } else {
+    drawBasicBody(enemy, r, bodyColor);
+  }
+
+  drawEnemyFace(enemy, r);
+  ctx.restore();
+
+  // 체력바: 한 대라도 맞은 적만 머리 위에 보여 준다 (화면이 덜 복잡하게)
+  if (enemy.hp < enemy.maxHp) {
+    const barWidth = Math.max(r * 2.2, 24);
+    let barTop = r * 1.3;                                              // 기본 높이
+    if (type.shape === "basic") barTop = enemy.wave >= 2 ? r * 1.45 : r; // 뿔이 있으면 더 위에
+    drawBar(enemy.x - barWidth / 2, enemy.y - barTop - 12, barWidth, 7,
+            enemy.hp / enemy.maxHp, COLORS.green, SMALL_OUTLINE_WIDTH);
+  }
+}
+
+// 기본 적 몸통: 원 (+ 웨이브에 따라 뿔, 가시)
+function drawBasicBody(enemy, r, bodyColor) {
   // 1) 뿔 (2웨이브부터): 몸보다 먼저 그려서 뿌리가 몸에 가려지게 한다
   if (enemy.wave >= 2) {
     // 왼쪽 뿔, 오른쪽 뿔을 차례로 그리는 반복문 (side = -1 왼쪽, 1 오른쪽)
@@ -1422,7 +1466,58 @@ function drawEnemy(enemy) {
 
   // 3) 하이라이트 한 줄
   drawHighlight(0, 0, r);
+}
 
+// 돌격형 몸통: 화살촉. 바라보는 방향(dirX, dirY)으로 돌려서 그린다
+function drawArrowBody(enemy, r, bodyColor) {
+  ctx.save();
+  ctx.rotate(Math.atan2(enemy.dirY, enemy.dirX)); // 오른쪽(+x)이 바라보는 방향이 되게 돌린다
+  drawOutlinedPolygon([
+    [r * 1.75, 0],           // 뾰족한 끝
+    [-r * 1.1, -r * 1.4],    // 왼쪽 날개 끝
+    [-r * 0.65, 0],          // 꼬리 쪽 오목한 곳 (얕게 파서 얼굴이 들어갈 자리를 남긴다)
+    [-r * 1.1, r * 1.4],     // 오른쪽 날개 끝
+  ], bodyColor);
+  ctx.restore();
+  drawHighlight(0, 0, r * 0.9);
+}
+
+// 사인파형 몸통: 마름모. 움직이는 방향으로 조금 기운다
+function drawDiamondBody(enemy, r, bodyColor) {
+  ctx.save();
+  ctx.rotate(Math.sin(enemy.tilt || 0) * 0.25); // 너무 많이 돌지 않게 살짝만
+  drawOutlinedPolygon([
+    [0, -r * 1.4],   // 위
+    [r * 1.15, 0],   // 오른쪽
+    [0, r * 1.4],    // 아래
+    [-r * 1.15, 0],  // 왼쪽
+  ], bodyColor);
+  ctx.restore();
+  drawHighlight(0, -r * 0.2, r * 0.8);
+}
+
+// 분열형 몸통: 큰 원 + 몸 안에 비쳐 보이는 작은 원 (나중에 갈라질 자식)
+function drawSplitterBody(type, r, bodyColor) {
+  drawOutlinedCircle(0, 0, r, bodyColor);
+  if (type.innerCircles > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;               // 반투명 = "비쳐 보이는" 느낌
+    // 작은 원을 좌우에 하나씩 그리는 반복문
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.arc(side * r * 0.45, r * 0.38, r * 0.34, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.white;
+      ctx.fill();
+      setOutline(SMALL_OUTLINE_WIDTH * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  drawHighlight(0, 0, r);
+}
+
+// 모든 적 공통: 화난 눈과 눈썹, 악문 입
+function drawEnemyFace(enemy, r) {
   // 4) 눈: 플레이어 쪽으로 살짝 쏠려서 노려보는 느낌
   const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
   const lookX = Math.cos(angle) * 2.5;
@@ -1453,21 +1548,31 @@ function drawEnemy(enemy) {
   ctx.moveTo(-r * 0.25, r * 0.45);
   ctx.lineTo(r * 0.25, r * 0.45);
   ctx.stroke();
+}
 
+// 돌격형의 예고선: 돌진할 방향으로 빨간 점선 (적들보다 아래에 그린다)
+function drawChargerWarning(enemy) {
+  ctx.save();
+  // 예고 시간 동안 점점 진해진다
+  ctx.globalAlpha = 0.35 + 0.55 * Math.min(1, enemy.stateTime / CHARGER_WARN_TIME);
+  ctx.setLineDash([14, 10]);   // 14px 선, 10px 빈칸
+  ctx.strokeStyle = COLORS.red;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(enemy.x, enemy.y);
+  ctx.lineTo(enemy.x + enemy.dirX * CHARGER_WARN_LENGTH, enemy.y + enemy.dirY * CHARGER_WARN_LENGTH);
+  ctx.stroke();
   ctx.restore();
-
-  // 6) 체력바: 한 대라도 맞은 적만 머리 위에 보여 준다 (화면이 덜 복잡하게)
-  if (enemy.hp < enemy.maxHp) {
-    const barWidth = r * 2.2;
-    const barTop = enemy.wave >= 2 ? r * 1.45 : r; // 뿔이 있으면 더 위에
-    drawBar(enemy.x - barWidth / 2, enemy.y - barTop - 12, barWidth, 7,
-            enemy.hp / enemy.maxHp, COLORS.green, SMALL_OUTLINE_WIDTH);
-  }
 }
 
 // 모든 적을 그리는 함수
 function drawEnemies() {
-  // 적 목록을 하나씩 꺼내 그리는 반복문
+  // 1) 먼저 예고선들을 깐다 (예고 중인 돌격형만)
+  for (const enemy of enemies) {
+    if (enemy.state === "warn") drawChargerWarning(enemy);
+  }
+  // 2) 그 위에 적 몸을 그린다. 적 목록을 하나씩 꺼내 그리는 반복문
   for (const enemy of enemies) {
     drawEnemy(enemy);
   }
