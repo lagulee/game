@@ -81,6 +81,15 @@ const PLAYER_MAX_HP = 100;
 // 체력이 최대 체력의 이 비율보다 낮으면, 카드 3장 중 1장은 반드시 보급 카드가 나온다
 const LOW_HP_RATIO = 0.4;
 
+// 웨이브를 깨면 회복하는 체력 (최대 체력까지만)
+const WAVE_CLEAR_HEAL = 10;
+
+// 보스를 잡으면 최대 체력의 이 비율만큼 회복 (0.5 = 50%)
+const BOSS_KILL_HEAL_RATIO = 0.5;
+
+// 챕터 = 웨이브 몇 개 묶음인지 (5 이면 1~5웨이브가 챕터 1)
+const WAVES_PER_CHAPTER = 5;
+
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
 const PLAYER_INVINCIBLE_TIME = 1.0;
 
@@ -213,6 +222,7 @@ window.addEventListener("keydown", function (event) {
 // F2       : 디버그 모드 켜기/끄기
 // [ / ]    : 이전 / 다음 웨이브로 바로 이동
 // Shift+1~9: AUGMENTS 배열 순서대로 증강 1개 지급 (이미 있으면 레벨업)
+// Shift+0  : 체력 가득 채우기
 // I        : 무적 켜기/끄기
 // 디버그 모드가 꺼져 있으면 아래 기능은 전부 아무 영향이 없다.
 // =============================================================
@@ -249,6 +259,13 @@ function handleDebugKey(event) {
       startWave(next);
       debugSay("웨이브 " + next + " 로 이동");
     }
+    return true;
+  }
+
+  // Shift + 0 : 체력 가득 채우기
+  if (event.shiftKey && event.code === "Digit0") {
+    player.hp = player.maxHp;
+    debugSay("체력 가득!");
     return true;
   }
 
@@ -384,6 +401,9 @@ let menuTime = 0;
 // 메뉴 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "준비 중이에요!")
 let menuToast = "";
 let menuToastTimer = 0;
+
+// 이번 판에 잡은 보스 수
+let bossesKilled = 0;
 
 // 점수와 최고 점수
 let score = 0;
@@ -688,9 +708,20 @@ function pickChoices() {
   return picks;
 }
 
+// 웨이브를 깼을 때 회복하는 양 (함수로 둔 이유: 나중에 증강이나 난이도로 바꾸기 쉽게)
+function waveClearHeal() {
+  return WAVE_CLEAR_HEAL;
+}
+
+// 지금 웨이브가 몇 번째 챕터인지 (1~5 → 1, 6~10 → 2 ...)
+function chapterOf(w) {
+  return Math.ceil(w / WAVES_PER_CHAPTER);
+}
+
 // 플레이어 체력을 amount 만큼 회복하는 함수 (최대 체력을 넘지 않게)
+// (회복은 체력을 절대 깎지 않는다: 이미 최대보다 많으면 그대로 둔다)
 function healPlayer(amount) {
-  player.hp = Math.min(player.maxHp, player.hp + amount);
+  player.hp = Math.max(player.hp, Math.min(player.maxHp, player.hp + amount));
 }
 
 // 증강 선택 화면을 여는 함수
@@ -854,6 +885,9 @@ function menuButtonAt(x, y) {
 function checkWaveEnd() {
   if (spawnQueue.length > 0 || enemies.length > 0) return;
 
+  // 웨이브를 깼다! 체력을 조금 회복
+  healPlayer(waveClearHeal());
+
   if (wave >= WAVES.length) {
     // 마지막 웨이브였으면 클리어!
     endGame("clear");
@@ -912,8 +946,9 @@ function resetGame() {
   lastHitEnemy = null;
   hitStreak = 0;
 
-  // 점수는 0점부터
+  // 점수는 0점부터, 잡은 보스도 0
   score = 0;
+  bossesKilled = 0;
   isNewBest = false;
 
   // 가진 증강도 모두 없애고, 증강들이 세던 숫자(발사 번호 등)도 처음으로
@@ -1247,6 +1282,12 @@ function updateBullets(dt) {
           enemy.dead = true;
           enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
           score += enemyType(enemy).score * wave; // 점수 획득 (종류별 점수 × 웨이브)
+
+          // 보스를 잡으면 최대 체력의 절반을 회복하고, 잡은 보스 수를 센다
+          if (enemyType(enemy).isBoss) {
+            healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
+            bossesKilled += 1;
+          }
 
           // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
           const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: bullet };
@@ -1824,8 +1865,9 @@ function drawHud() {
   // ---- 왼쪽 위 패널 ----
   drawOutlinedRoundRect(12, 12, 250, 104, 14, COLORS.brown);
 
-  // 웨이브 번호
-  drawOutlinedText("웨이브 " + wave + " / " + WAVES.length, 28, 34, 22, "left");
+  // 챕터와 웨이브 번호 (예: "챕터 2 · 웨이브 7 / 30"). 길면 패널 폭에 맞게 글자를 줄인다
+  const waveText = "챕터 " + chapterOf(wave) + " · 웨이브 " + wave + " / " + WAVES.length;
+  drawOutlinedText(waveText, 28, 34, fitTextSize(waveText, 22, 218), "left");
 
   // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
   const ratio = player.hp / player.maxHp;
@@ -2248,7 +2290,7 @@ function drawDebug() {
   const x = 14;
   const y = CANVAS_HEIGHT - 18;
   drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
-  drawOutlinedText("[ ] 웨이브  Shift+숫자 증강  I 무적  F2 끄기", x, y - 22, 13, "left");
+  drawOutlinedText("[ ] 웨이브  Shift+1~9 증강  Shift+0 체력  I 무적  F2 끄기", x, y - 22, 13, "left");
   if (debugMessageTimer > 0 && debugMessage) {
     drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
   }

@@ -220,7 +220,13 @@ function compare(label, actual, file) {
     const now = stateOnly(await trace(browser, ROOT, "legacy"));
     const want = stateOnly(fs.readFileSync(legacyFile, "utf8"));
     if (now === want) console.log("  PASS 옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 완전히 같음");
-    else { allOk = false; compare("옛 규칙 되돌리기", now, legacyFile + ".state"); }
+    else {
+      allOk = false;
+      const a = now.split("\n"), b = want.split("\n"); let i = 0; while (a[i] === b[i]) i++;
+      console.log("  FAIL 옛 규칙 되돌리기: 상태 기록 " + (i + 1) + "번째 줄부터 다름");
+      console.log("     기록: " + (b[i] || "").slice(0, 200));
+      console.log("     지금: " + (a[i] || "").slice(0, 200));
+    }
   }
 
   console.log("[동작 검사]");

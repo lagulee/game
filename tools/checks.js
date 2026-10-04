@@ -471,4 +471,27 @@ module.exports = [
         ", 체력 " + e30.maxHp.toFixed(1) + ", 접촉 " + e30.contactDamage.toFixed(1) };
     },
   },
+  // ---------------- 30웨이브 B: 회복과 진행 ----------------
+  {
+    name: "[30B] 웨이브 클리어 +10 (최대까지), 보스 처치 최대 체력 50% 회복, 챕터 번호, Shift+0",
+    run: new Function(PRESS + `
+      runMenuAction(0);
+      // 웨이브 클리어 회복
+      spawnQueue = []; enemies = []; player.hp = 50; checkWaveEnd(); const h1 = player.hp;
+      gameState = "playing"; spawnQueue = []; enemies = []; player.hp = 95; checkWaveEnd(); const h2 = player.hp;
+      // 보스 처치 회복 (시험용 보스 종류)
+      ENEMY_TYPES.testBoss = Object.assign({}, ENEMY_TYPES.basic, { isBoss: true });
+      gameState = "playing"; player.hp = 20; player.maxHp = 120;
+      const boss = createEnemy("testBoss", 300, 300, 1); boss.hp = 0.001; enemies = [boss, createEnemy("basic", 800, 100, 1)];
+      bullets = [{ x: 300, y: 300, vx: 0, vy: 0, age: 0, damageScale: 1, dead: false }]; updateBullets(0);
+      const h3 = player.hp;
+      // 챕터
+      const ch = [1, 5, 6, 10, 11, 30].map(chapterOf).join(",");
+      // Shift+0
+      player.hp = 5; press("Digit0", true); const offNoHeal = player.hp === 5;
+      press("F2"); press("Digit0", true); const full = player.hp === player.maxHp;
+      const ok = h1 === 60 && h2 === 100 && h3 === 80 && bossesKilled === 1 && ch === "1,1,2,2,3,6" && offNoHeal && full;
+      return { ok: ok, detail: "클리어 50→" + h1 + ", 95→" + h2 + " / 보스 처치 20→" + h3 + " (최대 120) / 챕터 " + ch + " / 디버그 꺼짐 무시=" + offNoHeal + ", Shift+0=" + full };
+    `),
+  },
 ];
