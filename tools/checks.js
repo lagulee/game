@@ -646,4 +646,71 @@ module.exports = [
         " / 5웨이브 100초 버텨도 코인 " + c5.toFixed(2) + " / 보스(챕터 3) +" + bossBonus.toFixed(2) + " / 저장 " + saved.coins + "코인, 최고 웨이브 " + saved.bestWave };
     },
   },
+  // ---------------- 성장 C: 업그레이드 ----------------
+  {
+    name: "[성장C] 업그레이드: 비용 round(40×1.15^L), 구매/부족/MAX, 즉시 저장, 판 시작 때 체력·공격력 적용",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      const hp = UPGRADES.find((u) => u.id === "vitality"), pw = UPGRADES.find((u) => u.id === "power");
+      const costs = []; for (let L = 0; L < 5; L++) { saveData.upgrades.vitality = L; costs.push(upgradeCost(hp)); }
+      saveData.upgrades.vitality = 29; const cost29 = upgradeCost(hp);
+      saveData.upgrades = {}; saveData.coins = 100;
+      const r1 = buyUpgrade(hp);                       // 40 → 남은 60
+      const r2 = buyUpgrade(hp);                       // 46 → 남은 14
+      const r3 = buyUpgrade(hp);                       // 53 필요 → 부족
+      const savedNow = loadSave();
+      saveData.upgrades.power = 30; const r4 = buyUpgrade(pw);
+      saveData.upgrades.power = 5;
+      runMenuAction(0);                                 // 판 시작 → 업그레이드 적용
+      const applied = player.maxHp === 120 && player.hp === 120 && player.damage === 15;
+      const dmg = calcDamage({}, { damageScale: 1 });
+      const want = [40, 46, 53, 61, 70];
+      const ok = JSON.stringify(costs) === JSON.stringify(want) && cost29 === Math.round(40 * Math.pow(1.15, 29)) &&
+        r1 === "ok" && r2 === "ok" && r3 === "poor" && r4 === "max" && savedNow.coins === 14 && savedNow.upgrades.vitality === 2 &&
+        applied && dmg === 15;
+      return { ok: ok, detail: "비용 " + costs.join(",") + "… Lv29→30 " + cost29 + " / 구매 " + [r1, r2, r3, r4].join(",") +
+        " / 저장된 코인 " + savedNow.coins + ", 체력 Lv" + savedNow.upgrades.vitality + " / 판 시작: 최대 체력 " + player.maxHp + ", 공격력 " + player.damage + ", 한 발 " + dmg };
+    },
+  },
+  {
+    name: "[성장C] player.damage 사용: 제곱 증폭은 D²/player.damage, 핵분열 파편 대미지는 최대 체력×에너지 그대로",
+    run: function () {
+      runMenuAction(0); player.damage = 20; ownedAugments = { square: 2 };
+      AUGMENTS.forEach((a) => a.reset && a.reset());
+      calcDamage({}, { damageScale: 1 }); const sq = calcDamage({}, { damageScale: 2 });   // D=40 → 40 × 40/20 = 80
+      ownedAugments = { fission: 1 }; bullets = [];
+      const aug = AUGMENTS.find((a) => a.id === "fission"); const e = createEnemy("basic", 400, 300, 1);
+      aug.onKill(aug.levels[0], { enemy: e, x: 400, y: 300, bullet: {} });
+      const frag = bullets[0].damageScale * player.damage;   // 60 × 0.2 = 12 (공격력과 상관없이)
+      return { ok: sq === 80 && Math.abs(frag - 12) < 1e-9, detail: "제곱 " + sq + " / 파편 " + frag };
+    },
+  },
+  {
+    name: "[성장C] 화면 이동과 입력: 메뉴→업그레이드, 1·2 키 구매, Esc 메뉴, 결과 화면 U, 저장 초기화는 3초 안에 두 번",
+    run: new Function(PRESS + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.coins = 200;
+      goToMenu(); runMenuAction(MENU_ITEMS.findIndex((m) => m.action === "upgrades"));
+      const opened = gameState === "upgrades";
+      press("Digit1"); press("Digit2"); press("Digit2");
+      const lv = upgradeLevel(UPGRADES[0]) + "," + upgradeLevel(UPGRADES[1]);   // 40, 40, 46 → 1,2 (남은 74)
+      saveData.coins = 0; press("Digit1"); const shook = upgradeShake[0] > 0;
+      press("Escape"); const back = gameState === "menu";
+      // 결과 화면에서 U
+      runMenuAction(0); endGame("gameover"); press("KeyU"); const fromResult = gameState === "upgrades";
+      // 저장 초기화: 한 번 누르면 대기, 3초 지나면 취소, 3초 안에 두 번이면 실행
+      saveData.coins = 500; pressResetSave(); const armed = resetArmTimer > 0;
+      for (let i = 0; i < 200; i++) update(1 / 60);          // 3.3초
+      pressResetSave(); const notYet = saveData.coins === 500; // 시간이 지나서 다시 "대기"만
+      for (let i = 0; i < 60; i++) update(1 / 60);           // 1초
+      pressResetSave(); const cleared = saveData.coins === 0 && JSON.stringify(loadSave()) === JSON.stringify(defaultSave());
+      // Shift+C (디버그)
+      press("KeyC", true); const offNoCoin = saveData.coins === 0;
+      press("F2"); press("KeyC", true); const debugCoin = saveData.coins === 1000 && loadSave().coins === 1000;
+      const ok = opened && lv === "1,2" && shook && back && fromResult && armed && notYet && cleared && offNoCoin && debugCoin;
+      return { ok: ok, detail: "열림 " + opened + " / 레벨 " + lv + " / 모자랄 때 흔들림 " + shook + " / Esc " + back + " / 결과 U " + fromResult +
+        " / 초기화 대기 " + armed + ", 3초 지나 취소 " + notYet + ", 두 번이면 초기화 " + cleared + " / Shift+C 꺼짐 무시 " + offNoCoin + ", 켜면 +1000 " + debugCoin };
+    `),
+  },
 ];

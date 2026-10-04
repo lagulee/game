@@ -32,6 +32,7 @@ const COLORS = {
   brown: "#C98A4B",      // 갈색 (보조: 총구, 패널, 돌격형)
   purple: "#8A63B8",     // 보라 (사인파형)
   orange: "#E8913A",     // 주황 (분열형)
+  gray: "#A39D92",       // 회색 (코인이 모자라 살 수 없는 버튼)
 };
 
 // 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
@@ -115,7 +116,7 @@ const BULLET_RADIUS = 5;
 // 총알 뒤에 남는 꼬리 길이 (픽셀)
 const BULLET_TAIL_LENGTH = 16;
 
-// 총알 한 발의 기본 대미지
+// 총알 한 발의 기본 대미지 (업그레이드 0레벨 기준. 게임 중에는 player.damage 를 쓴다)
 const BULLET_DAMAGE = 10;
 
 // ※ 적의 체력·속도·크기·접촉 대미지는 enemies.js 의 ENEMY_TYPES 에 있다.
@@ -155,6 +156,7 @@ const SCORE_PER_HP_LEFT = 10;
 //   ready : 지금 쓸 수 있는지 (false 면 "준비 중" 표시)
 const MENU_ITEMS = [
   { label: "게임 시작", action: "start", ready: true },
+  { label: "업그레이드", action: "upgrades", ready: true },
   { label: "도감", action: "collection", ready: false },
   { label: "설정", action: "settings", ready: false },
 ];
@@ -202,11 +204,23 @@ window.addEventListener("keydown", function (event) {
     }
   }
 
-  // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 메뉴로
+  // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 메뉴로, U 키 = 업그레이드
   if (gameState === "gameover" || gameState === "clear") {
     if (event.code === "KeyR") {
       resetGame();
     } else if (event.code === "KeyM") {
+      goToMenu();
+    } else if (event.code === "KeyU") {
+      openUpgrades();
+    }
+  }
+
+  // 업그레이드 화면: 1, 2 키 = 구매, Esc 나 M = 메뉴로
+  if (gameState === "upgrades") {
+    const keyToIndex = { Digit1: 0, Digit2: 1, Numpad1: 0, Numpad2: 1 };
+    if (event.code in keyToIndex) {
+      tryBuyUpgrade(keyToIndex[event.code]);
+    } else if (event.code === "Escape" || event.code === "KeyM") {
       goToMenu();
     }
   }
@@ -236,6 +250,7 @@ window.addEventListener("keydown", function (event) {
 // [ / ]    : 이전 / 다음 웨이브로 바로 이동
 // Shift+1~9: AUGMENTS 배열 순서대로 증강 1개 지급 (이미 있으면 레벨업)
 // Shift+0  : 체력 가득 채우기
+// Shift+C  : 코인 +1000
 // I        : 무적 켜기/끄기
 // 디버그 모드가 꺼져 있으면 아래 기능은 전부 아무 영향이 없다.
 // =============================================================
@@ -272,6 +287,14 @@ function handleDebugKey(event) {
       startWave(next);
       debugSay("웨이브 " + next + " 로 이동");
     }
+    return true;
+  }
+
+  // Shift + C : 코인 +1000 (바로 저장)
+  if (event.shiftKey && event.code === "KeyC") {
+    saveData.coins += 1000;
+    writeSave();
+    debugSay("코인 +1000 (보유 " + saveData.coins + ")");
     return true;
   }
 
@@ -338,8 +361,13 @@ canvas.addEventListener("mousemove", function (event) {
     if (menuHover >= 0) menuIndex = menuHover;
   }
 
+  // 업그레이드 화면·결과 화면 버튼
+  let otherHover = false;
+  if (gameState === "upgrades") otherHover = upgradeButtonAt(pos.x, pos.y) !== null;
+  if (gameState === "gameover" || gameState === "clear") otherHover = resultButtonAt(pos.x, pos.y) !== null;
+
   // 카드나 버튼 위에서는 마우스 모양을 손가락으로
-  canvas.style.cursor = (hoverIndex >= 0 || menuHover >= 0) ? "pointer" : "default";
+  canvas.style.cursor = (hoverIndex >= 0 || menuHover >= 0 || otherHover) ? "pointer" : "default";
 });
 
 // 마우스를 클릭하면: 클릭한 위치의 카드를 고른다
@@ -357,6 +385,25 @@ canvas.addEventListener("click", function (event) {
   if (gameState === "choosing") {
     const index = cardIndexAt(pos.x, pos.y);
     if (index >= 0) chooseAugment(index);
+    return;
+  }
+
+  // 업그레이드 화면: 구매 버튼, 메뉴 버튼, 저장 초기화 버튼
+  if (gameState === "upgrades") {
+    const button = upgradeButtonAt(pos.x, pos.y);
+    if (button === null) return;
+    if (button.kind === "buy") tryBuyUpgrade(button.index);
+    else if (button.kind === "back") goToMenu();
+    else if (button.kind === "reset") pressResetSave();
+    return;
+  }
+
+  // 결과 화면: 다시 시작 / 업그레이드 / 메뉴 버튼
+  if (gameState === "gameover" || gameState === "clear") {
+    const button = resultButtonAt(pos.x, pos.y);
+    if (button === "retry") resetGame();
+    else if (button === "upgrades") openUpgrades();
+    else if (button === "menu") goToMenu();
   }
 });
 
@@ -373,7 +420,8 @@ const player = {
   vy: 0,                 // 세로 속도 (px/초)
   fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
   hp: PLAYER_MAX_HP,     // 현재 체력
-  maxHp: PLAYER_MAX_HP,  // 최대 체력 (세포 분열 보급 카드로 늘어난다)
+  maxHp: PLAYER_MAX_HP,  // 최대 체력 (체력 업그레이드, 세포 분열 보급 카드로 늘어난다)
+  damage: BULLET_DAMAGE, // 총알 한 발의 기본 대미지 (공격력 업그레이드로 늘어난다)
   invincibleTimer: 0,    // 남은 무적 시간 (초). 0보다 크면 맞지 않는다
   facing: 0,             // 바라보는 방향 (각도, 라디안). 0 = 오른쪽. 총구와 눈이 이쪽을 향한다
 };
@@ -399,6 +447,7 @@ let spawnTimer = 0;
 
 // 게임 상태: 지금 어떤 화면인지 기억하는 변수
 //   "menu"      : 처음 메뉴 화면
+//   "upgrades"  : 영구 업그레이드 화면
 //   "playing"   : 전투 중
 //   "choosing"  : 웨이브 사이, 증강 카드를 고르는 중
 //   "gameover"  : 체력이 0이 되어 게임 오버
@@ -943,17 +992,19 @@ function runMenuAction(index) {
   if (item.action === "start") {
     canvas.style.cursor = "default";
     resetGame();
+  } else if (item.action === "upgrades") {
+    openUpgrades();
   }
 }
 
 // 메뉴 버튼 i 의 위치와 크기
 const MENU_BUTTON_WIDTH = 260;
-const MENU_BUTTON_HEIGHT = 54;
-const MENU_BUTTON_GAP = 16;
+const MENU_BUTTON_HEIGHT = 48;
+const MENU_BUTTON_GAP = 12;
 function menuButtonRect(i) {
   return {
     x: CANVAS_WIDTH / 2 - MENU_BUTTON_WIDTH / 2,
-    y: 236 + i * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP),
+    y: 214 + i * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP),
     w: MENU_BUTTON_WIDTH,
     h: MENU_BUTTON_HEIGHT,
   };
@@ -1024,6 +1075,8 @@ function resetGame() {
   player.vx = 0;
   player.vy = 0;
   player.maxHp = PLAYER_MAX_HP;
+  player.damage = BULLET_DAMAGE;
+  applyUpgrades();            // 영구 업그레이드 적용 (최대 체력, 공격력)
   player.hp = player.maxHp;
   player.fireTimer = 0;
   player.invincibleTimer = 0;
@@ -1242,7 +1295,7 @@ function calcDamage(enemy, bullet) {
   }
 
   // 기본 대미지 × 이 총알의 대미지 배율 (보통 1)
-  let damage = BULLET_DAMAGE * (bullet ? bullet.damageScale : 1);
+  let damage = player.damage * (bullet ? bullet.damageScale : 1);
   const info = { enemy: enemy, bullet: bullet, streak: hitStreak };
 
   // 대미지를 바꾸는 증강들을 order 가 작은 것부터 차례로 부른다
@@ -1434,6 +1487,8 @@ function update(dt) {
     // 메뉴: 장식 캐릭터 애니메이션용 시간만 흐른다
     menuTime += dt;
     menuToastTimer = Math.max(0, menuToastTimer - dt);
+  } else if (gameState === "upgrades") {
+    updateUpgradeScreen(dt);
   } else if (gameState === "choosing") {
     // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
     choosingTime += dt;
@@ -1967,7 +2022,7 @@ function drawPopups() {
     ctx.translate(popup.x, popup.y);
     ctx.scale(scale, scale);                           // 크기 배율 적용
     // 기본 대미지의 2배 이상인 "큰 한 방"은 노란 글씨로 강조
-    const fill = popup.value >= BULLET_DAMAGE * 2 ? COLORS.yellow : COLORS.white;
+    const fill = popup.value >= player.damage * 2 ? COLORS.yellow : COLORS.white;
     drawOutlinedText(String(popup.value), 0, 0, size, "center", fill);
     ctx.restore();
   }
@@ -2347,10 +2402,280 @@ function drawOverlay() {
     drawOutlinedText(augLines[i], 0, 42 + i * 20, 15);
   }
 
-  // 조작 안내
-  drawOutlinedRoundRect(-200, 112, 400, 40, 20, COLORS.outline);
-  drawOutlinedText("R : 다시 시작     M : 메뉴로", 0, 133, 20, "center", COLORS.yellow);
+  // 아래쪽 버튼 3개: 다시 시작(R) / 업그레이드(U) / 메뉴(M)
+  // 업그레이드 버튼만 눈에 띄게 초록색
+  for (const b of RESULT_BUTTONS) {
+    drawOutlinedRoundRect(b.dx - b.w / 2, 112, b.w, 40, 20, b.id === "upgrades" ? COLORS.green : COLORS.outline);
+    drawOutlinedText(b.label, b.dx, 133, 18, "center", b.id === "upgrades" ? COLORS.white : COLORS.yellow);
+  }
   ctx.restore();
+}
+
+// 결과 화면 아래쪽 버튼들 (dx = 화면 가운데에서 가로로 떨어진 거리)
+const RESULT_BUTTONS = [
+  { id: "retry", label: "R : 다시 시작", dx: -175, w: 160 },
+  { id: "upgrades", label: "U : 업그레이드", dx: 0, w: 170 },
+  { id: "menu", label: "M : 메뉴로", dx: 175, w: 160 },
+];
+
+// 결과 화면에서 (x, y) 를 누르면 어떤 버튼인지 (없으면 null)
+// (패널이 아주 살짝 기울어져 있지만, 버튼을 넉넉히 잡아서 기울기는 무시한다)
+function resultButtonAt(x, y) {
+  const cy = CANVAS_HEIGHT / 2 + 132;     // 버튼 가운데 높이
+  // 버튼을 하나씩 보며 눌린 곳이 안에 있는지 검사하는 반복문
+  for (const b of RESULT_BUTTONS) {
+    const cx = CANVAS_WIDTH / 2 + b.dx;
+    if (Math.abs(x - cx) <= b.w / 2 && Math.abs(y - cy) <= 24) return b.id;
+  }
+  return null;
+}
+
+// =============================================================
+// 업그레이드 화면
+// =============================================================
+
+// 업그레이드 화면 상태
+let upgradeShake = [];        // 카드마다 흔들림이 남은 시간 (코인이 모자랄 때)
+let upgradeToast = "";        // 아래쪽에 잠깐 뜨는 알림
+let upgradeToastTimer = 0;
+let resetArmTimer = 0;        // "한 번 더 누르면 초기화" 가 남은 시간 (0 이면 평소 상태)
+
+// 업그레이드 카드 크기와 위치
+const UPGRADE_CARD_WIDTH = 300;
+const UPGRADE_CARD_HEIGHT = 290;
+const UPGRADE_CARD_GAP = 40;
+const UPGRADE_CARD_TOP = 150;
+// 저장 초기화: 두 번째 누름을 기다리는 시간 (초)
+const RESET_CONFIRM_TIME = 3;
+
+// 업그레이드 화면을 여는 함수 (메뉴, 결과 화면에서)
+function openUpgrades() {
+  gameState = "upgrades";
+  upgradeShake = UPGRADES.map(function () { return 0; });
+  upgradeToast = "";
+  upgradeToastTimer = 0;
+  resetArmTimer = 0;
+  canvas.style.cursor = "default";
+}
+
+// i 번째 업그레이드 카드의 왼쪽 위 위치
+function upgradeCardPos(i) {
+  const n = UPGRADES.length;
+  const total = n * UPGRADE_CARD_WIDTH + (n - 1) * UPGRADE_CARD_GAP;
+  return { x: (CANVAS_WIDTH - total) / 2 + i * (UPGRADE_CARD_WIDTH + UPGRADE_CARD_GAP), y: UPGRADE_CARD_TOP };
+}
+
+// i 번째 카드의 구매 버튼 사각형
+function upgradeBuyRect(i) {
+  const p = upgradeCardPos(i);
+  return { x: p.x + 40, y: p.y + UPGRADE_CARD_HEIGHT - 66, w: UPGRADE_CARD_WIDTH - 80, h: 48 };
+}
+
+// 메뉴로 돌아가는 버튼, 저장 초기화 버튼의 사각형
+const UPGRADE_BACK_RECT = { x: 20, y: 20, w: 120, h: 44 };
+function resetButtonRect() {
+  const w = resetArmTimer > 0 ? 230 : 130;             // 확인 상태에서는 글자가 길어져 넓게
+  return { x: CANVAS_WIDTH - 20 - w, y: CANVAS_HEIGHT - 58, w: w, h: 40 };
+}
+
+// 점 (x, y) 가 사각형 r 안에 있는지
+function insideRect(x, y, r) {
+  return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+
+// 업그레이드 화면에서 (x, y) 에 있는 버튼 (없으면 null)
+function upgradeButtonAt(x, y) {
+  // 카드(구매 버튼 포함 카드 전체)를 누르면 구매
+  for (let i = 0; i < UPGRADES.length; i++) {
+    const p = upgradeCardPos(i);
+    if (insideRect(x, y, { x: p.x, y: p.y, w: UPGRADE_CARD_WIDTH, h: UPGRADE_CARD_HEIGHT })) return { kind: "buy", index: i };
+  }
+  if (insideRect(x, y, UPGRADE_BACK_RECT)) return { kind: "back" };
+  if (insideRect(x, y, resetButtonRect())) return { kind: "reset" };
+  return null;
+}
+
+// i 번째 업그레이드 사기를 시도한다 (결과에 따라 알림 또는 흔들림)
+function tryBuyUpgrade(i) {
+  const up = UPGRADES[i];
+  if (!up) return;
+  const result = buyUpgrade(up);
+  if (result === "ok") {
+    upgradeToast = up.name + " Lv." + upgradeLevel(up) + "!  " + up.label(up.valueAt(upgradeLevel(up)));
+    upgradeToastTimer = 1.5;
+  } else if (result === "poor") {
+    upgradeShake[i] = 0.35;                 // 카드가 살짝 흔들린다
+    upgradeToast = "코인이 모자라요! (" + upgradeCost(up) + " 필요)";
+    upgradeToastTimer = 1.5;
+  } else {
+    upgradeToast = up.name + "은(는) 이미 최대 레벨이에요";
+    upgradeToastTimer = 1.5;
+  }
+}
+
+// 저장 초기화 버튼: 첫 번째 누름은 "확인 대기", 3초 안에 한 번 더 누르면 실행
+function pressResetSave() {
+  if (resetArmTimer > 0) {
+    resetSave();
+    resetArmTimer = 0;
+    upgradeToast = "저장을 초기화했어요 (코인 0, 레벨 0)";
+    upgradeToastTimer = 2;
+  } else {
+    resetArmTimer = RESET_CONFIRM_TIME;
+  }
+}
+
+// 업그레이드 화면의 시간 흐름 (흔들림, 알림, 초기화 대기 시간)
+function updateUpgradeScreen(dt) {
+  // 카드마다 흔들림 시간을 줄이는 반복문
+  for (let i = 0; i < upgradeShake.length; i++) {
+    upgradeShake[i] = Math.max(0, upgradeShake[i] - dt);
+  }
+  upgradeToastTimer = Math.max(0, upgradeToastTimer - dt);
+  resetArmTimer = Math.max(0, resetArmTimer - dt);
+}
+
+// 업그레이드 아이콘 그리기 ("heart" = 하트, "bullet" = 총알)
+function drawUpgradeIcon(shape, x, y, s) {
+  if (shape === "heart") {
+    // 하트: 위쪽 두 혹 + 아래 뾰족한 끝을 곡선으로 잇는다
+    ctx.beginPath();
+    ctx.moveTo(x, y + s * 0.75);
+    ctx.bezierCurveTo(x - s * 1.25, y - s * 0.05, x - s * 0.55, y - s * 1.05, x, y - s * 0.4);
+    ctx.bezierCurveTo(x + s * 0.55, y - s * 1.05, x + s * 1.25, y - s * 0.05, x, y + s * 0.75);
+    ctx.closePath();
+    ctx.fillStyle = COLORS.red;
+    ctx.fill();
+    setOutline(SMALL_OUTLINE_WIDTH);
+    ctx.stroke();
+    drawHighlight(x - s * 0.35, y - s * 0.2, s * 0.6);
+  } else {
+    // 총알: 비스듬한 꼬리 + 노란 알갱이
+    setOutline(s * 0.55 + SMALL_OUTLINE_WIDTH * 2);
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.7, y + s * 0.7);
+    ctx.lineTo(x + s * 0.2, y - s * 0.2);
+    ctx.stroke();
+    ctx.strokeStyle = COLORS.yellow;
+    ctx.lineWidth = s * 0.55;
+    ctx.stroke();
+    drawOutlinedCircle(x + s * 0.25, y - s * 0.25, s * 0.55, COLORS.yellow, SMALL_OUTLINE_WIDTH);
+    drawHighlight(x + s * 0.25, y - s * 0.25, s * 0.55);
+  }
+}
+
+// 업그레이드 카드 한 장
+function drawUpgradeCard(up, i) {
+  const p = upgradeCardPos(i);
+  const w = UPGRADE_CARD_WIDTH, h = UPGRADE_CARD_HEIGHT;
+  const level = upgradeLevel(up);
+  const isMax = level >= up.maxLevel;
+  const cost = upgradeCost(up);
+  const canBuy = !isMax && saveData.coins >= cost;
+
+  ctx.save();
+  // 코인이 모자란데 누르면 좌우로 살짝 흔들린다 (사인 곡선으로 빠르게 왕복)
+  const shake = upgradeShake[i] > 0 ? Math.sin(upgradeShake[i] * 60) * 7 * (upgradeShake[i] / 0.35) : 0;
+  ctx.translate(p.x + shake, p.y);
+
+  // 그림자 + 몸통
+  roundRectPath(7, 7, w, h, 22);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(0, 0, w, h, 22, COLORS.white);
+
+  // 위쪽 색 띠: 아이콘 + 이름
+  drawOutlinedRoundRect(12, 12, w - 24, 60, 16, COLORS[up.color]);
+  drawUpgradeIcon(up.icon, 48, 42, 15);
+  drawOutlinedText(up.name, w / 2 + 14, 42, 30);
+
+  // 번호 배지 (이 번호 키로도 살 수 있다)
+  drawOutlinedCircle(4, 4, 17, COLORS.outline);
+  drawOutlinedText(String(i + 1), 4, 5, 19, "center", COLORS.yellow);
+
+  // 개념
+  ctx.font = "15px " + FONT_FAMILY;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.brown;
+  ctx.fillText(up.concept, w / 2, 92);
+
+  // 레벨 (Lv.3 / 30)
+  drawOutlinedText("Lv." + level + " / " + up.maxLevel, w / 2, 126, 30, "center", COLORS[up.color]);
+
+  // 지금 값 → 다음 값
+  const now = up.label(up.valueAt(level));
+  const next = isMax ? "최대!" : String(up.valueAt(level + 1));
+  ctx.font = "20px " + FONT_FAMILY;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillText(now + "  →  " + next, w / 2, 166);
+
+  // 비용 (동전 아이콘 + 숫자)
+  if (!isMax) {
+    ctx.font = "22px " + FONT_FAMILY;
+    const costText = String(cost);
+    const tw = ctx.measureText(costText).width;
+    drawCoinIcon(w / 2 - tw / 2 - 14, 198, 10);
+    drawOutlinedText(costText, w / 2 + 6, 198, 22, "center", canBuy ? COLORS.yellow : COLORS.gray);
+  }
+
+  // 구매 버튼: 살 수 있으면 초록, 코인이 모자라면 회색, 최대면 MAX
+  const b = upgradeBuyRect(i);
+  const bx = b.x - p.x, by = b.y - p.y;
+  const buttonColor = isMax ? COLORS.yellow : (canBuy ? COLORS.green : COLORS.gray);
+  drawOutlinedRoundRect(bx, by, b.w, b.h, 22, buttonColor);
+  drawOutlinedText(isMax ? "MAX" : "구매", bx + b.w / 2, by + b.h / 2 + 1, 24);
+
+  ctx.restore();
+}
+
+// 업그레이드 화면 전체
+function drawUpgradeScreen() {
+  // 제목 스티커
+  ctx.save();
+  ctx.translate(CANVAS_WIDTH / 2, 58);
+  ctx.rotate(-0.03);
+  roundRectPath(-150 + 6, -32 + 6, 300, 64, 22);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(-150, -32, 300, 64, 22, COLORS.yellow);
+  drawOutlinedText("업그레이드", 0, 2, 38);
+  ctx.restore();
+
+  // 보유 코인
+  const coinText = "보유 코인 " + saveData.coins;
+  ctx.font = "24px " + FONT_FAMILY;
+  const cw = ctx.measureText(coinText).width;
+  drawCoinIcon(CANVAS_WIDTH / 2 - cw / 2 - 18, 118, 12);
+  drawOutlinedText(coinText, CANVAS_WIDTH / 2 + 6, 118, 24, "center", COLORS.yellow);
+
+  // 업그레이드 카드들
+  for (let i = 0; i < UPGRADES.length; i++) {
+    drawUpgradeCard(UPGRADES[i], i);
+  }
+
+  // 메뉴로 버튼 (왼쪽 위)
+  const back = UPGRADE_BACK_RECT;
+  drawOutlinedRoundRect(back.x, back.y, back.w, back.h, 20, COLORS.brown);
+  drawOutlinedText("← 메뉴", back.x + back.w / 2, back.y + back.h / 2 + 1, 20);
+
+  // 조작 안내 / 알림
+  if (upgradeToastTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, upgradeToastTimer / 0.3);
+    drawOutlinedText(upgradeToast, CANVAS_WIDTH / 2, 470, 20, "center", COLORS.yellow);
+    ctx.restore();
+  } else {
+    drawOutlinedText("클릭 또는 1 · 2 키로 구매 · Esc / M 메뉴로 · 최고 웨이브 " + saveData.bestWave,
+      CANVAS_WIDTH / 2, 470, 17);
+  }
+
+  // 저장 초기화 버튼 (오른쪽 아래 구석, 두 번 눌러야 실행)
+  const r = resetButtonRect();
+  const armed = resetArmTimer > 0;
+  drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 18, armed ? COLORS.red : COLORS.gray, SMALL_OUTLINE_WIDTH);
+  drawOutlinedText(armed ? "한 번 더 누르면 초기화 (" + Math.ceil(resetArmTimer) + ")" : "저장 초기화",
+    r.x + r.w / 2, r.y + r.h / 2 + 1, 15);
 }
 
 // ---- 메뉴 화면 ----
@@ -2469,7 +2794,7 @@ function drawDebug() {
   const x = 14;
   const y = CANVAS_HEIGHT - 18;
   drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
-  drawOutlinedText("[ ] 웨이브  Shift+1~9 증강  Shift+0 체력  I 무적  F2 끄기", x, y - 22, 13, "left");
+  drawOutlinedText("[ ] 웨이브  Shift+1~9 증강  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
   if (debugMessageTimer > 0 && debugMessage) {
     drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
   }
@@ -2482,6 +2807,12 @@ function draw() {
   // 메뉴 화면은 따로 그리고 끝낸다
   if (gameState === "menu") {
     drawMenu();
+    drawDebug();
+    return;
+  }
+  // 업그레이드 화면도 따로 그리고 끝낸다
+  if (gameState === "upgrades") {
+    drawUpgradeScreen();
     drawDebug();
     return;
   }

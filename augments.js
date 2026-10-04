@@ -116,7 +116,7 @@ const ARITH_D = [2, 3, 4];
 
 // 제곱 증폭: 레벨별 "몇 번째 명중마다" 제곱하는지
 const SQUARE_EVERY = [3, 2, 2];
-// 제곱 증폭: 레벨별 배율 상한 (D²/10 = D × D/10 에서 D/10 이 이 값을 넘지 않게)
+// 제곱 증폭: 레벨별 배율 상한 (D² ÷ 기본 대미지 = D × (D ÷ 기본 대미지) 에서 뒤쪽 배율이 이 값을 넘지 않게)
 const SQUARE_MAX_MULT = [5, 5, 7];
 
 // 3방향 탄: 레벨별 총알 수 n (360° ÷ n 간격으로 퍼진다)
@@ -366,7 +366,7 @@ const AUGMENTS = [
       // D²/10 = D × (D/10). 곱하는 배율 D/10 은 상한까지만
       // (거듭제곱의 성질: 1보다 큰 수는 제곱하면 커지고, 1보다 작은 수는 제곱하면 작아진다.
       //  그래서 D 가 10보다 작으면 배율 D/10 이 1보다 작아 대미지가 줄어든다)
-      const mult = Math.min(damage / BULLET_DAMAGE, stats.maxMult);
+      const mult = Math.min(damage / player.damage, stats.maxMult); // 기본 대미지(공격력 업그레이드 포함) 기준
       return damage * mult;
     },
   },
@@ -466,7 +466,7 @@ const AUGMENTS = [
       if (count <= 0) return;
 
       // 파편 하나의 대미지 = 죽은 적 최대 체력 × 에너지 → 총알 대미지 배율로 바꿔 둔다
-      const damageScale = (info.enemy.maxHp * energy) / BULLET_DAMAGE;
+      const damageScale = (info.enemy.maxHp * energy) / player.damage;
       const start = Math.random() * Math.PI * 2;       // 첫 파편 방향만 무작위
       const step = (Math.PI * 2) / stats.fragments;    // 360° ÷ m 간격
       // 파편을 하나씩 만드는 반복문
