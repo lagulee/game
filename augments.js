@@ -137,6 +137,9 @@ const FISSION_MAX_FRAGMENTS = 40;
 // 핵분열 연쇄: 파편이 날아가는 시간 (초). 0.5초 × 480px/초 ≈ 240px 까지만 날아간다
 const FISSION_FRAGMENT_LIFE = 0.5;
 
+// 촉매: 레벨별 발사 간격 감소율 (0.2 = 20% 감소 → 간격 × 0.8)
+const CATALYST_REDUCTION = [0.2, 0.3];
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -441,6 +444,28 @@ const AUGMENTS = [
         frag.isFragment = true;
         frag.energy = energy;
       }
+    },
+  },
+  {
+    id: "catalyst",
+    name: "촉매",
+    concept: "화학 · 반응 속도",
+    formula: "간격 × 0.8",
+    color: "green",
+    levels: [
+      {
+        reduction: CATALYST_REDUCTION[0],
+        desc: "촉매는 반응에 필요한 에너지 언덕을 낮춰 반응을 빠르게 한다. 발사 간격 20% 감소 (0.4초 → 0.32초)",
+      },
+      {
+        reduction: CATALYST_REDUCTION[1],
+        desc: "더 좋은 촉매! 발사 간격 30% 감소 (0.4초 → 0.28초)",
+      },
+    ],
+
+    // 발사 간격 × (1 − 감소율)
+    modifyFireInterval: function (interval, stats) {
+      return interval * (1 - stats.reduction);
     },
   },
 ];

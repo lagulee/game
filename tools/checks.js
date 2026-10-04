@@ -331,4 +331,22 @@ module.exports = [
         " / 3세대 " + g3count + "개 / 제한 " + capped + " / Lv2 " + lv2 + "개 " + lv2dmg + " / 수명 후 사라짐=" + goneAfterLife };
     },
   },
+  {
+    name: "[증강] 촉매: 발사 간격 × 0.8 (Lv.1), × 0.7 (Lv.2), 실제 발사 수도 늘어남",
+    run: function () {
+      runMenuAction(0);
+      ownedAugments = {}; const base = fireInterval();
+      ownedAugments = { catalyst: 1 }; const lv1 = fireInterval();
+      ownedAugments = { catalyst: 2 }; const lv2 = fireInterval();
+      // 10초 동안 쏜 횟수 비교 (멈춰 있는 과녁 하나)
+      const shots = (own) => { runMenuAction(0); spawnQueue = []; ownedAugments = own; player.hp = 1e9;
+        enemies = [createEnemy("basic", player.x + 150, player.y, 1)]; enemies[0].hp = enemies[0].maxHp = 1e9; enemies[0].speed = 0;
+        let n = 0; const orig = createBullet;
+        for (let f = 0; f < 600; f++) { const before = bullets.length; update(1 / 60); if (bullets.length > before) n++; }
+        return n; };
+      const n0 = shots({}), n1 = shots({ catalyst: 1 });
+      const ok = Math.abs(base - 0.4) < 1e-12 && Math.abs(lv1 - 0.32) < 1e-12 && Math.abs(lv2 - 0.28) < 1e-12 && n1 > n0;
+      return { ok: ok, detail: "간격 " + base + " → " + lv1.toFixed(2) + " → " + lv2.toFixed(2) + " / 10초 발사 " + n0 + "발 → " + n1 + "발" };
+    },
+  },
 ];
