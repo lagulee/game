@@ -42,7 +42,8 @@ module.exports = [
       enemies[0].speed = 0;
       for (let f = 0; f < 600 && enemies.length; f++) update(1 / 60);
       const last = calls[calls.length - 1];
-      const ok = calls.length === 6 && calls.slice(0, 5).every((c) => !c.killed && c.dmg === 10) &&
+      const hits = Math.ceil(createEnemy("basic", 0, 0, 1).maxHp / 10); // 죽을 때까지 맞는 횟수 (웨이브 배율 반영)
+      const ok = calls.length === hits && calls.slice(0, hits - 1).every((c) => !c.killed && c.dmg === 10) &&
         last.killed && last.hpAfter <= 0 && !last.dead && calls.every((c) => c.hasBullet) && dmgInfoHasBullet;
       return { ok: ok, detail: "호출 " + calls.length + "회, 마지막 killed=" + (last && last.killed) + ", 죽는 처리 전 호출=" + (last && !last.dead) };
     },
@@ -123,8 +124,8 @@ module.exports = [
       const gaps = []; for (let i = 1; i < times.length; i++) gaps.push(+(times[i] - times[i - 1]).toFixed(2));
       const seq = log.map((x) => x.split("@")[0]).slice(0, 5).join(">");
       const ok = seq === "warn>dash>rest>approach>warn" && Math.abs(gaps[0] - 0.6) < 0.03 &&
-        Math.abs(gaps[1] - 0.5) < 0.03 && Math.abs(gaps[2] - 1.0) < 0.03 && Math.abs(dashSpeed - 210) < 1;
-      return { ok: ok, detail: seq + " / 간격 " + gaps.slice(0, 3).join(", ") + "초 / 돌진 속도 " + dashSpeed.toFixed(1) + " (평소 70의 3배)" };
+        Math.abs(gaps[1] - 0.5) < 0.03 && Math.abs(gaps[2] - 1.0) < 0.03 && Math.abs(dashSpeed - e.speed * 3) < 1;
+      return { ok: ok, detail: seq + " / 간격 " + gaps.slice(0, 3).join(", ") + "초 / 돌진 속도 " + dashSpeed.toFixed(1) + " (평소 " + e.speed.toFixed(1) + "의 3배)" };
     },
   },
   {
@@ -234,8 +235,9 @@ module.exports = [
     },
   },
   {
-    name: "[30D] 무적으로 1 → 30웨이브 자동 진행 후 클리어, 보스 7마리 처치, 결과 화면",
+    name: "[30D] 무적 + 업그레이드 최대로 1 → 30웨이브 자동 진행 후 클리어, 보스 7마리 처치, 결과 화면",
     run: function () {
+      saveData.upgrades = { vitality: 30, power: 30 }; // 업그레이드를 다 산 상태로
       runMenuAction(0); debugMode = true; debugInvincible = true;
       const DT = 1 / 60; const seen = []; let f = 0; const waveTime = {}; let t = 0;
       for (; f < 60 * 60 * 40 && gameState !== "clear"; f++) {
@@ -320,21 +322,21 @@ module.exports = [
       bullets = []; killWith({ isFragment: false }, e);
       const g1 = bullets.slice();
       const angle = Math.abs(Math.atan2(g1[0].vy, g1[0].vx) - Math.atan2(g1[1].vy, g1[1].vx)) * 180 / Math.PI;
-      const dmg1 = g1[0].damageScale * BULLET_DAMAGE;                       // 60 × 0.2 = 12
+      const dmg1 = g1[0].damageScale * player.damage;                       // 최대 체력 × 0.2
       bullets = []; killWith(g1[0], e); const g2 = bullets.slice();
-      const dmg2 = g2[0].damageScale * BULLET_DAMAGE;                       // 12 → 60 × 0.12 = 7.2
+      const dmg2 = g2[0].damageScale * player.damage;                       // 최대 체력 × 0.2 × 0.6
       bullets = []; killWith(g2[0], e); const g3count = bullets.length;     // 2세대가 죽이면 끝
       ownedAugments = { fission: 2 };
       bullets = []; for (let i = 0; i < 30; i++) killWith({}, e);
       const capped = bullets.filter((b) => b.isFragment).length;
-      bullets = []; killWith({}, e); const lv2 = bullets.length; const lv2dmg = bullets[0].damageScale * BULLET_DAMAGE;
+      bullets = []; killWith({}, e); const lv2 = bullets.length; const lv2dmg = bullets[0].damageScale * player.damage;
       // 수명: 0.5초 뒤 사라진다
       bullets = []; killWith({}, createEnemy("basic", 480, 270, 1));
       for (let f = 0; f < 32; f++) updateBullets(1 / 60);
       const goneAfterLife = bullets.length === 0;
-      const ok = g1.length === 2 && Math.abs(angle - 180) < 1e-6 && Math.abs(dmg1 - 12) < 1e-9 &&
-        g1[0].generation === 1 && g2.length === 2 && g2[0].generation === 2 && Math.abs(dmg2 - 7.2) < 1e-9 &&
-        g3count === 0 && capped === 40 && lv2 === 3 && Math.abs(lv2dmg - 15) < 1e-9 && goneAfterLife &&
+      const ok = g1.length === 2 && Math.abs(angle - 180) < 1e-6 && Math.abs(dmg1 - e.maxHp * 0.2) < 1e-9 &&
+        g1[0].generation === 1 && g2.length === 2 && g2[0].generation === 2 && Math.abs(dmg2 - e.maxHp * 0.12) < 1e-9 &&
+        g3count === 0 && capped === 40 && lv2 === 3 && Math.abs(lv2dmg - e.maxHp * 0.25) < 1e-9 && goneAfterLife &&
         g1.every((b) => b.fromAugment);
       return { ok: ok, detail: "1세대 " + g1.length + "개 " + angle.toFixed(0) + "° 간격 " + dmg1 + " / 2세대 " + dmg2.toFixed(1) +
         " / 3세대 " + g3count + "개 / 제한 " + capped + " / Lv2 " + lv2 + "개 " + lv2dmg + " / 수명 후 사라짐=" + goneAfterLife };
@@ -466,17 +468,20 @@ module.exports = [
   },
   // ---------------- 30웨이브 A: 웨이브 스케일링 ----------------
   {
-    name: "[30A] 속도 배율은 1~30웨이브 내내 1.6 이하, 체력 30웨이브 3.03배, 대미지 1.87배",
+    name: "[30A·성장D] 웨이브 배율: 속도 ≤ 1.8, 체력 2×(1+0.12(w−1)), 대미지 1.5×(1+0.05(w−1)), 웨이브 회복 10%, 항상성 40%",
     run: function () {
       let maxSpeed = 0;
       for (let w = 1; w <= 30; w++) maxSpeed = Math.max(maxSpeed, waveSpeedMult(w));
       const e30 = createEnemy("basic", 0, 0, 30), e1 = createEnemy("basic", 0, 0, 1);
-      const ok = maxSpeed <= 1.6 && waveSpeedMult(1) === 1 && Math.abs(waveSpeedMult(25) - 1.6) < 1e-12 &&
-        Math.abs(waveHpMult(30) - 3.03) < 1e-9 && Math.abs(waveDamageMult(30) - 1.87) < 1e-9 &&
-        Math.abs(e30.speed - 96) < 1e-9 && Math.abs(e30.maxHp - 181.8) < 1e-9 && Math.abs(e30.contactDamage - 37.4) < 1e-9 &&
-        e1.speed === 60 && e1.maxHp === 60 && e1.contactDamage === 20;
-      return { ok: ok, detail: "최대 속도 배율 " + maxSpeed + " / 30웨이브 기본 적: 속도 " + e30.speed.toFixed(1) +
-        ", 체력 " + e30.maxHp.toFixed(1) + ", 접촉 " + e30.contactDamage.toFixed(1) };
+      runMenuAction(0); player.maxHp = 200; player.hp = 50; spawnQueue = []; enemies = []; checkWaveEnd(); const heal = player.hp; // +20
+      player.hp = 50; SUPPLIES.find((s) => s.id === "homeostasis").apply(); const homeo = player.hp;                       // +80
+      const ok = maxSpeed <= 1.8 && Math.abs(waveSpeedMult(1) - 1.15) < 1e-12 && Math.abs(waveHpMult(1) - 2) < 1e-12 &&
+        Math.abs(waveHpMult(30) - 8.96) < 1e-9 && Math.abs(waveDamageMult(30) - 3.675) < 1e-9 &&
+        Math.abs(e1.maxHp - 120) < 1e-9 && Math.abs(e1.contactDamage - 30) < 1e-9 && Math.abs(e30.speed - 60 * maxSpeed) < 1e-9 &&
+        heal === 70 && homeo === 130;
+      return { ok: ok, detail: "최대 속도 배율 " + maxSpeed.toFixed(3) + " / 1웨이브 기본 적 체력 " + e1.maxHp + ", 접촉 " + e1.contactDamage +
+        " / 30웨이브 체력 " + e30.maxHp.toFixed(1) + ", 접촉 " + e30.contactDamage.toFixed(1) + ", 속도 " + e30.speed.toFixed(1) +
+        " / 최대 200일 때 웨이브 회복 50→" + heal + ", 항상성 50→" + homeo };
     },
   },
   // ---------------- 30웨이브 B: 회복과 진행 ----------------
@@ -682,8 +687,8 @@ module.exports = [
       ownedAugments = { fission: 1 }; bullets = [];
       const aug = AUGMENTS.find((a) => a.id === "fission"); const e = createEnemy("basic", 400, 300, 1);
       aug.onKill(aug.levels[0], { enemy: e, x: 400, y: 300, bullet: {} });
-      const frag = bullets[0].damageScale * player.damage;   // 60 × 0.2 = 12 (공격력과 상관없이)
-      return { ok: sq === 80 && Math.abs(frag - 12) < 1e-9, detail: "제곱 " + sq + " / 파편 " + frag };
+      const frag = bullets[0].damageScale * player.damage;   // 최대 체력 × 0.2 (공격력과 상관없이)
+      return { ok: sq === 80 && Math.abs(frag - e.maxHp * 0.2) < 1e-9, detail: "제곱 " + sq + " / 파편 " + frag + " (적 최대 체력 " + e.maxHp + "의 20%)" };
     },
   },
   {

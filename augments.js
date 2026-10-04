@@ -570,8 +570,8 @@ function timeDilationFactor(playerSpeed, playerMaxSpeed) {
 //   apply()         → 고른 순간 한 번 실행되는 효과
 // =============================================================
 
-// 항상성: 회복하는 체력
-const SUPPLY_HEAL = 40;
+// 항상성: 최대 체력의 이 비율만큼 회복 (0.4 = 40%)
+const SUPPLY_HEAL_RATIO = 0.4;
 // 세포 분열: 늘어나는 최대 체력과 함께 회복하는 체력
 const SUPPLY_MAX_HP_UP = 20;
 const SUPPLY_DIVISION_HEAL = 20;
@@ -582,11 +582,11 @@ const SUPPLIES = [
     isSupply: true,
     name: "항상성",
     concept: "생물 · 항상성",
-    formula: "체력 +40",
+    formula: "체력 +40%",
     color: "green",
-    desc: "몸은 언제나 원래 상태로 돌아가려 한다(항상성). 체력을 40 회복한다",
+    desc: "몸은 언제나 원래 상태로 돌아가려 한다(항상성). 최대 체력의 40% 를 회복한다",
     apply: function () {
-      healPlayer(SUPPLY_HEAL);
+      healPlayer(player.maxHp * SUPPLY_HEAL_RATIO);
     },
   },
   {

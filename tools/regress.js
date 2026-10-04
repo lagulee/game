@@ -62,6 +62,16 @@ function scenarioRunner(config) {
     return (h >>> 0).toString(16);
   }
 
+  if (config === "beforeGrowthD") {
+    // 성장 D 이전 규칙 되돌리기: 적 강화 상수를 옛 값(BASE 1, 옛 GROWTH)으로, 회복은 고정량으로.
+    // (업그레이드 레벨은 가짜 저장소라 처음부터 0) → golden/old-config-before-growth-d.txt 와 상태가 같아야 한다
+    window.waveSpeedMult = function (w) { return Math.min(1.6, 1 + 0.025 * (w - 1)); };
+    window.waveHpMult = function (w) { return 1 + 0.07 * (w - 1); };
+    window.waveDamageMult = function (w) { return 1 + 0.03 * (w - 1); };
+    window.waveClearHeal = function () { return 10; };
+    config = "old";
+  }
+
   if (config === "legacy") {
     // "옛 규칙" 되돌리기: 새로 바뀐 규칙만 예전 방식으로 바꿔 끼운다.
     // 이 상태에서 기록이 golden/old-config-legacy.txt 와 같으면
@@ -231,6 +241,19 @@ function compare(label, actual, file) {
   allOk = compare("새 설정 (지금 waves.js)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config.txt")) && allOk;
   // 옛 규칙 되돌리기 검사: 화면 그림(draw)은 HUD 글자 등이 바뀔 수 있으니 빼고, 상태 기록만 비교
   const stateOnly = (text) => text.split("\n").filter((l) => !/ draw /.test(l) && !/ menuDraw /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
+  const beforeDFile = path.join(GOLDEN, "old-config-before-growth-d.txt");
+  if (fs.existsSync(beforeDFile)) {
+    const now = stateOnly(await trace(browser, ROOT, "beforeGrowthD"));
+    const want = stateOnly(fs.readFileSync(beforeDFile, "utf8"));
+    if (now === want) console.log("  PASS 성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 완전히 같음");
+    else {
+      allOk = false;
+      const x = now.split("\n"), y = want.split("\n"); let i = 0; while (x[i] === y[i]) i++;
+      console.log("  FAIL 성장 D 되돌리기: 상태 기록 " + (i + 1) + "번째 줄부터 다름");
+      console.log("     기록: " + (y[i] || "").slice(0, 200));
+      console.log("     지금: " + (x[i] || "").slice(0, 200));
+    }
+  }
   const legacyFile = path.join(GOLDEN, "old-config-legacy.txt");
   if (fs.existsSync(legacyFile)) {
     const now = stateOnly(await trace(browser, ROOT, "legacy"));

@@ -48,31 +48,35 @@
 // ---- 공통 ----
 
 // ---- 웨이브 스케일링 : 웨이브가 올라갈수록 적이 얼마나 강해지는지 ----
-// w = 웨이브 번호 (1부터). 세 배율 모두 "1 + 증가량 × (w − 1)" 꼴의 등차수열이다.
-//   1웨이브는 언제나 1배, 한 웨이브마다 증가량만큼 일정하게 늘어난다.
+// w = 웨이브 번호 (1부터). 배율 = 기본 배율(BASE) × (1 + 증가량(GROWTH) × (w − 1))
+//   BASE   : 1웨이브부터 이미 몇 배인지 (영구 업그레이드로 따라잡아야 할 "출발선")
+//   GROWTH : 한 웨이브마다 BASE 의 몇 % 씩 늘어나는지 (등차수열)
+// 아래 숫자를 바꾸면 게임 전체 난이도가 바뀐다. tools/balance.js 로 측정해서 맞춘 값이다.
 
-// 속도: 한 웨이브마다 2.5% 씩 빨라지지만 1.6배를 넘지 않는다
-//   (30웨이브: 1 + 0.025 × 29 = 1.725 → 1.6 에서 멈춤. 기본 적 60 → 96px/초)
+// 체력: 1웨이브 2배, 한 웨이브마다 +12%  (30웨이브: 2 × (1 + 0.12 × 29) = 8.96배)
+const ENEMY_HP_BASE = 2.0;
+const ENEMY_HP_GROWTH = 0.12;
+// 접촉 대미지: 1웨이브 1.5배, 한 웨이브마다 +5%  (30웨이브: 1.5 × 2.45 = 3.675배)
+const ENEMY_DMG_BASE = 1.5;
+const ENEMY_DMG_GROWTH = 0.05;
+// 속도: 1웨이브 1.15배, 한 웨이브마다 +2.5%, 단 1.8배를 넘지 않는다
+const ENEMY_SPEED_BASE = 1.15;
 const ENEMY_SPEED_STEP = 0.025;
-const ENEMY_SPEED_MAX_MULT = 1.6;
-// 체력: 한 웨이브마다 7% 씩 (30웨이브: 1 + 0.07 × 29 = 3.03배)
-const ENEMY_HP_STEP = 0.07;
-// 접촉 대미지: 한 웨이브마다 3% 씩 (30웨이브: 1 + 0.03 × 29 = 1.87배)
-const ENEMY_DAMAGE_STEP = 0.03;
+const ENEMY_SPEED_MAX_MULT = 1.8;
 
-// w 웨이브의 속도 배율 = min(1.6, 1 + 0.025 × (w − 1))
+// w 웨이브의 속도 배율 = min(1.8, 1.15 × (1 + 0.025 × (w − 1)))
 function waveSpeedMult(w) {
-  return Math.min(ENEMY_SPEED_MAX_MULT, 1 + ENEMY_SPEED_STEP * (w - 1));
+  return Math.min(ENEMY_SPEED_MAX_MULT, ENEMY_SPEED_BASE * (1 + ENEMY_SPEED_STEP * (w - 1)));
 }
 
-// w 웨이브의 체력 배율 = 1 + 0.07 × (w − 1)
+// w 웨이브의 체력 배율 = 2.0 × (1 + 0.12 × (w − 1))
 function waveHpMult(w) {
-  return 1 + ENEMY_HP_STEP * (w - 1);
+  return ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1));
 }
 
-// w 웨이브의 접촉 대미지 배율 = 1 + 0.03 × (w − 1)
+// w 웨이브의 접촉 대미지 배율 = 1.5 × (1 + 0.05 × (w − 1))
 function waveDamageMult(w) {
-  return 1 + ENEMY_DAMAGE_STEP * (w - 1);
+  return ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * (w - 1));
 }
 
 // 적 종류(type)가 w 웨이브에 태어났을 때의 속도·체력·접촉 대미지를 한 번에 계산

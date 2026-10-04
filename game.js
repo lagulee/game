@@ -82,8 +82,8 @@ const PLAYER_MAX_HP = 100;
 // 체력이 최대 체력의 이 비율보다 낮으면, 카드 3장 중 1장은 반드시 보급 카드가 나온다
 const LOW_HP_RATIO = 0.4;
 
-// 웨이브를 깨면 회복하는 체력 (최대 체력까지만)
-const WAVE_CLEAR_HEAL = 10;
+// 웨이브를 깨면 최대 체력의 이 비율만큼 회복 (0.1 = 10%. 최대 체력까지만)
+const WAVE_CLEAR_HEAL_RATIO = 0.1;
 
 // 보스를 잡으면 최대 체력의 이 비율만큼 회복 (0.5 = 50%)
 const BOSS_KILL_HEAL_RATIO = 0.5;
@@ -822,7 +822,7 @@ function pickChoices() {
 
 // 웨이브를 깼을 때 회복하는 양 (함수로 둔 이유: 나중에 증강이나 난이도로 바꾸기 쉽게)
 function waveClearHeal() {
-  return WAVE_CLEAR_HEAL;
+  return player.maxHp * WAVE_CLEAR_HEAL_RATIO;
 }
 
 // 지금 웨이브가 몇 번째 챕터인지 (1~5 → 1, 6~10 → 2 ...)
