@@ -901,6 +901,27 @@ function updateEnemies(dt) {
       localDt: dt * enemy.slowFactor,
     });
 
+    // 넉백으로 밀리는 중이면: 밀리는 속도만큼 움직이고, 속도는 지수적으로 줄어든다
+    // (이것도 이 적의 시계 localDt 로 계산 → 시간 지연을 받으면 천천히 밀린다)
+    if (enemy.knockVx || enemy.knockVy) {
+      const localDt = dt * enemy.slowFactor;
+      // 매 순간 속도가 KNOCKBACK_DECAY 비율로 줄어든다: v(t) = v₀ · e^(−k·t)   (k = 감쇠율)
+      // 이번 프레임 동안 남는 속도 비율
+      const keep = Math.exp(-KNOCKBACK_DECAY * localDt);
+      // 이번 프레임에 실제로 밀린 거리 = 속도를 시간으로 적분한 값 = v · (1 − e^(−k·Δt)) / k
+      // (그냥 v × Δt 로 하면 줄어드는 속도를 반영 못 해서 조금 더 멀리 밀린다)
+      const travel = (1 - keep) / KNOCKBACK_DECAY;
+      enemy.x += enemy.knockVx * travel;
+      enemy.y += enemy.knockVy * travel;
+      enemy.knockVx *= keep;
+      enemy.knockVy *= keep;
+      // 거의 멈췄으면 0 으로 정리
+      if (Math.abs(enemy.knockVx) + Math.abs(enemy.knockVy) < 1) {
+        enemy.knockVx = 0;
+        enemy.knockVy = 0;
+      }
+    }
+
     // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
   }

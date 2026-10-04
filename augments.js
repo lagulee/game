@@ -140,6 +140,12 @@ const FISSION_FRAGMENT_LIFE = 0.5;
 // 촉매: 레벨별 발사 간격 감소율 (0.2 = 20% 감소 → 간격 × 0.8)
 const CATALYST_REDUCTION = [0.2, 0.3];
 
+// 넉백: 레벨별 처음 밀어내는 속도 (px/초)
+const KNOCKBACK_SPEED = [240, 360];
+// 넉백: 밀리는 속도가 줄어드는 감쇠율 (1/초). 총 밀리는 거리 ≈ 처음 속도 ÷ 감쇠율
+//   240 ÷ 6 = 40px, 360 ÷ 6 = 60px
+const KNOCKBACK_DECAY = 6;
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -466,6 +472,31 @@ const AUGMENTS = [
     // 발사 간격 × (1 − 감소율)
     modifyFireInterval: function (interval, stats) {
       return interval * (1 - stats.reduction);
+    },
+  },
+  {
+    id: "knockback",
+    name: "넉백",
+    concept: "물리 · 작용 반작용",
+    formula: "v₀ ÷ 감쇠율",
+    color: "brown",
+    levels: [
+      {
+        speed: KNOCKBACK_SPEED[0],
+        desc: "총알이 적을 밀면, 적도 총알을 민다(작용 반작용). 맞은 적이 총알 방향으로 약 40px 밀려난다",
+      },
+      {
+        speed: KNOCKBACK_SPEED[1],
+        desc: "더 세게 민다! 처음 속도 240 → 360 (약 60px)",
+      },
+    ],
+
+    // 맞힌 순간: 총알이 날아가던 방향으로 적을 민다
+    onHit: function (stats, info) {
+      const b = info.bullet;
+      const len = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
+      // 총알 진행 방향(길이 1) × 처음 속도
+      pushEnemy(info.enemy, (b.vx / len) * stats.speed, (b.vy / len) * stats.speed);
     },
   },
 ];

@@ -13,6 +13,9 @@
 //   contactDamage : 플레이어에게 닿았을 때 깎는 체력
 //   score         : 처치 점수 (실제 점수 = score × 웨이브 번호)
 //   shape         : 그림 모양 ("basic", "arrow", "diamond", "splitter") - game.js 가 그린다
+//   knockResist   : 넉백을 받는 정도 (1 = 그대로 밀림, 0.5 = 절반만, 0 = 안 밀림)
+//   getKnockResist(enemy)  (생략 가능)
+//     지금 상태에 따라 knockResist 를 바꾸고 싶을 때 (돌격형은 돌진 중에 0)
 //
 //   init(enemy)              (생략 가능)
 //     언제: 이 적이 처음 만들어질 때 한 번
@@ -68,6 +71,7 @@ const ENEMY_TYPES = {
     radius: 16,         // 화난 얼굴을 그리기 위해 조금 크게 잡았다
     color: "red",
     contactDamage: 20,  // 100 ÷ 20 = 5번 닿으면 게임 오버
+    knockResist: 1,
     score: 100,
     shape: "basic",
 
@@ -91,8 +95,14 @@ const ENEMY_TYPES = {
     radius: 16,
     color: "brown",
     contactDamage: 30,  // 세게 들이받는다
+    knockResist: 1,
     score: 120,
     shape: "arrow",
+
+    // 돌진하는 동안은 넉백을 받지 않는다 (달리는 황소는 총알로 못 민다)
+    getKnockResist: function (enemy) {
+      return enemy.state === "dash" ? 0 : this.knockResist;
+    },
 
     init: function (enemy) {
       enemy.state = "approach"; // 지금 하고 있는 행동
@@ -153,6 +163,7 @@ const ENEMY_TYPES = {
     radius: 15,
     color: "purple",
     contactDamage: 20,
+    knockResist: 1,
     score: 120,
     shape: "diamond",
 
@@ -201,6 +212,7 @@ const ENEMY_TYPES = {
     radius: 20,
     color: "orange",
     contactDamage: 15,
+    knockResist: 1,
     score: 150,
     shape: "splitter",
     innerCircles: 2,    // 몸 안에 비쳐 보이는 작은 원 개수 (= 갈라질 자식 수)
@@ -223,6 +235,7 @@ const ENEMY_TYPES = {
     radius: 14,
     color: "orange",
     contactDamage: 15,
+    knockResist: 1,
     score: 60,          // 작을수록 처치 점수가 적다
     shape: "splitter",
     innerCircles: 2,
@@ -245,6 +258,7 @@ const ENEMY_TYPES = {
     radius: 10,
     color: "orange",
     contactDamage: 10,
+    knockResist: 1,
     score: 30,
     shape: "splitter",
     innerCircles: 0,
@@ -286,6 +300,15 @@ function aimAt(enemy, tx, ty) {
     enemy.dirX = dx / dist;
     enemy.dirY = dy / dist;
   }
+}
+
+// 적을 (vx, vy) 속도로 밀어낸다 (넉백). 종류별 knockResist 만큼만 밀린다.
+// 밀리는 속도는 매 프레임 줄어들어서(감쇠) 조금 미끄러지다 멈춘다 → game.js 의 updateEnemies
+function pushEnemy(enemy, vx, vy) {
+  const type = enemyType(enemy);
+  const resist = type.getKnockResist ? type.getKnockResist(enemy) : type.knockResist;
+  enemy.knockVx = (enemy.knockVx || 0) + vx * resist;
+  enemy.knockVy = (enemy.knockVy || 0) + vy * resist;
 }
 
 // 적의 행동 상태를 바꾸고, 상태 시간을 0 부터 다시 잰다

@@ -349,4 +349,27 @@ module.exports = [
       return { ok: ok, detail: "간격 " + base + " → " + lv1.toFixed(2) + " → " + lv2.toFixed(2) + " / 10초 발사 " + n0 + "발 → " + n1 + "발" };
     },
   },
+  {
+    name: "[증강] 넉백: 총알 방향으로 약 v₀/6 px 밀림, knockResist, 돌격형은 돌진 중 안 밀림",
+    run: function () {
+      runMenuAction(0); spawnQueue = []; player.x = 100; player.y = 100; player.fireTimer = 1e9;
+      const slide = (type, level, setup) => {
+        ownedAugments = { knockback: level };
+        const e = createEnemy(type, 600, 400, 1); e.speed = 0; if (setup) setup(e); enemies = [e];
+        const aug = AUGMENTS.find((a) => a.id === "knockback");
+        aug.onHit(aug.levels[level - 1], { enemy: e, bullet: { vx: 0, vy: 480 } }); // 아래로 날아가던 총알
+        const y0 = e.y, x0 = e.x;
+        for (let f = 0; f < 300; f++) { player.fireTimer = 1e9; updateEnemies(1 / 60); }
+        return { dy: e.y - y0, dx: e.x - x0 };
+      };
+      const lv1 = slide("basic", 1), lv2 = slide("basic", 2);
+      ENEMY_TYPES.basic.knockResist = 0.5; const half = slide("basic", 1); ENEMY_TYPES.basic.knockResist = 1;
+      const dash = slide("charger", 2, (e) => { setEnemyState(e, "dash"); e.dirX = 0; e.dirY = 0; });
+      const rest = slide("charger", 2, (e) => { setEnemyState(e, "rest"); e.stateTime = -100; });
+      const ok = Math.abs(lv1.dy - 40) < 1.5 && Math.abs(lv2.dy - 60) < 1.5 && Math.abs(half.dy - 20) < 1 &&
+        Math.abs(lv1.dx) < 1e-9 && Math.abs(dash.dy) < 1e-9 && Math.abs(rest.dy - 60) < 1.5;
+      return { ok: ok, detail: "Lv1 " + lv1.dy.toFixed(1) + "px, Lv2 " + lv2.dy.toFixed(1) + "px, 저항 0.5 → " + half.dy.toFixed(1) +
+        "px, 돌진 중 " + dash.dy.toFixed(1) + "px, 쉬는 중 " + rest.dy.toFixed(1) + "px" };
+    },
+  },
 ];
