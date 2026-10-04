@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <!-- 글자가 깨지지 않도록 문자 인코딩을 UTF-8로 정한다 -->
+  <meta charset="UTF-8">
+  <!-- 브라우저 탭에 보일 제목 -->
+  <title>증강 선택형 2D 슈팅</title>
+  <!-- 화면 꾸밈(색, 위치)은 style.css에서 불러온다 -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 게임이 그려질 도화지(캔버스). 크기는 960 x 540 픽셀 -->
+  <canvas id="game" width="960" height="540"></canvas>
+
+  <!-- 조작법 안내 문구 -->
+  <p class="help">이동: WASD 또는 방향키 · 증강 선택: 마우스 클릭 또는 1/2/3 · 다시 시작: R</p>
+
+  <!-- 증강 데이터를 먼저 불러온다 (game.js가 이 데이터를 사용하기 때문) -->
+  <script src="augments.js"></script>
+  <!-- 게임 본체 -->
+  <script src="game.js"></script>
+</body>
+</html>
