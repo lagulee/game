@@ -149,7 +149,7 @@ const player = {
   fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
   hp: PLAYER_MAX_HP,     // 현재 체력
   invincibleTimer: 0,    // 남은 무적 시간 (초). 0보다 크면 맞지 않는다
-  facing: 0,             // 바라보는 방향 (각도, 라디안). 0 = 오른쪽. 총구가 이쪽을 향한다
+  facing: 0,             // 바라보는 방향 (각도, 라디안). 0 = 오른쪽. 총구와 눈이 이쪽을 향한다
 };
 
 // 지금 화면에 있는 적들의 목록 (배열)
@@ -234,12 +234,6 @@ function updatePlayer(dt) {
   // 속도 = 방향 × 최고 속도
   player.vx = dirX * PLAYER_SPEED;
   player.vy = dirY * PLAYER_SPEED;
-
-  // 움직이고 있을 때만 바라보는 방향을 바꾼다 (멈추면 마지막 방향 유지)
-  // Math.atan2(세로, 가로) = 그 방향의 각도
-  if (length > 0) {
-    player.facing = Math.atan2(dirY, dirX);
-  }
 
   // 위치 = 위치 + 속도 × 시간
   player.x += player.vx * dt;
@@ -410,6 +404,19 @@ function findNearestEnemy() {
   return nearest;
 }
 
+// 대포(총구)와 눈이 바라볼 방향을 정하는 함수
+//  - 적이 있으면: 총알이 날아갈 "가장 가까운 적"을 바라본다
+//  - 적이 없으면: 움직이는 방향을 바라본다 (멈춰 있으면 마지막 방향 그대로)
+function updateAim() {
+  const target = findNearestEnemy();
+  if (target !== null) {
+    // Math.atan2(세로 차이, 가로 차이) = 플레이어에서 적을 향하는 각도
+    player.facing = Math.atan2(target.y - player.y, target.x - player.x);
+  } else if (player.vx !== 0 || player.vy !== 0) {
+    player.facing = Math.atan2(player.vy, player.vx);
+  }
+}
+
 // 일정 간격마다 가장 가까운 적을 향해 총알을 쏘는 함수
 function updateShooting(dt) {
   // 발사 타이머를 줄인다
@@ -427,10 +434,13 @@ function updateShooting(dt) {
   const dy = target.y - player.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1; // 0으로 나누기 방지
 
+  // 총알이 대포 끝(총구)에서 나오도록 출발점을 몸 반지름 + 10 만큼 앞으로
+  const muzzle = PLAYER_RADIUS + 10;
+
   // 총알을 만들어 목록에 추가한다
   bullets.push({
-    x: player.x,                         // 플레이어 위치에서 출발
-    y: player.y,
+    x: player.x + (dx / dist) * muzzle,  // 총구 위치에서 출발
+    y: player.y + (dy / dist) * muzzle,
     vx: (dx / dist) * BULLET_SPEED,      // 가로 속도
     vy: (dy / dist) * BULLET_SPEED,      // 세로 속도
     dead: false,                         // 맞았거나 화면 밖이면 true
@@ -494,9 +504,10 @@ function update(dt) {
     updatePlayer(dt);     // 1) 플레이어 이동
     updateSpawning(dt);   // 2) 적 생성
     updateEnemies(dt);    // 3) 적 이동
-    updateShooting(dt);   // 4) 자동 발사
-    updateBullets(dt);    // 5) 총알 이동과 충돌
-    updatePlayerHit(dt);  // 6) 적에게 닿았는지 검사
+    updateAim();          // 4) 가장 가까운 적 쪽으로 대포 돌리기
+    updateShooting(dt);   // 5) 자동 발사
+    updateBullets(dt);    // 6) 총알 이동과 충돌
+    updatePlayerHit(dt);  // 7) 적에게 닿았는지 검사
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -505,6 +516,7 @@ function update(dt) {
   } else if (gameState === "waveBreak") {
     // 쉬는 시간: 움직일 수는 있고, 남은 총알도 계속 날아간다
     updatePlayer(dt);
+    updateAim();
     updateBullets(dt);
     player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
 
@@ -657,7 +669,7 @@ function drawBackground() {
 }
 
 // ---- 플레이어 ----
-// 초록색 둥근 얼굴 + 눈 두 개 + 작은 입 + 이동 방향을 향한 총구
+// 초록색 둥근 얼굴 + 눈 두 개 + 작은 입 + 가장 가까운 적을 향한 대포
 function drawPlayer() {
   const r = PLAYER_RADIUS;
 
