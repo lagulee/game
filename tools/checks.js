@@ -99,7 +99,7 @@ module.exports = [
   },
   // ---------------- B. 새 적 3종 ----------------
   {
-    name: "[B] 돌격형: 접근→예고 0.6→돌진 0.5→쉬기 1.0, 돌진은 고정 방향·3배 속도",
+    name: "[B] 돌격형: 접근→예고 0.6→돌진 0.5→쉬기 1.0, 예고 시작 때 방향 고정, 돌진 3배 속도",
     run: function () {
       runMenuAction(0); spawnQueue = []; bannerTimer = 0;
       player.x = 100; player.y = 270;
@@ -111,9 +111,10 @@ module.exports = [
         player.fireTimer = 1e9; // 이 검사에서는 플레이어가 쏘지 않는다 (돌격형이 죽지 않게)
         update(DT); t += DT;
         if (e.state !== last) { log.push(e.state + "@" + t.toFixed(2)); last = e.state;
-          if (e.state === "dash") dirAtDash = [e.dirX, e.dirY]; }
+        }
         if (e.state === "dash" && e.stateTime > DT * 1.5) dashSpeed = distance(px, py, e.x, e.y) / DT;
-        if (e.state === "dash" && dirAtDash && (e.dirX !== dirAtDash[0] || e.dirY !== dirAtDash[1])) return { ok: false, detail: "돌진 중 방향이 바뀜" };
+        if (e.state === "warn" && e.stateTime <= DT * 1.5) dirAtDash = [e.dirX, e.dirY]; // 예고 시작 때 방향
+        if ((e.state === "warn" || e.state === "dash") && dirAtDash && (e.dirX !== dirAtDash[0] || e.dirY !== dirAtDash[1])) return { ok: false, detail: "예고·돌진 중 방향이 바뀜" };
         player.y = 270 + Math.sin(t * 3) * 120; // 플레이어가 위아래로 움직여도 돌진 방향은 고정
       }
       // 상태가 바뀐 시각 사이 간격

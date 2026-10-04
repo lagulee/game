@@ -115,11 +115,8 @@ const ENEMY_TYPES = {
           setEnemyState(enemy, "warn");
         }
       } else if (enemy.state === "warn") {
-        // 2) 예고: 멈춰서 플레이어를 노려본다. 방향은 이 단계가 끝날 때 고정된다
-        //    (예고선이 보이는 동안 피하라는 신호)
-        if (enemy.stateTime < CHARGER_WARN_TIME * 0.5) {
-          aimAt(enemy, player.x, player.y); // 예고 앞쪽 절반 동안만 따라 돌고, 그 뒤로는 고정
-        }
+        // 2) 예고: 멈춰 선다. 방향은 예고가 시작된 순간(접근의 마지막 조준)으로 고정!
+        //    예고선이 보이는 동안 그 선 밖으로 피하라는 신호다
         if (enemy.stateTime >= CHARGER_WARN_TIME) {
           setEnemyState(enemy, "dash");
         }
