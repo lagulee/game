@@ -6,6 +6,7 @@
 // (c) 웨이브와 체력  : 웨이브 3개, 플레이어 체력·무적 시간, 게임 오버·클리어, R 재시작
 // (d) 증강 선택 화면 : 웨이브가 끝나면 카드 3장 중 1장 고르기 (마우스 클릭 / 1·2·3 키)
 // (e) 증강 3개      : 복리 탄환, 분산 증폭, 시간 지연 효과를 augments.js 의 훅으로 연결
+// (f) UI와 마무리    : 메뉴 화면, 점수·최고 점수, 증강 목록 패널, 결과 화면
 // [스타일] 스티커 카툰: 두꺼운 외곽선 + 납작한 단색 + 하이라이트 한 줄
 // =============================================================
 
@@ -131,6 +132,23 @@ const CHOICE_INPUT_DELAY = 0.4;
 // 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
 const BANNER_TIME = 1.8;
 
+// 점수: 적 한 마리 처치 점수 = 이 값 × 웨이브 번호 (뒤 웨이브일수록 더 많이)
+const SCORE_PER_KILL = 100;
+
+// 점수: 클리어했을 때 남은 체력 1 당 보너스 점수
+const SCORE_PER_HP_LEFT = 10;
+
+// 메뉴 화면 버튼 목록.
+// 새 메뉴를 만들 때 여기에 한 줄 추가하고, ready 를 true 로 바꾸면 된다.
+//   label : 버튼 글자
+//   action: 눌렀을 때 할 일의 이름 (runMenuAction 함수에서 처리)
+//   ready : 지금 쓸 수 있는지 (false 면 "준비 중" 표시)
+const MENU_ITEMS = [
+  { label: "게임 시작", action: "start", ready: true },
+  { label: "도감", action: "collection", ready: false },
+  { label: "설정", action: "settings", ready: false },
+];
+
 
 // =============================================================
 // 2. 캔버스 준비
@@ -156,9 +174,25 @@ window.addEventListener("keydown", function (event) {
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
 
-  // 게임 오버나 클리어 화면에서 R 키를 누르면 처음부터 다시 시작
-  if (event.code === "KeyR" && (gameState === "gameover" || gameState === "clear")) {
-    resetGame();
+  // 메뉴 화면: ↑↓(또는 W/S)로 버튼 고르기, Enter 나 Space 로 누르기
+  if (gameState === "menu") {
+    if (event.code === "ArrowUp" || event.code === "KeyW") {
+      // 맨 위에서 더 올라가면 맨 아래로 (나머지 연산 % 으로 빙글빙글 돌기)
+      menuIndex = (menuIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
+    } else if (event.code === "ArrowDown" || event.code === "KeyS") {
+      menuIndex = (menuIndex + 1) % MENU_ITEMS.length;
+    } else if (event.code === "Enter" || event.code === "Space") {
+      runMenuAction(menuIndex);
+    }
+  }
+
+  // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 메뉴로
+  if (gameState === "gameover" || gameState === "clear") {
+    if (event.code === "KeyR") {
+      resetGame();
+    } else if (event.code === "KeyM") {
+      goToMenu();
+    }
   }
 
   // 증강 선택 화면에서 1, 2, 3 키(키보드 위쪽 숫자 또는 오른쪽 숫자패드)로 카드 고르기
@@ -173,8 +207,8 @@ window.addEventListener("keydown", function (event) {
     }
   }
 
-  // 방향키를 누를 때 웹페이지가 위아래로 스크롤되는 것을 막는다
-  if (event.code.startsWith("Arrow")) {
+  // 방향키·스페이스를 누를 때 웹페이지가 위아래로 스크롤되는 것을 막는다
+  if (event.code.startsWith("Arrow") || event.code === "Space") {
     event.preventDefault();
   }
 });
@@ -206,17 +240,33 @@ function getMousePos(event) {
 canvas.addEventListener("mousemove", function (event) {
   const pos = getMousePos(event);
   hoverIndex = gameState === "choosing" ? cardIndexAt(pos.x, pos.y) : -1;
-  // 카드 위에서는 마우스 모양을 손가락으로
-  canvas.style.cursor = hoverIndex >= 0 ? "pointer" : "default";
+
+  // 메뉴 화면에서는 마우스가 올라간 버튼을 선택 상태로
+  let menuHover = -1;
+  if (gameState === "menu") {
+    menuHover = menuButtonAt(pos.x, pos.y);
+    if (menuHover >= 0) menuIndex = menuHover;
+  }
+
+  // 카드나 버튼 위에서는 마우스 모양을 손가락으로
+  canvas.style.cursor = (hoverIndex >= 0 || menuHover >= 0) ? "pointer" : "default";
 });
 
 // 마우스를 클릭하면: 클릭한 위치의 카드를 고른다
 canvas.addEventListener("click", function (event) {
-  if (gameState !== "choosing") return;
   const pos = getMousePos(event);
-  const index = cardIndexAt(pos.x, pos.y);
-  if (index >= 0) {
-    chooseAugment(index);
+
+  // 메뉴 화면: 클릭한 버튼 실행
+  if (gameState === "menu") {
+    const index = menuButtonAt(pos.x, pos.y);
+    if (index >= 0) runMenuAction(index);
+    return;
+  }
+
+  // 증강 선택 화면: 클릭한 카드 고르기
+  if (gameState === "choosing") {
+    const index = cardIndexAt(pos.x, pos.y);
+    if (index >= 0) chooseAugment(index);
   }
 });
 
@@ -257,11 +307,27 @@ let particles = [];
 let spawnTimer = 0;
 
 // 게임 상태: 지금 어떤 화면인지 기억하는 변수
+//   "menu"      : 처음 메뉴 화면
 //   "playing"   : 전투 중
 //   "choosing"  : 웨이브 사이, 증강 카드를 고르는 중
 //   "gameover"  : 체력이 0이 되어 게임 오버
 //   "clear"     : 마지막 웨이브까지 모두 통과
-let gameState = "playing";
+let gameState = "menu";
+
+// 메뉴에서 지금 선택된 버튼 번호 (0 = 맨 위)
+let menuIndex = 0;
+
+// 메뉴 화면이 열린 뒤 흐른 시간 (초). 장식 캐릭터가 둥실거리는 애니메이션에 사용
+let menuTime = 0;
+
+// 메뉴 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "준비 중이에요!")
+let menuToast = "";
+let menuToastTimer = 0;
+
+// 점수와 최고 점수
+let score = 0;
+let bestScore = loadBestScore();
+let isNewBest = false; // 이번 판에 최고 점수를 새로 세웠는지
 
 // 현재 웨이브 번호 (1부터 시작)
 let wave = 1;
@@ -561,6 +627,97 @@ function cardIndexAt(x, y) {
   return -1;
 }
 
+// ---- 최고 점수 저장/불러오기 ----
+// 브라우저의 localStorage 에 저장하면, 창을 닫았다 열어도 최고 점수가 남는다.
+// (개인 정보 보호 모드 등에서는 저장이 막힐 수 있어서 try/catch 로 감싼다)
+function loadBestScore() {
+  try {
+    return Number(localStorage.getItem("augmentShooterBest")) || 0;
+  } catch (e) {
+    return 0; // 불러오기에 실패하면 0점부터
+  }
+}
+
+function saveBestScore(value) {
+  try {
+    localStorage.setItem("augmentShooterBest", String(value));
+  } catch (e) {
+    // 저장이 막혀 있으면 그냥 넘어간다 (게임은 그대로 할 수 있다)
+  }
+}
+
+// 게임이 끝났을 때(게임 오버 또는 클리어) 부르는 함수
+function endGame(result) {
+  // 클리어했으면 남은 체력만큼 보너스 점수
+  if (result === "clear") {
+    score += player.hp * SCORE_PER_HP_LEFT;
+  }
+  // 최고 점수를 넘었으면 새 기록으로 저장
+  isNewBest = score > bestScore;
+  if (isNewBest) {
+    bestScore = score;
+    saveBestScore(bestScore);
+  }
+  gameState = result;
+}
+
+// ---- 메뉴 ----
+
+// 메뉴 화면으로 가는 함수 (처음 켰을 때, 결과 화면에서 M 키)
+function goToMenu() {
+  gameState = "menu";
+  menuIndex = 0;
+  menuTime = 0;
+  menuToast = "";
+  enemies = [];
+  bullets = [];
+  popups = [];
+  particles = [];
+}
+
+// index 번째 메뉴 버튼을 눌렀을 때 할 일
+function runMenuAction(index) {
+  const item = MENU_ITEMS[index];
+
+  // 아직 만들지 않은 메뉴는 알림만 띄운다
+  if (!item.ready) {
+    menuToast = item.label + "은(는) 곧 추가될 예정이에요!";
+    menuToastTimer = 1.6;
+    return;
+  }
+
+  // action 이름에 따라 할 일을 나눈다 (새 메뉴를 만들면 여기에 추가)
+  if (item.action === "start") {
+    canvas.style.cursor = "default";
+    resetGame();
+  }
+}
+
+// 메뉴 버튼 i 의 위치와 크기
+const MENU_BUTTON_WIDTH = 260;
+const MENU_BUTTON_HEIGHT = 54;
+const MENU_BUTTON_GAP = 16;
+function menuButtonRect(i) {
+  return {
+    x: CANVAS_WIDTH / 2 - MENU_BUTTON_WIDTH / 2,
+    y: 236 + i * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP),
+    w: MENU_BUTTON_WIDTH,
+    h: MENU_BUTTON_HEIGHT,
+  };
+}
+
+// 캔버스 좌표 (x, y) 가 몇 번째 메뉴 버튼 위에 있는지 (없으면 -1)
+function menuButtonAt(x, y) {
+  // 버튼을 하나씩 보며 사각형 안에 점이 있는지 검사하는 반복문
+  for (let i = 0; i < MENU_ITEMS.length; i++) {
+    const r = menuButtonRect(i);
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 // 웨이브가 끝났는지 검사하는 함수
 // 끝나는 조건: 더 나올 적이 없고(0), 화면에 남은 적도 없다(0)
 function checkWaveEnd() {
@@ -568,7 +725,7 @@ function checkWaveEnd() {
 
   if (wave >= WAVE_ENEMY_COUNTS.length) {
     // 마지막 웨이브였으면 클리어!
-    gameState = "clear";
+    endGame("clear");
   } else {
     // 아니면 증강 선택 화면으로
     openChoiceScreen();
@@ -593,7 +750,7 @@ function updatePlayerHit(dt) {
       // 체력이 0 이하면 게임 오버
       if (player.hp <= 0) {
         player.hp = 0;
-        gameState = "gameover";
+        endGame("gameover");
       }
       break; // 한 프레임에 한 번만 맞는다
     }
@@ -619,6 +776,10 @@ function resetGame() {
   particles = [];
   lastHitEnemy = null;
   hitStreak = 0;
+
+  // 점수는 0점부터
+  score = 0;
+  isNewBest = false;
 
   // 가진 증강도 모두 없앤다
   ownedAugments = {};
@@ -840,6 +1001,7 @@ function updateBullets(dt) {
         if (enemy.hp <= 0) {
           enemy.dead = true;
           spawnParticles(enemy.x, enemy.y); // 펑! 조각이 튀어 나간다
+          score += SCORE_PER_KILL * wave;   // 점수 획득 (뒤 웨이브일수록 많이)
         }
         break; // 총알 하나는 적 하나만 맞힌다
       }
@@ -869,6 +1031,10 @@ function update(dt) {
     if (gameState === "playing") {
       checkWaveEnd();
     }
+  } else if (gameState === "menu") {
+    // 메뉴: 장식 캐릭터 애니메이션용 시간만 흐른다
+    menuTime += dt;
+    menuToastTimer = Math.max(0, menuToastTimer - dt);
   } else if (gameState === "choosing") {
     // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
     choosingTime += dt;
@@ -1305,10 +1471,10 @@ function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
 }
 
 // ---- 화면 위 정보 (HUD) ----
-// ※ (f) 단계에서 점수, 증강 목록이 추가된다
+// 왼쪽 위: 웨이브 번호, 체력바, 점수 / 오른쪽 위: 가진 증강 목록
 function drawHud() {
-  // 갈색 둥근 패널
-  drawOutlinedRoundRect(12, 12, 250, 74, 14, COLORS.brown);
+  // ---- 왼쪽 위 패널 ----
+  drawOutlinedRoundRect(12, 12, 250, 104, 14, COLORS.brown);
 
   // 웨이브 번호
   drawOutlinedText("웨이브 " + wave + " / " + WAVE_ENEMY_COUNTS.length, 28, 34, 22, "left");
@@ -1316,6 +1482,40 @@ function drawHud() {
   // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
   const ratio = player.hp / PLAYER_MAX_HP;
   drawBar(28, 54, 218, 18, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
+
+  // 점수 (노란 글씨)
+  drawOutlinedText("점수 " + score, 28, 94, 22, "left", COLORS.yellow);
+
+  // ---- 오른쪽 위: 가진 증강 목록 ----
+  drawAugmentList();
+}
+
+// 가진 증강을 한 줄씩 보여 주는 패널 (하나도 없으면 그리지 않는다)
+function drawAugmentList() {
+  // 가진 증강만 골라 목록으로 만든다 (augments.js 에 적힌 순서대로)
+  const owned = AUGMENTS.filter(function (aug) {
+    return getAugmentLevel(aug.id) > 0;
+  });
+  if (owned.length === 0) return;
+
+  const w = 220;                    // 패널 폭
+  const rowH = 32;                  // 한 줄 높이
+  const x = CANVAS_WIDTH - 12 - w;  // 화면 오른쪽에 붙인다
+  const y = 12;
+  const h = 44 + owned.length * rowH;
+
+  drawOutlinedRoundRect(x, y, w, h, 14, COLORS.brown);
+  drawOutlinedText("증강", x + 16, y + 22, 20, "left");
+
+  // 가진 증강을 한 줄씩 그리는 반복문
+  for (let i = 0; i < owned.length; i++) {
+    const aug = owned[i];
+    const rowY = y + 52 + i * rowH;
+    // 증강 색 동그라미 + 이름 + 레벨
+    drawOutlinedCircle(x + 26, rowY, 9, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
+    drawOutlinedText(aug.name, x + 44, rowY, 18, "left");
+    drawOutlinedText("Lv." + getAugmentLevel(aug.id), x + w - 16, rowY, 18, "right", COLORS.yellow);
+  }
 }
 
 // ---- 웨이브 시작 안내 띠 ----
@@ -1452,42 +1652,150 @@ function drawChoiceScreen() {
   }
 }
 
-// ---- 상태 안내 (게임 오버 / 클리어) ----
+// ---- 결과 화면 (게임 오버 / 클리어) ----
 function drawOverlay() {
-  // 전투 중에는 안내가 없고, 카드 화면은 drawChoiceScreen 이 따로 그린다
-  if (gameState === "playing" || gameState === "choosing") return;
+  if (gameState !== "gameover" && gameState !== "clear") return;
 
-  // 상태별 큰 제목, 작은 설명, 패널 색
-  let title = "";
-  let sub = "";
-  let panelColor = COLORS.brown;
-  if (gameState === "gameover") {
-    title = "게임 오버";
-    sub = "R 키를 눌러 다시 시작";
-    panelColor = COLORS.red;
-  } else if (gameState === "clear") {
-    title = "모든 웨이브 클리어!";
-    sub = "R 키를 눌러 다시 시작";
-    panelColor = COLORS.yellow;
-  }
+  const isClear = gameState === "clear";
+  const title = isClear ? "모든 웨이브 클리어!" : "게임 오버";
+  const panelColor = isClear ? COLORS.yellow : COLORS.red;
 
-  // 화면 전체를 외곽선 색으로 반투명하게 살짝 덮는다
+  // 화면 전체를 외곽선 색으로 반투명하게 덮는다
   ctx.save();
-  ctx.globalAlpha = 0.35;
+  ctx.globalAlpha = 0.45;
   ctx.fillStyle = COLORS.outline;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.restore();
 
   // 가운데 패널 (스티커처럼 살짝 기울여 붙인다)
-  const cx = CANVAS_WIDTH / 2;
-  const cy = CANVAS_HEIGHT / 2;
   ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(-0.03); // 약 -2도 기울이기
-  drawOutlinedRoundRect(-230, -70, 460, 140, 24, panelColor);
-  drawOutlinedText(title, 0, -16, 48);
-  drawOutlinedText(sub, 0, 38, 22);
+  ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+  ctx.rotate(-0.025);
+
+  // 그림자 + 패널
+  roundRectPath(-260 + 8, -140 + 8, 520, 280, 26);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(-260, -140, 520, 280, 26, panelColor);
+
+  // 제목
+  drawOutlinedText(title, 0, -92, 50);
+
+  // 점수 (새 기록이면 "NEW!" 표시)
+  drawOutlinedText("점수 " + score, 0, -30, 40, "center", COLORS.white);
+  if (isNewBest && score > 0) {
+    ctx.save();
+    ctx.translate(170, -46);
+    ctx.rotate(0.2);
+    drawOutlinedRoundRect(-38, -16, 76, 32, 12, COLORS.green);
+    drawOutlinedText("NEW!", 0, 1, 20);
+    ctx.restore();
+  }
+  drawOutlinedText("최고 점수 " + bestScore, 0, 12, 20);
+
+  // 이번 판에 모은 증강 ("복리 탄환 Lv.2 · 시간 지연 Lv.1" 처럼 한 줄로)
+  const owned = AUGMENTS
+    .filter(function (aug) { return getAugmentLevel(aug.id) > 0; })
+    .map(function (aug) { return aug.name + " Lv." + getAugmentLevel(aug.id); });
+  const augText = owned.length > 0 ? owned.join(" · ") : "모은 증강 없음";
+  drawOutlinedText("웨이브 " + wave + "  |  " + augText, 0, 50, 18);
+
+  // 조작 안내
+  drawOutlinedRoundRect(-200, 84, 400, 40, 20, COLORS.outline);
+  drawOutlinedText("R : 다시 시작     M : 메뉴로", 0, 105, 20, "center", COLORS.yellow);
   ctx.restore();
+}
+
+// ---- 메뉴 화면 ----
+function drawMenu() {
+  // 1) 장식: 왼쪽에 플레이어, 오른쪽에 웨이브 1~3 적들이 둥실둥실
+  //    sin(시간) 은 -1 ~ 1 을 부드럽게 오가므로 위아래로 흔들리는 움직임이 된다
+  const decoEnemies = [
+    { x: 740, y: 250, wave: 1 },
+    { x: 840, y: 340, wave: 2 },
+    { x: 750, y: 440, wave: 3 },
+  ];
+  // 장식용 적을 하나씩 그리는 반복문
+  for (let i = 0; i < decoEnemies.length; i++) {
+    const d = decoEnemies[i];
+    drawEnemy({
+      x: d.x,
+      y: d.y + Math.sin(menuTime * 2 + i * 1.3) * 8, // 적마다 박자를 다르게
+      wave: d.wave,
+      hp: 1, maxHp: 1,  // 체력바가 안 보이게 가득 찬 상태
+      hitFlash: 0,
+    });
+  }
+
+  // 플레이어는 가운데 적을 조준하며 둥실둥실
+  player.x = 200;
+  player.y = 360 + Math.sin(menuTime * 2.4) * 10;
+  player.invincibleTimer = 0;
+  player.facing = Math.atan2(340 - player.y, 840 - player.x);
+  drawPlayer();
+
+  // 2) 제목 스티커
+  ctx.save();
+  ctx.translate(CANVAS_WIDTH / 2, 118);
+  ctx.rotate(-0.04 + Math.sin(menuTime * 1.5) * 0.01); // 아주 살짝 흔들흔들
+  roundRectPath(-250 + 8, -70 + 8, 500, 140, 30);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(-250, -70, 500, 140, 30, COLORS.yellow);
+  drawOutlinedText("증강 슈터", 0, -12, 64);
+  drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 42, 22, "center", COLORS.white);
+  ctx.restore();
+
+  // 3) 버튼들
+  // 메뉴 항목을 하나씩 버튼으로 그리는 반복문
+  for (let i = 0; i < MENU_ITEMS.length; i++) {
+    const item = MENU_ITEMS[i];
+    const r = menuButtonRect(i);
+    const selected = i === menuIndex;
+    const lift = selected ? 4 : 0;           // 선택된 버튼은 살짝 떠오른다
+
+    // 그림자
+    roundRectPath(r.x + 6, r.y + 6, r.w, r.h, 18);
+    ctx.fillStyle = COLORS.outline;
+    ctx.fill();
+
+    // 버튼 색: 쓸 수 있으면 초록(선택되면 노랑), 준비 중이면 갈색
+    let fill = COLORS.brown;
+    if (item.ready) fill = selected ? COLORS.yellow : COLORS.green;
+    drawOutlinedRoundRect(r.x, r.y - lift, r.w, r.h, 18, fill);
+    drawOutlinedText(item.label, r.x + r.w / 2, r.y + r.h / 2 - lift, 28);
+
+    // 준비 중 표시
+    if (!item.ready) {
+      drawOutlinedRoundRect(r.x + r.w - 78, r.y - 12 - lift, 86, 26, 13, COLORS.white, SMALL_OUTLINE_WIDTH);
+      ctx.font = "15px " + FONT_FAMILY;
+      ctx.fillStyle = COLORS.outline;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("준비 중", r.x + r.w - 35, r.y + 1 - lift);
+    }
+
+    // 선택된 버튼 왼쪽에 ▶ 표시
+    if (selected) {
+      drawOutlinedPolygon([
+        [r.x - 30, r.y + r.h / 2 - 12 - lift],
+        [r.x - 12, r.y + r.h / 2 - lift],
+        [r.x - 30, r.y + r.h / 2 + 12 - lift],
+      ], COLORS.yellow, SMALL_OUTLINE_WIDTH);
+    }
+  }
+
+  // 4) 아래쪽: 알림이 있으면 알림을, 없으면 조작 안내를 보여 준다
+  if (menuToastTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, menuToastTimer / 0.3); // 끝날 때 흐려짐
+    drawOutlinedRoundRect(CANVAS_WIDTH / 2 - 200, 452, 400, 36, 18, COLORS.red);
+    drawOutlinedText(menuToast, CANVAS_WIDTH / 2, 471, 18);
+    ctx.restore();
+  } else {
+    drawOutlinedText("↑↓ 선택 · Enter 시작 · 마우스 클릭도 OK", CANVAS_WIDTH / 2, 470, 18);
+  }
+  drawOutlinedText("최고 점수 " + bestScore, CANVAS_WIDTH / 2, 508, 20, "center", COLORS.yellow);
 }
 
 // ---- 증강 효과 그림 (시간 지연 범위 등) ----
@@ -1509,13 +1817,20 @@ function drawAugmentEffects() {
 // ---- 화면 전체 그리기 ----
 function draw() {
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
+
+  // 메뉴 화면은 따로 그리고 끝낸다
+  if (gameState === "menu") {
+    drawMenu();
+    return;
+  }
+
   drawAugmentEffects(); // 증강 효과 범위 (바닥에 깔리듯이)
   drawBullets();    // 총알
   drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적
   drawPlayer();     // 플레이어
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
-  drawHud();        // 웨이브 번호, 체력바
+  drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
   drawOverlay();    // 게임 오버·클리어 안내 (가장 위)
@@ -1550,6 +1865,6 @@ if (document.fonts) {
   document.fonts.load("20px 'Black Han Sans'");
 }
 
-// 1웨이브를 준비하고 게임 루프 시작!
-startWave(1);
+// 메뉴 화면에서 시작하고, 게임 루프를 돌린다!
+goToMenu();
 requestAnimationFrame(gameLoop);
