@@ -3,6 +3,7 @@
 // -------------------------------------------------------------
 // (a) 플레이어 이동 : 게임 루프, 키보드 입력, 화면 밖 제한
 // (b) 자동 발사와 적 : 적 생성·추적, 가장 가까운 적 조준, 총알 충돌, 적 체력
+// (c) 웨이브와 체력  : 웨이브 3개, 플레이어 체력·무적 시간, 게임 오버·클리어, R 재시작
 // =============================================================
 
 
@@ -20,6 +21,15 @@ const PLAYER_SPEED = 220;
 // 플레이어 몸의 반지름 (픽셀). 원으로 그린다.
 const PLAYER_RADIUS = 14;
 
+// 플레이어 최대 체력
+const PLAYER_MAX_HP = 100;
+
+// 적에게 한 번 닿았을 때 잃는 체력 (100 ÷ 20 = 5번 닿으면 게임 오버)
+const ENEMY_CONTACT_DAMAGE = 20;
+
+// 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
+const PLAYER_INVINCIBLE_TIME = 1.0;
+
 // 자동 발사 간격 (초). 0.4 이면 1초에 2.5발
 const FIRE_INTERVAL = 0.4;
 
@@ -32,8 +42,12 @@ const BULLET_RADIUS = 4;
 // 총알 한 발의 기본 대미지
 const BULLET_DAMAGE = 10;
 
-// 적 기본 속도 (px/초). 플레이어(220)보다 느려야 도망칠 수 있다.
+// 적 기본 속도 (px/초). 1웨이브 속도. 플레이어(220)보다 느려야 도망칠 수 있다.
 const ENEMY_BASE_SPEED = 60;
+
+// 웨이브가 하나 올라갈 때마다 늘어나는 적 속도 (px/초)
+// 1웨이브 60 → 2웨이브 80 → 3웨이브 100
+const ENEMY_SPEED_PER_WAVE = 20;
 
 // 적 반지름 (픽셀)
 const ENEMY_RADIUS = 13;
@@ -42,12 +56,16 @@ const ENEMY_RADIUS = 13;
 // (5~8방 사이로 잡아서, 같은 적을 여러 번 맞히는 "복리 탄환"이 의미 있게 함)
 const ENEMY_MAX_HP = 60;
 
-// 적이 새로 나타나는 간격 (초)
-// ※ (b) 단계 시험용. (c) 단계에서 "웨이브별 적 수"로 바뀐다.
-const ENEMY_SPAWN_INTERVAL = 1.2;
+// 웨이브별 적 수. 배열의 칸 수 = 웨이브 수 (지금은 3웨이브)
+// 칸을 하나 더 추가하면 4웨이브가 생긴다!
+const WAVE_ENEMY_COUNTS = [6, 10, 15];
 
-// 화면에 동시에 있을 수 있는 적의 최대 수 (시험용)
-const ENEMY_MAX_ON_SCREEN = 8;
+// 웨이브 중에 적이 하나씩 나타나는 간격 (초)
+const WAVE_SPAWN_INTERVAL = 0.8;
+
+// 웨이브와 웨이브 사이 쉬는 시간 (초)
+// ※ (d) 단계에서 이 자리에 "증강 선택 화면"이 들어간다.
+const WAVE_BREAK_TIME = 2.0;
 
 
 // =============================================================
@@ -74,6 +92,11 @@ window.addEventListener("keydown", function (event) {
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
 
+  // 게임 오버나 클리어 화면에서 R 키를 누르면 처음부터 다시 시작
+  if (event.code === "KeyR" && (gameState === "gameover" || gameState === "clear")) {
+    resetGame();
+  }
+
   // 방향키를 누를 때 웹페이지가 위아래로 스크롤되는 것을 막는다
   if (event.code.startsWith("Arrow")) {
     event.preventDefault();
@@ -98,6 +121,8 @@ const player = {
   vx: 0,                 // 가로 속도 (px/초). 나중에 시간 지연 증강이 사용한다
   vy: 0,                 // 세로 속도 (px/초)
   fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
+  hp: PLAYER_MAX_HP,     // 현재 체력
+  invincibleTimer: 0,    // 남은 무적 시간 (초). 0보다 크면 맞지 않는다
 };
 
 // 지금 화면에 있는 적들의 목록 (배열)
@@ -108,6 +133,22 @@ let bullets = [];
 
 // 다음 적이 나타날 때까지 남은 시간 (초)
 let spawnTimer = 0;
+
+// 게임 상태: 지금 어떤 화면인지 기억하는 변수
+//   "playing"   : 전투 중
+//   "waveBreak" : 웨이브 사이 쉬는 시간
+//   "gameover"  : 체력이 0이 되어 게임 오버
+//   "clear"     : 마지막 웨이브까지 모두 통과
+let gameState = "playing";
+
+// 현재 웨이브 번호 (1부터 시작)
+let wave = 1;
+
+// 이번 웨이브에서 아직 나오지 않은(생성할) 적의 수
+let enemiesToSpawn = 0;
+
+// 웨이브 사이 쉬는 시간이 얼마나 남았는지 (초)
+let waveBreakTimer = 0;
 
 
 // =============================================================
@@ -206,22 +247,96 @@ function spawnEnemy() {
     y: y,                     // 세로 위치
     hp: ENEMY_MAX_HP,         // 현재 체력
     maxHp: ENEMY_MAX_HP,      // 최대 체력 (체력바 그릴 때 사용)
-    speed: ENEMY_BASE_SPEED,  // 이동 속도
+    // 이동 속도: 기본 속도 + (웨이브 - 1) × 웨이브당 증가량
+    speed: ENEMY_BASE_SPEED + (wave - 1) * ENEMY_SPEED_PER_WAVE,
+    wave: wave,               // 몇 웨이브에 태어난 적인지 (나중에 모양을 바꿀 때 사용)
     hitFlash: 0,              // 맞았을 때 하얗게 번쩍이는 남은 시간 (초)
     dead: false,              // 죽었는지 표시. true 면 목록에서 지운다
   });
 }
 
-// 적 생성 타이머를 돌리는 함수 (시험용, (c) 단계에서 웨이브로 바뀜)
+// 웨이브 동안 정해진 수만큼 적을 하나씩 만드는 함수
 function updateSpawning(dt) {
+  // 이번 웨이브의 적을 이미 다 만들었으면 할 일이 없다
+  if (enemiesToSpawn <= 0) return;
+
   // 남은 시간을 흐른 시간만큼 줄인다
   spawnTimer -= dt;
 
-  // 시간이 다 됐고, 화면에 적이 너무 많지 않으면 하나 만든다
-  if (spawnTimer <= 0 && enemies.length < ENEMY_MAX_ON_SCREEN) {
+  // 시간이 다 됐으면 적 하나를 만들고, 남은 수를 1 줄인다
+  if (spawnTimer <= 0) {
     spawnEnemy();
-    spawnTimer = ENEMY_SPAWN_INTERVAL; // 타이머를 다시 채운다
+    enemiesToSpawn -= 1;
+    spawnTimer = WAVE_SPAWN_INTERVAL; // 타이머를 다시 채운다
   }
+}
+
+// n번째 웨이브를 시작하는 함수
+function startWave(n) {
+  wave = n;
+  // 배열은 0번 칸부터 시작하므로 n번째 웨이브의 적 수는 [n - 1] 칸에 있다
+  enemiesToSpawn = WAVE_ENEMY_COUNTS[n - 1];
+  spawnTimer = 0.5;       // 0.5초 뒤 첫 적 등장
+  gameState = "playing";
+}
+
+// 웨이브가 끝났는지 검사하는 함수
+// 끝나는 조건: 더 나올 적이 없고(0), 화면에 남은 적도 없다(0)
+function checkWaveEnd() {
+  if (enemiesToSpawn > 0 || enemies.length > 0) return;
+
+  if (wave >= WAVE_ENEMY_COUNTS.length) {
+    // 마지막 웨이브였으면 클리어!
+    gameState = "clear";
+  } else {
+    // 아니면 잠깐 쉬었다가 다음 웨이브로
+    gameState = "waveBreak";
+    waveBreakTimer = WAVE_BREAK_TIME;
+  }
+}
+
+// 적이 플레이어에게 닿았는지 검사하고, 닿았으면 체력을 깎는 함수
+function updatePlayerHit(dt) {
+  // 무적 시간을 줄인다
+  player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
+
+  // 무적이면 맞지 않으니 검사할 필요가 없다
+  if (player.invincibleTimer > 0) return;
+
+  // 모든 적을 하나씩 보면서 플레이어와 겹치는지 검사하는 반복문
+  for (const enemy of enemies) {
+    if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
+                       enemy.x, enemy.y, ENEMY_RADIUS)) {
+      player.hp -= ENEMY_CONTACT_DAMAGE;              // 체력 감소
+      player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
+
+      // 체력이 0 이하면 게임 오버
+      if (player.hp <= 0) {
+        player.hp = 0;
+        gameState = "gameover";
+      }
+      break; // 한 프레임에 한 번만 맞는다
+    }
+  }
+}
+
+// 게임을 처음 상태로 되돌리는 함수 (R 키로 다시 시작할 때 사용)
+function resetGame() {
+  // 플레이어를 가운데로, 체력은 가득, 타이머는 0으로
+  player.x = CANVAS_WIDTH / 2;
+  player.y = CANVAS_HEIGHT / 2;
+  player.vx = 0;
+  player.vy = 0;
+  player.hp = PLAYER_MAX_HP;
+  player.fireTimer = 0;
+  player.invincibleTimer = 0;
+
+  // 적과 총알을 모두 지운다
+  enemies = [];
+  bullets = [];
+
+  // 1웨이브부터 다시
+  startWave(1);
 }
 
 // 모든 적을 플레이어 쪽으로 움직이는 함수
@@ -338,13 +453,34 @@ function updateBullets(dt) {
   enemies = enemies.filter(function (e) { return !e.dead; });
 }
 
-// 게임 전체의 값을 바꾸는 함수 (순서가 중요하다)
+// 게임 전체의 값을 바꾸는 함수. 게임 상태에 따라 하는 일이 다르다.
 function update(dt) {
-  updatePlayer(dt);    // 1) 플레이어 이동
-  updateSpawning(dt);  // 2) 적 생성
-  updateEnemies(dt);   // 3) 적 이동
-  updateShooting(dt);  // 4) 자동 발사
-  updateBullets(dt);   // 5) 총알 이동과 충돌
+  if (gameState === "playing") {
+    // 전투 중 (순서가 중요하다)
+    updatePlayer(dt);     // 1) 플레이어 이동
+    updateSpawning(dt);   // 2) 적 생성
+    updateEnemies(dt);    // 3) 적 이동
+    updateShooting(dt);   // 4) 자동 발사
+    updateBullets(dt);    // 5) 총알 이동과 충돌
+    updatePlayerHit(dt);  // 6) 적에게 닿았는지 검사
+
+    // 게임 오버가 아니라면 웨이브가 끝났는지 검사
+    if (gameState === "playing") {
+      checkWaveEnd();
+    }
+  } else if (gameState === "waveBreak") {
+    // 쉬는 시간: 움직일 수는 있고, 남은 총알도 계속 날아간다
+    updatePlayer(dt);
+    updateBullets(dt);
+    player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
+
+    // 쉬는 시간이 끝나면 다음 웨이브 시작
+    waveBreakTimer -= dt;
+    if (waveBreakTimer <= 0) {
+      startWave(wave + 1);
+    }
+  }
+  // "gameover", "clear" 상태에서는 아무것도 움직이지 않는다 (R 키를 기다림)
 }
 
 
@@ -400,7 +536,57 @@ function draw() {
 
   drawBullets();  // 총알 (가장 아래)
   drawEnemies();  // 적
-  drawPlayer();   // 플레이어 (가장 위)
+  drawPlayer();   // 플레이어
+  drawHud();      // 웨이브 번호, 체력바 (화면 위에 겹쳐 그림)
+  drawOverlay();  // 쉬는 시간·게임 오버·클리어 안내 (가장 위)
+}
+
+// 화면 왼쪽 위에 웨이브 번호와 플레이어 체력바를 그린다
+// ※ (f) 단계에서 점수, 증강 목록과 함께 더 예쁘게 다듬는다
+function drawHud() {
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "20px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("웨이브 " + wave + " / " + WAVE_ENEMY_COUNTS.length, 16, 30);
+
+  // 체력바: 바탕(회색) 위에 남은 체력 비율만큼 초록색
+  const ratio = player.hp / PLAYER_MAX_HP;
+  ctx.fillStyle = "#444";
+  ctx.fillRect(16, 42, 200, 14);
+  ctx.fillStyle = "#6be675";
+  ctx.fillRect(16, 42, 200 * ratio, 14);
+}
+
+// 게임 상태에 따라 화면 가운데에 안내 문구를 그린다
+function drawOverlay() {
+  // 전투 중에는 안내 문구가 없다
+  if (gameState === "playing") return;
+
+  // 상태별로 보여 줄 큰 제목과 작은 설명
+  let title = "";
+  let sub = "";
+  if (gameState === "waveBreak") {
+    title = "웨이브 " + wave + " 클리어!";
+    sub = "잠시 후 다음 웨이브가 시작됩니다";
+  } else if (gameState === "gameover") {
+    title = "게임 오버";
+    sub = "R 키를 눌러 다시 시작";
+  } else if (gameState === "clear") {
+    title = "모든 웨이브 클리어!";
+    sub = "R 키를 눌러 다시 시작";
+  }
+
+  // 화면 전체를 반투명 검정으로 살짝 덮는다
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  // 가운데 정렬로 글자를 쓴다
+  ctx.fillStyle = "#ffffff";
+  ctx.textAlign = "center";
+  ctx.font = "48px sans-serif";
+  ctx.fillText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+  ctx.font = "20px sans-serif";
+  ctx.fillText(sub, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
 }
 
 
@@ -425,5 +611,6 @@ function gameLoop(now) {
   requestAnimationFrame(gameLoop);
 }
 
-// 게임 루프 시작!
+// 1웨이브를 준비하고 게임 루프 시작!
+startWave(1);
 requestAnimationFrame(gameLoop);
