@@ -301,4 +301,34 @@ module.exports = [
       return { ok: ok, detail: "Lv1 각도 " + lv1 + " / Lv2 각도 " + lv2 + " / onFire " + fires + "회 / 같은 k=" + ksSame };
     },
   },
+  {
+    name: "[증강] 핵분열 연쇄: 파편 m개(360°/m), 대미지 = 최대 체력×에너지, 감쇠 60%, 2세대까지, 40개 제한",
+    run: function () {
+      runMenuAction(0); spawnQueue = []; ownedAugments = { fission: 1 };
+      const killWith = (bullet, e) => { const aug = AUGMENTS.find((a) => a.id === "fission");
+        aug.onKill(aug.levels[getAugmentLevel("fission") - 1], { enemy: e, x: e.x, y: e.y, bullet: bullet }); };
+      const e = createEnemy("basic", 400, 300, 1);
+      bullets = []; killWith({ isFragment: false }, e);
+      const g1 = bullets.slice();
+      const angle = Math.abs(Math.atan2(g1[0].vy, g1[0].vx) - Math.atan2(g1[1].vy, g1[1].vx)) * 180 / Math.PI;
+      const dmg1 = g1[0].damageScale * BULLET_DAMAGE;                       // 60 × 0.2 = 12
+      bullets = []; killWith(g1[0], e); const g2 = bullets.slice();
+      const dmg2 = g2[0].damageScale * BULLET_DAMAGE;                       // 12 → 60 × 0.12 = 7.2
+      bullets = []; killWith(g2[0], e); const g3count = bullets.length;     // 2세대가 죽이면 끝
+      ownedAugments = { fission: 2 };
+      bullets = []; for (let i = 0; i < 30; i++) killWith({}, e);
+      const capped = bullets.filter((b) => b.isFragment).length;
+      bullets = []; killWith({}, e); const lv2 = bullets.length; const lv2dmg = bullets[0].damageScale * BULLET_DAMAGE;
+      // 수명: 0.5초 뒤 사라진다
+      bullets = []; killWith({}, createEnemy("basic", 480, 270, 1));
+      for (let f = 0; f < 32; f++) updateBullets(1 / 60);
+      const goneAfterLife = bullets.length === 0;
+      const ok = g1.length === 2 && Math.abs(angle - 180) < 1e-6 && Math.abs(dmg1 - 12) < 1e-9 &&
+        g1[0].generation === 1 && g2.length === 2 && g2[0].generation === 2 && Math.abs(dmg2 - 7.2) < 1e-9 &&
+        g3count === 0 && capped === 40 && lv2 === 3 && Math.abs(lv2dmg - 15) < 1e-9 && goneAfterLife &&
+        g1.every((b) => b.fromAugment);
+      return { ok: ok, detail: "1세대 " + g1.length + "개 " + angle.toFixed(0) + "° 간격 " + dmg1 + " / 2세대 " + dmg2.toFixed(1) +
+        " / 3세대 " + g3count + "개 / 제한 " + capped + " / Lv2 " + lv2 + "개 " + lv2dmg + " / 수명 후 사라짐=" + goneAfterLife };
+    },
+  },
 ];

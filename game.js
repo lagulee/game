@@ -970,6 +970,8 @@ let insideOnFire = false;
 //   generation  : 몇 번째 세대 총알인지 (기본 0. 핵분열처럼 총알이 총알을 낳을 때 사용)
 //   target      : 조준한 적 (onFire 훅에 전달)
 //   x, y        : 출발 위치 (생략하면 플레이어의 총구)
+//   color       : 총알 색 (생략하면 노랑). 핵분열 파편처럼 구별하고 싶을 때
+//   life        : 이 시간(초)이 지나면 사라진다 (생략하면 화면 밖으로 나갈 때까지)
 // ※ 증강(3방향 탄 등)도 이 함수로 총알을 더 만들 수 있다.
 //   예: createBullet(dx, dy, { damageScale: 0.6, fromAugment: true })
 function createBullet(dirX, dirY, options) {
@@ -985,6 +987,8 @@ function createBullet(dirX, dirY, options) {
     damageScale: opt.damageScale !== undefined ? opt.damageScale : 1,
     fromAugment: opt.fromAugment === true,
     generation: opt.generation || 0,
+    color: opt.color,             // 없으면 노랑으로 그린다
+    life: opt.life,               // 없으면 시간 제한 없음
     dead: false,                  // 맞았거나 화면 밖이면 true
   };
   bullets.push(bullet);
@@ -1130,6 +1134,12 @@ function updateBullets(dt) {
     forEachOwnedAugment(function (aug, stats) {
       if (aug.onBulletUpdate) aug.onBulletUpdate(bullet, stats, dt);
     });
+
+    // 수명이 정해진 총알(핵분열 파편 등)은 시간이 다 되면 사라진다
+    if (bullet.life !== undefined && bullet.age > bullet.life) {
+      bullet.dead = true;
+      continue;
+    }
 
     // 위치 = 위치 + 속도 × 시간
     bullet.x += bullet.vx * dt;
@@ -1637,12 +1647,13 @@ function drawBullets() {
     ctx.stroke();
 
     // 2) 꼬리 속: 그 위에 조금 가는 노란 선을 겹쳐 그으면 외곽선 있는 꼬리가 된다
-    ctx.strokeStyle = COLORS.yellow;
+    const color = bullet.color || COLORS.yellow; // 보통은 노랑, 파편 등은 자기 색
+    ctx.strokeStyle = color;
     ctx.lineWidth = BULLET_RADIUS * 0.9;
     ctx.stroke();
 
     // 3) 알갱이 머리
-    drawOutlinedCircle(bullet.x, bullet.y, BULLET_RADIUS, COLORS.yellow, SMALL_OUTLINE_WIDTH);
+    drawOutlinedCircle(bullet.x, bullet.y, BULLET_RADIUS, color, SMALL_OUTLINE_WIDTH);
 
     // 4) 아주 작은 하이라이트 점
     ctx.fillStyle = COLORS.white;

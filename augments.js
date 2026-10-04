@@ -124,6 +124,19 @@ const MULTI_SHOT_COUNT = [3, 5];
 // 3방향 탄: 레벨별 총알 하나의 대미지 배율
 const MULTI_SHOT_SCALE = [0.6, 0.5];
 
+// 핵분열 연쇄: 레벨별 파편 개수 m (360° ÷ m 간격)
+const FISSION_FRAGMENTS = [2, 3];
+// 핵분열 연쇄: 레벨별 에너지 = 파편 하나의 대미지가 죽은 적 최대 체력의 몇 배인지
+const FISSION_ENERGY = [0.2, 0.25];
+// 핵분열 연쇄: 파편이 다시 파편을 낼 때 에너지가 줄어드는 비율 (감쇠)
+const FISSION_DECAY = 0.6;
+// 핵분열 연쇄: 최대 세대 수 (2 이면 "파편의 파편"까지만)
+const FISSION_MAX_GENERATION = 2;
+// 핵분열 연쇄: 화면에 동시에 있을 수 있는 파편 수
+const FISSION_MAX_FRAGMENTS = 40;
+// 핵분열 연쇄: 파편이 날아가는 시간 (초). 0.5초 × 480px/초 ≈ 240px 까지만 날아간다
+const FISSION_FRAGMENT_LIFE = 0.5;
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -358,6 +371,75 @@ const AUGMENTS = [
         // fromAugment: true → 이 총알 때문에 onFire 가 다시 불리지 않는다
         const extra = createBullet(dirX, dirY, { damageScale: stats.scale, fromAugment: true });
         extra.arithK = info.bullet.arithK; // 같은 순간에 쏜 총알이니 등차 번호도 같다
+      }
+    },
+  },
+  {
+    id: "fission",
+    name: "핵분열 연쇄",
+    concept: "물리 · 연쇄 반응",
+    formula: "k > 1 → 폭주",
+    color: "orange",
+    levels: [
+      {
+        fragments: FISSION_FRAGMENTS[0],
+        energy: FISSION_ENERGY[0],
+        desc: "적이 죽으면 그 자리에서 파편 2개가 터져 나간다. 파편 대미지 = 죽은 적 최대 체력의 20%. 파편으로 죽인 적도 다시 터진다 (최대 2세대)",
+      },
+      {
+        fragments: FISSION_FRAGMENTS[1],
+        energy: FISSION_ENERGY[1],
+        desc: "파편이 3개로! 에너지 20% → 25% (다음 세대는 60% 로 감쇠)",
+      },
+    ],
+
+    // =========================================================
+    // 연쇄 반응의 원리
+    //   파편 하나가 평균 k마리를 죽이면 연쇄가 이어진다.
+    //   k < 1이면 연쇄가 사그라들고, k > 1이면 폭주한다.
+    //   그래서 세대 제한과 감쇠가 필요하다.
+    //   - 감쇠: 세대가 내려갈수록 에너지(대미지)가 60% 로 줄어 k 가 점점 작아진다
+    //   - 세대 제한: 2세대 파편이 죽인 적은 더 이상 파편을 내지 않는다
+    //   - 개수 제한: 화면의 파편이 40개를 넘지 않는다 (게임이 느려지지 않게)
+    // =========================================================
+    onKill: function (stats, info) {
+      const killer = info.bullet;
+      let energy;      // 이번에 터질 파편의 에너지
+      let generation;  // 이번에 터질 파편의 세대
+
+      if (killer && killer.isFragment) {
+        // 파편이 죽인 적: 세대 제한을 넘으면 더 이상 터지지 않는다
+        if (killer.generation >= FISSION_MAX_GENERATION) return;
+        energy = killer.energy * FISSION_DECAY; // 에너지 감쇠
+        generation = killer.generation + 1;
+      } else {
+        // 보통 총알이 죽인 적: 1세대 파편
+        energy = stats.energy;
+        generation = 1;
+      }
+
+      // 화면에 남은 파편 자리만큼만 만든다
+      const alive = bullets.filter(function (b) { return b.isFragment && !b.dead; }).length;
+      const count = Math.min(stats.fragments, FISSION_MAX_FRAGMENTS - alive);
+      if (count <= 0) return;
+
+      // 파편 하나의 대미지 = 죽은 적 최대 체력 × 에너지 → 총알 대미지 배율로 바꿔 둔다
+      const damageScale = (info.enemy.maxHp * energy) / BULLET_DAMAGE;
+      const start = Math.random() * Math.PI * 2;       // 첫 파편 방향만 무작위
+      const step = (Math.PI * 2) / stats.fragments;    // 360° ÷ m 간격
+      // 파편을 하나씩 만드는 반복문
+      for (let i = 0; i < count; i++) {
+        const angle = start + step * i;
+        const frag = createBullet(Math.cos(angle), Math.sin(angle), {
+          x: info.x, y: info.y,          // 죽은 적 자리에서 출발
+          damageScale: damageScale,
+          fromAugment: true,             // onFire 를 다시 부르지 않는다
+          generation: generation,
+          color: COLORS.orange,
+          life: FISSION_FRAGMENT_LIFE,
+        });
+        frag.isFragment = true;
+        frag.energy = energy;
       }
     },
   },
