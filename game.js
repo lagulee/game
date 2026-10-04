@@ -66,7 +66,10 @@ const FIRE_INTERVAL = 0.4;
 const BULLET_SPEED = 480;
 
 // 총알 반지름 (픽셀)
-const BULLET_RADIUS = 4;
+const BULLET_RADIUS = 5;
+
+// 총알 뒤에 남는 꼬리 길이 (픽셀)
+const BULLET_TAIL_LENGTH = 16;
 
 // 총알 한 발의 기본 대미지
 const BULLET_DAMAGE = 10;
@@ -836,14 +839,35 @@ function drawEnemies() {
   }
 }
 
-// ---- 총알 (임시 모양) ----
-// ※ 다음 스타일 단계에서 외곽선 + 꼬리가 생긴다
+// ---- 총알 ----
+// 노란 알갱이 + 외곽선, 날아온 쪽으로 짧은 꼬리
 function drawBullets() {
-  ctx.fillStyle = COLORS.yellow;
   // 총알 목록을 하나씩 꺼내 그리는 반복문
   for (const bullet of bullets) {
+    // 날아가는 방향의 반대쪽(뒤)으로 꼬리 끝 위치를 구한다
+    const speed = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy) || 1;
+    const tailX = bullet.x - (bullet.vx / speed) * BULLET_TAIL_LENGTH;
+    const tailY = bullet.y - (bullet.vy / speed) * BULLET_TAIL_LENGTH;
+
+    // 1) 꼬리 외곽선: 굵은 어두운 선을 먼저 긋고
+    setOutline(BULLET_RADIUS * 0.9 + SMALL_OUTLINE_WIDTH * 2);
     ctx.beginPath();
-    ctx.arc(bullet.x, bullet.y, BULLET_RADIUS, 0, Math.PI * 2);
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(bullet.x, bullet.y);
+    ctx.stroke();
+
+    // 2) 꼬리 속: 그 위에 조금 가는 노란 선을 겹쳐 그으면 외곽선 있는 꼬리가 된다
+    ctx.strokeStyle = COLORS.yellow;
+    ctx.lineWidth = BULLET_RADIUS * 0.9;
+    ctx.stroke();
+
+    // 3) 알갱이 머리
+    drawOutlinedCircle(bullet.x, bullet.y, BULLET_RADIUS, COLORS.yellow, SMALL_OUTLINE_WIDTH);
+
+    // 4) 아주 작은 하이라이트 점
+    ctx.fillStyle = COLORS.white;
+    ctx.beginPath();
+    ctx.arc(bullet.x - 1.5, bullet.y - 1.5, 1.4, 0, Math.PI * 2);
     ctx.fill();
   }
 }
