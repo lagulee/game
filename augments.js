@@ -24,7 +24,9 @@
 //
 //   modifyDamage(damage, stats, info)
 //     언제: 총알이 적에게 맞는 순간, 대미지를 정할 때
+//     damage 에는 이미 총알의 대미지 배율(bullet.damageScale)이 곱해져 있다
 //     info.enemy  : 맞은 적
+//     info.bullet : 맞힌 총알
 //     info.streak : 같은 적을 연속으로 맞힌 횟수 (첫 명중 = 0)
 //     예: 복리 탄환, 분산 증폭
 //
@@ -50,8 +52,18 @@
 //     info.dirX, dirY : 쏜 방향 (길이 1인 화살표)
 //     info.target     : 조준한 적
 //     info.player     : 플레이어 (반동으로 밀어낼 때 player.vx, vy 를 바꾼다)
-//     총알을 더 쏘려면 createBullet(방향x, 방향y) 를 부르면 된다. (onFire 는 다시 안 불림)
+//     총알을 더 쏘려면 createBullet(방향x, 방향y, { fromAugment: true }) 를 부른다.
+//       fromAugment: true 인 총알은 onFire 를 다시 부르지 않는다 (무한 반복 방지)
+//       damageScale: 0.6 처럼 주면 그 총알은 60% 대미지
 //     예: 3방향 탄, 반동
+//
+//   onHit(stats, info)
+//     언제: 총알이 적에게 맞아 대미지가 적용된 직후 (죽었으면 죽는 처리보다 먼저)
+//     info.enemy  : 맞은 적
+//     info.bullet : 맞힌 총알
+//     info.damage : 이번에 준 대미지
+//     info.killed : 이번 한 방으로 죽었으면 true
+//     예: 넉백, 지속 대미지
 //
 //   onKill(stats, info)
 //     언제: 총알에 맞은 적의 체력이 0 이 되어 죽는 순간 (점수를 더한 바로 다음)

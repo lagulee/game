@@ -154,6 +154,12 @@ window.addEventListener("keydown", function (event) {
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
 
+  // 디버그 모드 키 (F2 로 켜고 끈다). 처리한 키면 여기서 끝낸다
+  if (handleDebugKey(event)) {
+    event.preventDefault();
+    return;
+  }
+
   // 메뉴 화면: ↑↓(또는 W/S)로 버튼 고르기, Enter 나 Space 로 누르기
   if (gameState === "menu") {
     if (event.code === "ArrowUp" || event.code === "KeyW") {
@@ -192,6 +198,72 @@ window.addEventListener("keydown", function (event) {
     event.preventDefault();
   }
 });
+
+// =============================================================
+// 3-1. 디버그 모드 (개발·시험용)
+// -------------------------------------------------------------
+// F2       : 디버그 모드 켜기/끄기
+// [ / ]    : 이전 / 다음 웨이브로 바로 이동
+// Shift+1~9: AUGMENTS 배열 순서대로 증강 1개 지급 (이미 있으면 레벨업)
+// I        : 무적 켜기/끄기
+// 디버그 모드가 꺼져 있으면 아래 기능은 전부 아무 영향이 없다.
+// =============================================================
+
+let debugMode = false;       // 디버그 모드가 켜져 있는지
+let debugInvincible = false; // 디버그 무적이 켜져 있는지 (디버그 모드일 때만 효과)
+let debugMessage = "";       // 화면 구석에 잠깐 보여 줄 디버그 알림
+let debugMessageTimer = 0;   // 알림이 남은 시간 (초)
+
+// 디버그 알림을 띄우는 함수
+function debugSay(text) {
+  debugMessage = text;
+  debugMessageTimer = 2;
+}
+
+// 디버그 키를 처리하는 함수. 처리했으면 true 를 돌려준다.
+function handleDebugKey(event) {
+  // F2: 켜기/끄기 (언제든 가능)
+  if (event.code === "F2") {
+    debugMode = !debugMode;
+    debugSay(debugMode ? "디버그 모드 ON" : "");
+    return true;
+  }
+  if (!debugMode) return false; // 꺼져 있으면 아무것도 하지 않는다
+
+  const inGame = gameState === "playing" || gameState === "choosing";
+
+  // [ ] : 웨이브 이동
+  if ((event.code === "BracketLeft" || event.code === "BracketRight") && inGame) {
+    const next = wave + (event.code === "BracketRight" ? 1 : -1);
+    if (next >= 1 && next <= WAVES.length) {
+      enemies = [];
+      bullets = [];
+      startWave(next);
+      debugSay("웨이브 " + next + " 로 이동");
+    }
+    return true;
+  }
+
+  // Shift + 1~9 : 증강 지급 / 레벨업
+  if (event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
+    const index = Number(event.code.slice(5)) - 1; // "Digit3" → 2
+    const aug = AUGMENTS[index];
+    if (aug) {
+      const level = Math.min(getAugmentLevel(aug.id) + 1, aug.levels.length);
+      ownedAugments[aug.id] = level;
+      debugSay(aug.name + " Lv." + level);
+    }
+    return true;
+  }
+
+  // I : 무적 토글
+  if (event.code === "KeyI") {
+    debugInvincible = !debugInvincible;
+    debugSay("무적 " + (debugInvincible ? "ON" : "OFF"));
+    return true;
+  }
+  return false;
+}
 
 // 키에서 손을 떼는 순간 실행되는 함수를 등록한다
 window.addEventListener("keyup", function (event) {
@@ -721,6 +793,9 @@ function updatePlayerHit(dt) {
   // 무적이면 맞지 않으니 검사할 필요가 없다
   if (player.invincibleTimer > 0) return;
 
+  // 디버그 무적 (디버그 모드가 켜져 있을 때만)
+  if (debugMode && debugInvincible) return;
+
   // 모든 적을 하나씩 보면서 플레이어와 겹치는지 검사하는 반복문
   for (const enemy of enemies) {
     if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
@@ -835,40 +910,60 @@ function updateShooting(dt) {
   const dy = target.y - player.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1; // 0으로 나누기 방지
 
-  // 가장 가까운 적을 향해 한 발 쏜다
-  const bullet = createBullet(dx / dist, dy / dist);
-
-  // [훅] onFire: 총알을 쏜 순간 증강에게 알린다 (3방향 탄, 반동 등)
-  const fireInfo = {
-    bullet: bullet,       // 방금 쏜 총알
-    dirX: dx / dist,      // 쏜 방향 (길이 1)
-    dirY: dy / dist,
-    target: target,       // 조준한 적
-    player: player,
-  };
-  forEachOwnedAugment(function (aug, stats) {
-    if (aug.onFire) aug.onFire(stats, fireInfo);
-  });
+  // 가장 가까운 적을 향해 한 발 쏜다 (이때 onFire 훅도 불린다)
+  createBullet(dx / dist, dy / dist, { target: target });
 
   // 다음 발사까지 기다릴 시간을 다시 채운다
   player.fireTimer = fireInterval();
 }
 
+// onFire 훅을 처리하는 중인지 표시 (무한 반복을 막는 안전장치)
+let insideOnFire = false;
+
 // 총알 하나를 만들어 목록에 넣고, 만든 총알을 돌려주는 함수
 // dirX, dirY: 날아갈 방향 (길이 1인 화살표)
+// options (모두 생략 가능)
+//   damageScale : 이 총알의 대미지 배율 (기본 1. 0.6 이면 60% 대미지)
+//   fromAugment : 증강이 추가로 만든 총알이면 true → onFire 훅을 다시 부르지 않는다
+//   generation  : 몇 번째 세대 총알인지 (기본 0. 핵분열처럼 총알이 총알을 낳을 때 사용)
+//   target      : 조준한 적 (onFire 훅에 전달)
+//   x, y        : 출발 위치 (생략하면 플레이어의 총구)
 // ※ 증강(3방향 탄 등)도 이 함수로 총알을 더 만들 수 있다.
-function createBullet(dirX, dirY) {
+//   예: createBullet(dx, dy, { damageScale: 0.6, fromAugment: true })
+function createBullet(dirX, dirY, options) {
+  const opt = options || {};
   // 총알이 대포 끝(총구)에서 나오도록 출발점을 몸 반지름 + 10 만큼 앞으로
   const muzzle = PLAYER_RADIUS + 10;
   const bullet = {
-    x: player.x + dirX * muzzle,  // 총구 위치에서 출발
-    y: player.y + dirY * muzzle,
+    x: opt.x !== undefined ? opt.x : player.x + dirX * muzzle,  // 총구 위치에서 출발
+    y: opt.y !== undefined ? opt.y : player.y + dirY * muzzle,
     vx: dirX * BULLET_SPEED,      // 가로 속도
     vy: dirY * BULLET_SPEED,      // 세로 속도
     age: 0,                       // 날아간 시간 (초). 푸리에 탄환 같은 증강이 사용
+    damageScale: opt.damageScale !== undefined ? opt.damageScale : 1,
+    fromAugment: opt.fromAugment === true,
+    generation: opt.generation || 0,
     dead: false,                  // 맞았거나 화면 밖이면 true
   };
   bullets.push(bullet);
+
+  // [훅] onFire: 플레이어가 직접 쏜 총알일 때만 증강에게 알린다 (3방향 탄, 반동 등)
+  // 증강이 만든 총알(fromAugment)이거나, 이미 onFire 처리 중에 만들어진 총알이면
+  // 다시 부르지 않는다. → "총알이 총알을 부르는" 무한 반복을 막는다.
+  if (!bullet.fromAugment && !insideOnFire) {
+    const fireInfo = {
+      bullet: bullet,       // 방금 쏜 총알
+      dirX: dirX,           // 쏜 방향 (길이 1)
+      dirY: dirY,
+      target: opt.target,   // 조준한 적
+      player: player,
+    };
+    insideOnFire = true;
+    forEachOwnedAugment(function (aug, stats) {
+      if (aug.onFire) aug.onFire(stats, fireInfo);
+    });
+    insideOnFire = false;
+  }
   return bullet;
 }
 
@@ -884,7 +979,7 @@ function fireInterval() {
 
 // 총알 한 발이 적에게 줄 대미지를 계산하는 함수
 // 기본 대미지에서 시작해서, 가진 증강 중 modifyDamage 가 있는 것들이 차례로 바꾼다.
-function calcDamage(enemy) {
+function calcDamage(enemy, bullet) {
   // 복리 탄환용 연속 명중 횟수 n 계산
   //   같은 적을 또 맞혔으면 n + 1, 다른 적이면 n = 0 부터 다시
   if (enemy === lastHitEnemy) {
@@ -894,8 +989,9 @@ function calcDamage(enemy) {
     lastHitEnemy = enemy;
   }
 
-  let damage = BULLET_DAMAGE;
-  const info = { enemy: enemy, streak: hitStreak };
+  // 기본 대미지 × 이 총알의 대미지 배율 (보통 1)
+  let damage = BULLET_DAMAGE * (bullet ? bullet.damageScale : 1);
+  const info = { enemy: enemy, bullet: bullet, streak: hitStreak };
   forEachOwnedAugment(function (aug, stats) {
     if (aug.modifyDamage) {
       damage = aug.modifyDamage(damage, stats, info);
@@ -1003,14 +1099,21 @@ function updateBullets(dt) {
       if (circlesOverlap(bullet.x, bullet.y, BULLET_RADIUS,
                          enemy.x, enemy.y, enemy.radius)) {
         // 대미지를 계산해서 적 체력을 깎는다
-        const damage = calcDamage(enemy);
+        const damage = calcDamage(enemy, bullet);
         enemy.hp -= damage;
         spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
         bullet.dead = true;      // 총알은 맞으면 사라진다
+        const killed = enemy.hp <= 0; // 이번 한 방으로 죽었는지
+
+        // [훅] onHit: 대미지가 적용된 직후 증강에게 알린다 (넉백, 지속 대미지 등)
+        const hitInfo = { enemy: enemy, bullet: bullet, damage: damage, killed: killed };
+        forEachOwnedAugment(function (aug, stats) {
+          if (aug.onHit) aug.onHit(stats, hitInfo);
+        });
 
         // 체력이 0 이하가 되면 적은 죽는다
-        if (enemy.hp <= 0) {
+        if (killed) {
           enemy.dead = true;
           enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
           score += SCORE_PER_KILL * wave;   // 점수 획득 (뒤 웨이브일수록 많이)
@@ -1062,6 +1165,7 @@ function update(dt) {
 
   // 안내 띠 남은 시간 줄이기 (어느 상태에서든)
   bannerTimer = Math.max(0, bannerTimer - dt);
+  debugMessageTimer = Math.max(0, debugMessageTimer - dt);
   // "gameover", "clear" 상태에서는 아무것도 움직이지 않는다 (R 키를 기다림)
 }
 
@@ -1834,6 +1938,18 @@ function drawAugmentEffects() {
   });
 }
 
+// ---- 디버그 표시 (디버그 모드일 때만, 화면 왼쪽 아래 구석) ----
+function drawDebug() {
+  if (!debugMode) return;
+  const x = 14;
+  const y = CANVAS_HEIGHT - 18;
+  drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
+  drawOutlinedText("[ ] 웨이브  Shift+숫자 증강  I 무적  F2 끄기", x, y - 22, 13, "left");
+  if (debugMessageTimer > 0 && debugMessage) {
+    drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
+  }
+}
+
 // ---- 화면 전체 그리기 ----
 function draw() {
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
@@ -1841,6 +1957,7 @@ function draw() {
   // 메뉴 화면은 따로 그리고 끝낸다
   if (gameState === "menu") {
     drawMenu();
+    drawDebug();
     return;
   }
 
@@ -1854,6 +1971,7 @@ function draw() {
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
   drawOverlay();    // 게임 오버·클리어 안내 (가장 위)
+  drawDebug();      // 디버그 표시 (디버그 모드일 때만)
 }
 
 
