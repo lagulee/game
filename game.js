@@ -4,6 +4,7 @@
 // (a) 플레이어 이동 : 게임 루프, 키보드 입력, 화면 밖 제한
 // (b) 자동 발사와 적 : 적 생성·추적, 가장 가까운 적 조준, 총알 충돌, 적 체력
 // (c) 웨이브와 체력  : 웨이브 3개, 플레이어 체력·무적 시간, 게임 오버·클리어, R 재시작
+// [스타일] 스티커 카툰: 두꺼운 외곽선 + 납작한 단색 + 하이라이트 한 줄
 // =============================================================
 
 
@@ -15,11 +16,36 @@
 const CANVAS_WIDTH = 960;
 const CANVAS_HEIGHT = 540;
 
+// ---- 스타일(그림) 관련 상수 ----
+
+// 게임에서 쓰는 색은 전부 여기 팔레트에 모은다. 다른 곳에서는 COLORS.이름 으로만 쓴다.
+const COLORS = {
+  outline: "#2B2118",    // 외곽선 (아주 진한 갈색)
+  background: "#E9E6D8", // 배경 (따뜻한 크림색)
+  white: "#F7F4EA",      // 하양 (하이라이트, 글자)
+  yellow: "#F2C14E",     // 노랑 (총알, 강조)
+  red: "#D9482B",        // 빨강 (적)
+  green: "#6FB04A",      // 초록 (플레이어)
+  brown: "#C98A4B",      // 갈색 (보조: 총구, 패널)
+};
+
+// 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
+const OUTLINE_WIDTH = 4;
+
+// 글자 외곽선 두께 (px). 선의 절반은 글자 안쪽에 그려지므로 도형보다 조금 두껍게.
+const TEXT_OUTLINE_WIDTH = 6;
+
+// 글꼴: Jua → 없으면 Black Han Sans → 그것도 없으면(인터넷이 안 될 때) 기본 고딕
+const FONT_FAMILY = '"Jua", "Black Han Sans", sans-serif';
+
+// 배경 모눈 한 칸의 크기 (px)
+const GRID_SIZE = 40;
+
 // 플레이어 최고 속도 (1초에 몇 픽셀 움직이는지)
 const PLAYER_SPEED = 220;
 
-// 플레이어 몸의 반지름 (픽셀). 원으로 그린다.
-const PLAYER_RADIUS = 14;
+// 플레이어 몸의 반지름 (픽셀). 얼굴을 그리기 위해 조금 크게 잡았다.
+const PLAYER_RADIUS = 18;
 
 // 플레이어 최대 체력
 const PLAYER_MAX_HP = 100;
@@ -123,6 +149,7 @@ const player = {
   fireTimer: 0,          // 다음 발사까지 남은 시간 (초). 0 이하가 되면 발사
   hp: PLAYER_MAX_HP,     // 현재 체력
   invincibleTimer: 0,    // 남은 무적 시간 (초). 0보다 크면 맞지 않는다
+  facing: 0,             // 바라보는 방향 (각도, 라디안). 0 = 오른쪽. 총구가 이쪽을 향한다
 };
 
 // 지금 화면에 있는 적들의 목록 (배열)
@@ -207,6 +234,12 @@ function updatePlayer(dt) {
   // 속도 = 방향 × 최고 속도
   player.vx = dirX * PLAYER_SPEED;
   player.vy = dirY * PLAYER_SPEED;
+
+  // 움직이고 있을 때만 바라보는 방향을 바꾼다 (멈추면 마지막 방향 유지)
+  // Math.atan2(세로, 가로) = 그 방향의 각도
+  if (length > 0) {
+    player.facing = Math.atan2(dirY, dirX);
+  }
 
   // 위치 = 위치 + 속도 × 시간
   player.x += player.vx * dt;
@@ -330,6 +363,7 @@ function resetGame() {
   player.hp = PLAYER_MAX_HP;
   player.fireTimer = 0;
   player.invincibleTimer = 0;
+  player.facing = 0;
 
   // 적과 총알을 모두 지운다
   enemies = [];
@@ -485,42 +519,225 @@ function update(dt) {
 
 
 // =============================================================
-// 7. 그리기
+// 7. 그리기 도우미 (스티커 카툰 스타일)
+// -------------------------------------------------------------
+// 모든 도형은 아래 함수들로 그린다. 그래서 외곽선 두께·색을
+// 맨 위 상수(OUTLINE_WIDTH, COLORS.outline) 한 곳에서 바꾸면
+// 게임 전체 그림이 한꺼번에 바뀐다.
 // =============================================================
 
-// 플레이어를 파란 원으로 그린다
-function drawPlayer() {
-  ctx.fillStyle = "#4fc3ff";                                 // 칠할 색: 하늘색
-  ctx.beginPath();                                           // 새 도형 그리기 시작
-  ctx.arc(player.x, player.y, PLAYER_RADIUS, 0, Math.PI * 2); // 원 모양 (0도 ~ 360도)
-  ctx.fill();                                                // 색칠하기
+// 붓을 "외곽선 모드"로 준비하는 함수 (두께를 안 주면 기본 OUTLINE_WIDTH)
+function setOutline(width = OUTLINE_WIDTH) {
+  ctx.strokeStyle = COLORS.outline; // 외곽선 색
+  ctx.lineWidth = width;            // 외곽선 두께
+  ctx.lineJoin = "round";           // 선이 꺾이는 곳을 둥글게
+  ctx.lineCap = "round";            // 선 끝을 둥글게
 }
 
-// 모든 적을 빨간 원 + 머리 위 작은 체력바로 그린다
+// 외곽선이 있는 원을 그리는 함수
+// fill: 안쪽 색 (팔레트 색 중 하나)
+function drawOutlinedCircle(x, y, radius, fill) {
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2); // 0도 ~ 360도 원
+  ctx.fillStyle = fill;
+  ctx.fill();      // 1) 면 칠하기
+  setOutline();
+  ctx.stroke();    // 2) 외곽선 그리기
+}
+
+// 모서리가 둥근 직사각형 "모양(경로)"만 만드는 함수 (칠하지는 않음)
+// x, y: 왼쪽 위 모서리 / w, h: 가로·세로 길이 / r: 모서리 둥글기
+function roundRectPath(x, y, w, h, r) {
+  // 둥글기가 가로·세로의 절반보다 크면 모양이 깨지므로 줄여 준다
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);                    // 위쪽 변 시작점
+  ctx.arcTo(x + w, y, x + w, y + h, r);    // 오른쪽 위 모서리
+  ctx.arcTo(x + w, y + h, x, y + h, r);    // 오른쪽 아래 모서리
+  ctx.arcTo(x, y + h, x, y, r);            // 왼쪽 아래 모서리
+  ctx.arcTo(x, y, x + w, y, r);            // 왼쪽 위 모서리
+  ctx.closePath();
+}
+
+// 외곽선이 있는 둥근 직사각형을 그리는 함수
+// fill 이 null 이면 외곽선만 그린다 (체력바 테두리 등에 사용)
+function drawOutlinedRoundRect(x, y, w, h, r, fill) {
+  roundRectPath(x, y, w, h, r);
+  if (fill !== null) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  setOutline();
+  ctx.stroke();
+}
+
+// 동그란 도형 위쪽(왼쪽 위)에 하얀 하이라이트 호를 한 줄 그리는 함수
+// → 납작한 단색 도형에 "반짝"하는 느낌을 준다
+function drawHighlight(x, y, radius) {
+  ctx.beginPath();
+  // 원의 왼쪽 위 부분(약 200도 ~ 260도)만 짧게 그린다
+  ctx.arc(x, y, radius * 0.62, Math.PI * 1.1, Math.PI * 1.45);
+  ctx.strokeStyle = COLORS.white;
+  ctx.lineWidth = Math.max(2, radius * 0.18); // 도형이 클수록 굵게
+  ctx.lineCap = "round";
+  ctx.stroke();
+}
+
+// 하얀 글자 + 두꺼운 어두운 외곽선으로 글자를 쓰는 함수
+// size: 글자 크기(px) / align: "left", "center", "right"
+function drawOutlinedText(text, x, y, size, align = "center", fill = COLORS.white) {
+  ctx.font = size + "px " + FONT_FAMILY;
+  ctx.textAlign = align;
+  ctx.textBaseline = "middle";     // y 를 글자의 세로 가운데로
+  setOutline(TEXT_OUTLINE_WIDTH);
+  ctx.strokeText(text, x, y);      // 1) 외곽선을 먼저
+  ctx.fillStyle = fill;
+  ctx.fillText(text, x, y);        // 2) 그 위에 채우기
+}
+
+
+// =============================================================
+// 8. 그리기 (실제 장면)
+// =============================================================
+
+// ---- 배경 ----
+// 배경은 매번 똑같으므로, 처음에 한 번만 "보이지 않는 캔버스"에 그려 두고
+// 매 프레임에는 그 그림을 통째로 복사해서 붙인다 (훨씬 빠르다).
+const backgroundCanvas = document.createElement("canvas");
+backgroundCanvas.width = CANVAS_WIDTH;
+backgroundCanvas.height = CANVAS_HEIGHT;
+
+// 배경 그림을 한 번 만드는 함수: 크림색 바탕 + 연한 모눈선 + 십자 표시
+function buildBackground() {
+  const bg = backgroundCanvas.getContext("2d"); // 보이지 않는 캔버스의 붓
+
+  // 1) 크림색으로 전체 칠하기
+  bg.fillStyle = COLORS.background;
+  bg.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  // 2) 설계도 느낌의 연한 모눈선 (투명도를 아주 낮게)
+  bg.strokeStyle = COLORS.outline;
+  bg.globalAlpha = 0.06;
+  bg.lineWidth = 1;
+  // 세로선: x 를 GRID_SIZE 씩 늘려 가며 위→아래 선을 긋는 반복문
+  for (let x = 0; x <= CANVAS_WIDTH; x += GRID_SIZE) {
+    bg.beginPath();
+    bg.moveTo(x + 0.5, 0);           // 0.5를 더하면 1px 선이 또렷해진다
+    bg.lineTo(x + 0.5, CANVAS_HEIGHT);
+    bg.stroke();
+  }
+  // 가로선: y 를 GRID_SIZE 씩 늘려 가며 왼쪽→오른쪽 선을 긋는 반복문
+  for (let y = 0; y <= CANVAS_HEIGHT; y += GRID_SIZE) {
+    bg.beginPath();
+    bg.moveTo(0, y + 0.5);
+    bg.lineTo(CANVAS_WIDTH, y + 0.5);
+    bg.stroke();
+  }
+
+  // 3) 모눈 4칸마다 작은 "+" 표시 (지도의 좌표 표시처럼)
+  bg.globalAlpha = 0.15;
+  bg.lineWidth = 2;
+  bg.lineCap = "round";
+  // 가로·세로로 GRID_SIZE × 4 간격마다 + 를 그리는 이중 반복문
+  for (let x = GRID_SIZE * 2; x < CANVAS_WIDTH; x += GRID_SIZE * 4) {
+    for (let y = GRID_SIZE * 2; y < CANVAS_HEIGHT; y += GRID_SIZE * 4) {
+      bg.beginPath();
+      bg.moveTo(x - 5, y); bg.lineTo(x + 5, y); // 가로 막대
+      bg.moveTo(x, y - 5); bg.lineTo(x, y + 5); // 세로 막대
+      bg.stroke();
+    }
+  }
+  bg.globalAlpha = 1; // 투명도를 원래대로
+}
+buildBackground(); // 시작할 때 한 번 만들어 둔다
+
+// 미리 만든 배경을 화면에 붙이는 함수
+function drawBackground() {
+  ctx.drawImage(backgroundCanvas, 0, 0);
+}
+
+// ---- 플레이어 ----
+// 초록색 둥근 얼굴 + 눈 두 개 + 작은 입 + 이동 방향을 향한 총구
+function drawPlayer() {
+  const r = PLAYER_RADIUS;
+
+  ctx.save(); // 지금 붓 설정(위치, 투명도 등)을 저장해 둔다
+
+  // 무적 시간에는 0.1초 간격으로 반투명 ↔ 불투명을 반복해 깜빡인다
+  if (player.invincibleTimer > 0 && Math.floor(player.invincibleTimer * 10) % 2 === 0) {
+    ctx.globalAlpha = 0.45;
+  }
+
+  // 붓의 기준점(0, 0)을 플레이어 위치로 옮긴다 → 아래 좌표는 모두 플레이어 기준
+  ctx.translate(player.x, player.y);
+
+  // 1) 총구: 몸 뒤에 먼저 그려서 몸이 총구 뿌리를 덮게 한다
+  ctx.save();
+  ctx.rotate(player.facing); // 바라보는 방향으로 붓을 돌린다
+  // 돌린 상태에서 오른쪽(+x)으로 뻗은 막대 = 바라보는 방향으로 뻗은 총구
+  drawOutlinedRoundRect(r * 0.3, -6, r + 10, 12, 4, COLORS.brown);
+  ctx.restore(); // 회전을 되돌린다 (얼굴은 똑바로 서 있게)
+
+  // 2) 얼굴(몸통)
+  drawOutlinedCircle(0, 0, r, COLORS.green);
+
+  // 3) 하이라이트 한 줄
+  drawHighlight(0, 0, r);
+
+  // 4) 눈과 입: 바라보는 방향으로 살짝 쏠리게 해서 "그쪽을 본다"는 느낌을 준다
+  const lookX = Math.cos(player.facing) * 3; // 가로로 쏠리는 양
+  const lookY = Math.sin(player.facing) * 2; // 세로로 쏠리는 양
+
+  // 왼쪽 눈, 오른쪽 눈을 차례로 그리는 반복문 (side = -1 이면 왼쪽, 1 이면 오른쪽)
+  for (const side of [-1, 1]) {
+    const eyeX = side * r * 0.36 + lookX;
+    const eyeY = -r * 0.15 + lookY;
+    ctx.fillStyle = COLORS.outline;              // 까만 눈동자
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, r * 0.17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLORS.white;                // 눈 속 반짝임
+    ctx.beginPath();
+    ctx.arc(eyeX - 1, eyeY - 1.5, r * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 작은 웃는 입 (아래로 둥근 호)
+  setOutline(2.5);
+  ctx.beginPath();
+  ctx.arc(lookX, r * 0.25 + lookY, r * 0.22, Math.PI * 0.2, Math.PI * 0.8);
+  ctx.stroke();
+
+  ctx.restore(); // 처음에 저장한 붓 설정으로 되돌린다
+}
+
+// ---- 적 (임시 모양) ----
+// ※ 다음 스타일 단계에서 화난 얼굴 + 웨이브별 뿔/가시 모양으로 바뀐다
 function drawEnemies() {
   // 적 목록을 하나씩 꺼내 그리는 반복문
   for (const enemy of enemies) {
-    // 맞은 직후엔 흰색, 평소엔 빨간색
-    ctx.fillStyle = enemy.hitFlash > 0 ? "#ffffff" : "#ff5d6c";
+    // 맞은 직후엔 하양, 평소엔 빨강
+    ctx.fillStyle = enemy.hitFlash > 0 ? COLORS.white : COLORS.red;
     ctx.beginPath();
     ctx.arc(enemy.x, enemy.y, ENEMY_RADIUS, 0, Math.PI * 2);
     ctx.fill();
 
-    // 체력바: 회색 바탕 위에 남은 체력 비율만큼 초록색으로 칠한다
-    const barWidth = ENEMY_RADIUS * 2;              // 바 전체 길이 = 적 지름
-    const barX = enemy.x - ENEMY_RADIUS;            // 바 왼쪽 끝
-    const barY = enemy.y - ENEMY_RADIUS - 8;        // 적 머리 위
-    const ratio = Math.max(0, enemy.hp / enemy.maxHp); // 남은 체력 비율 (0~1)
-    ctx.fillStyle = "#444";
+    // 체력바: 하얀 바탕 위에 남은 체력 비율만큼 초록
+    const barWidth = ENEMY_RADIUS * 2;
+    const barX = enemy.x - ENEMY_RADIUS;
+    const barY = enemy.y - ENEMY_RADIUS - 8;
+    const ratio = Math.max(0, enemy.hp / enemy.maxHp);
+    ctx.fillStyle = COLORS.white;
     ctx.fillRect(barX, barY, barWidth, 4);
-    ctx.fillStyle = "#6be675";
+    ctx.fillStyle = COLORS.green;
     ctx.fillRect(barX, barY, barWidth * ratio, 4);
   }
 }
 
-// 모든 총알을 노란 점으로 그린다
+// ---- 총알 (임시 모양) ----
+// ※ 다음 스타일 단계에서 외곽선 + 꼬리가 생긴다
 function drawBullets() {
-  ctx.fillStyle = "#ffe066";
+  ctx.fillStyle = COLORS.yellow;
   // 총알 목록을 하나씩 꺼내 그리는 반복문
   for (const bullet of bullets) {
     ctx.beginPath();
@@ -529,69 +746,90 @@ function drawBullets() {
   }
 }
 
-// 화면 전체를 그리는 함수
-function draw() {
-  // 지난 프레임의 그림을 모두 지운다
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-  drawBullets();  // 총알 (가장 아래)
-  drawEnemies();  // 적
-  drawPlayer();   // 플레이어
-  drawHud();      // 웨이브 번호, 체력바 (화면 위에 겹쳐 그림)
-  drawOverlay();  // 쉬는 시간·게임 오버·클리어 안내 (가장 위)
+// ---- 체력바 (스티커 스타일) ----
+// 하얀 바탕 → 남은 비율만큼 색 채우기 → 맨 위에 두꺼운 외곽선
+function drawBar(x, y, w, h, ratio, fillColor) {
+  ratio = clamp(ratio, 0, 1);                 // 비율은 0~1 사이로
+  roundRectPath(x, y, w, h, h / 2);           // 1) 바탕
+  ctx.fillStyle = COLORS.white;
+  ctx.fill();
+  if (ratio > 0) {                            // 2) 채우기 (남은 만큼)
+    roundRectPath(x, y, w * ratio, h, h / 2);
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+  }
+  drawOutlinedRoundRect(x, y, w, h, h / 2, null); // 3) 외곽선만 덮어 그리기
 }
 
-// 화면 왼쪽 위에 웨이브 번호와 플레이어 체력바를 그린다
-// ※ (f) 단계에서 점수, 증강 목록과 함께 더 예쁘게 다듬는다
+// ---- 화면 위 정보 (HUD) ----
+// ※ (f) 단계에서 점수, 증강 목록이 추가된다
 function drawHud() {
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "20px sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText("웨이브 " + wave + " / " + WAVE_ENEMY_COUNTS.length, 16, 30);
+  // 갈색 둥근 패널
+  drawOutlinedRoundRect(12, 12, 250, 74, 14, COLORS.brown);
 
-  // 체력바: 바탕(회색) 위에 남은 체력 비율만큼 초록색
+  // 웨이브 번호
+  drawOutlinedText("웨이브 " + wave + " / " + WAVE_ENEMY_COUNTS.length, 28, 34, 22, "left");
+
+  // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
   const ratio = player.hp / PLAYER_MAX_HP;
-  ctx.fillStyle = "#444";
-  ctx.fillRect(16, 42, 200, 14);
-  ctx.fillStyle = "#6be675";
-  ctx.fillRect(16, 42, 200 * ratio, 14);
+  drawBar(28, 54, 218, 18, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
 }
 
-// 게임 상태에 따라 화면 가운데에 안내 문구를 그린다
+// ---- 상태 안내 (쉬는 시간 / 게임 오버 / 클리어) ----
 function drawOverlay() {
-  // 전투 중에는 안내 문구가 없다
+  // 전투 중에는 안내가 없다
   if (gameState === "playing") return;
 
-  // 상태별로 보여 줄 큰 제목과 작은 설명
+  // 상태별 큰 제목, 작은 설명, 패널 색
   let title = "";
   let sub = "";
+  let panelColor = COLORS.brown;
   if (gameState === "waveBreak") {
     title = "웨이브 " + wave + " 클리어!";
     sub = "잠시 후 다음 웨이브가 시작됩니다";
+    panelColor = COLORS.green;
   } else if (gameState === "gameover") {
     title = "게임 오버";
     sub = "R 키를 눌러 다시 시작";
+    panelColor = COLORS.red;
   } else if (gameState === "clear") {
     title = "모든 웨이브 클리어!";
     sub = "R 키를 눌러 다시 시작";
+    panelColor = COLORS.yellow;
   }
 
-  // 화면 전체를 반투명 검정으로 살짝 덮는다
-  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+  // 화면 전체를 외곽선 색으로 반투명하게 살짝 덮는다
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = COLORS.outline;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
 
-  // 가운데 정렬로 글자를 쓴다
-  ctx.fillStyle = "#ffffff";
-  ctx.textAlign = "center";
-  ctx.font = "48px sans-serif";
-  ctx.fillText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-  ctx.font = "20px sans-serif";
-  ctx.fillText(sub, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+  // 가운데 패널 (스티커처럼 살짝 기울여 붙인다)
+  const cx = CANVAS_WIDTH / 2;
+  const cy = CANVAS_HEIGHT / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.03); // 약 -2도 기울이기
+  drawOutlinedRoundRect(-230, -70, 460, 140, 24, panelColor);
+  drawOutlinedText(title, 0, -16, 48);
+  drawOutlinedText(sub, 0, 38, 22);
+  ctx.restore();
+}
+
+// ---- 화면 전체 그리기 ----
+function draw() {
+  drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
+  drawBullets();    // 총알
+  drawEnemies();    // 적
+  drawPlayer();     // 플레이어
+  drawHud();        // 웨이브 번호, 체력바
+  drawOverlay();    // 쉬는 시간·게임 오버·클리어 안내 (가장 위)
 }
 
 
 // =============================================================
-// 8. 게임 루프 (게임의 심장)
+// 9. 게임 루프 (게임의 심장)
 // =============================================================
 
 // 지난 프레임의 시각(밀리초)을 기억하는 변수
@@ -609,6 +847,13 @@ function gameLoop(now) {
 
   // 다음 프레임에도 gameLoop를 불러 달라고 브라우저에 부탁한다 (반복)
   requestAnimationFrame(gameLoop);
+}
+
+// 글꼴을 미리 불러 달라고 브라우저에 부탁한다.
+// (캔버스는 글꼴이 준비되기 전엔 대체 글꼴로 그리고, 준비되면 다음 프레임부터 Jua로 그린다)
+if (document.fonts) {
+  document.fonts.load("20px Jua");
+  document.fonts.load("20px 'Black Han Sans'");
 }
 
 // 1웨이브를 준비하고 게임 루프 시작!
