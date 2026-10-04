@@ -243,4 +243,24 @@ module.exports = [
       return { ok: gameState === "clear" && seen.join(",") === "1,2,3,4,5", detail: "지나간 웨이브 " + seen.join(",") + " → " + gameState };
     },
   },
+  // ---------------- 새 증강 ----------------
+  {
+    name: "[증강] 등차 탄환: k = 0~9 반복, 대미지 = 10 + d·k, 복리보다 먼저 계산",
+    run: function () {
+      runMenuAction(0); spawnQueue = []; ownedAugments = { arithmetic: 1 };
+      const aug = AUGMENTS.find((a) => a.id === "arithmetic");
+      const ks = []; const dmg = [];
+      for (let i = 0; i < 12; i++) {
+        const b = createBullet(1, 0); ks.push(b.arithK);
+        dmg.push(calcDamage({}, b)); // 매번 다른 적 → 복리 n = 0
+      }
+      ownedAugments = { arithmetic: 2, compound: 1 };
+      lastHitEnemy = null; aug.reset();
+      const e = {}; const b0 = createBullet(1, 0); const b1 = createBullet(1, 0); const b2 = createBullet(1, 0);
+      calcDamage(e, b0); calcDamage(e, b1); const both = calcDamage(e, b2); // k=2, n=2 → (10+6)×1.15²
+      const ok = ks.join(",") === "0,1,2,3,4,5,6,7,8,9,0,1" && dmg[9] === 28 && dmg[10] === 10 &&
+        Math.abs(both - 16 * 1.15 * 1.15) < 1e-9;
+      return { ok: ok, detail: "k=" + ks.join(",") + " / k=9 대미지 " + dmg[9] + " / 등차+복리 " + both.toFixed(3) };
+    },
+  },
 ];

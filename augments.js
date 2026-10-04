@@ -9,7 +9,9 @@
 //   name    : 카드 제목
 //   concept : 어떤 수학·과학 개념에서 왔는지
 //   formula : 카드 가운데 크게 보여 줄 수식
-//   color   : 카드 띠 색. game.js 의 COLORS 팔레트 이름 ("yellow", "red", "green", "brown")
+//   color   : 카드 띠 색. game.js 의 COLORS 팔레트 이름 ("yellow", "red", "green", "brown", "purple", "orange")
+//   order   : (생략 가능, 기본 0) modifyDamage 를 부르는 순서. 작은 수가 먼저.
+//             덧셈으로 늘리는 증강은 음수, 마지막에 계산해야 하는 증강은 큰 수를 준다.
 //   levels  : 레벨별 수치와 설명을 담은 배열.
 //             [0] 칸 = Lv.1, [1] 칸 = Lv.2 ...
 //             같은 증강을 또 고르면 다음 칸으로 레벨업한다.
@@ -77,6 +79,12 @@
 //     bullet.vx, vy 를 바꾸면 방향이 바뀌고, bullet.age 는 날아간 시간(초)
 //     예: 유도 탄환, 푸리에 탄환
 //
+// [준비 훅]
+//
+//   reset()
+//     언제: 새 게임을 시작할 때 (R 키, 메뉴에서 시작)
+//     증강이 혼자 세던 숫자(발사 번호, 명중 횟수 등)를 처음으로 되돌린다.
+//
 // [그리는 훅]
 //
 //   drawEffect(stats, info)
@@ -100,6 +108,9 @@ const TIME_C_RATIO = 0.85;
 
 // 시간 지연: 적 속도 배율의 최솟값 (적이 완전히 멈추지는 않게)
 const TIME_MIN_FACTOR = 0.2;
+
+// 등차 탄환: 발사 번호 k 가 0 부터 몇까지 올라가는지 (10 이면 0~9 를 반복)
+const ARITH_CYCLE = 10;
 
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
@@ -198,6 +209,7 @@ const AUGMENTS = [
       return factor * timeDilationFactor(info.playerSpeed, info.playerMaxSpeed);
     },
 
+
     // 플레이어 주변에 시간 지연 범위 원을 그린다.
     // 효과가 셀수록(배율이 작을수록) 원이 진해진다.
     drawEffect: function (stats, info) {
@@ -222,6 +234,44 @@ const AUGMENTS = [
       if (strength > 0.01) {
         drawOutlinedText("시간 ×" + f.toFixed(2), info.x, info.y + stats.radius + 14, 16);
       }
+    },
+  },
+  {
+    id: "arithmetic",
+    name: "등차 탄환",
+    concept: "수학 · 등차수열",
+    formula: "a + d·k",
+    color: "purple",
+    order: -10, // 덧셈이라 가장 먼저 (그 위에 복리·분산 같은 곱셈이 얹힌다)
+    levels: [
+      {
+        d: 2,
+        desc: "발사할 때마다 번호 k 가 0, 1, 2 … 9 로 올라가고, 대미지 = 기본 + d × k. 10발마다 k = 0. (d = 2)",
+      },
+      {
+        d: 3,
+        desc: "공차가 커진다! d = 2 → 3 (k = 9 인 총알은 10 + 27 = 37)",
+      },
+    ],
+
+    // 증강이 혼자 세는 숫자: 다음에 쏠 총알의 번호 k
+    shotNumber: 0,
+
+    reset: function () {
+      this.shotNumber = 0;
+    },
+
+    // 쏠 때: 총알에 지금 번호 k 를 적어 두고, 번호를 1 올린다 (10이 되면 0으로)
+    onFire: function (stats, info) {
+      info.bullet.arithK = this.shotNumber;
+      this.shotNumber = (this.shotNumber + 1) % ARITH_CYCLE; // % 는 나머지: 9 다음은 0
+    },
+
+    // 맞을 때: 대미지 + d × k (총알의 대미지 배율도 똑같이 곱한다)
+    modifyDamage: function (damage, stats, info) {
+      const k = info.bullet ? info.bullet.arithK : undefined;
+      if (k === undefined) return damage; // 번호가 없는 총알(파편 등)은 그대로
+      return damage + stats.d * k * info.bullet.damageScale;
     },
   },
 ];

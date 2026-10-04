@@ -868,8 +868,12 @@ function resetGame() {
   score = 0;
   isNewBest = false;
 
-  // 가진 증강도 모두 없앤다
+  // 가진 증강도 모두 없애고, 증강들이 세던 숫자(발사 번호 등)도 처음으로
   ownedAugments = {};
+  // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
+  for (const aug of AUGMENTS) {
+    if (aug.reset) aug.reset();
+  }
   choices = [];
   bannerSubText = "";
 
@@ -1030,11 +1034,18 @@ function calcDamage(enemy, bullet) {
   // 기본 대미지 × 이 총알의 대미지 배율 (보통 1)
   let damage = BULLET_DAMAGE * (bullet ? bullet.damageScale : 1);
   const info = { enemy: enemy, bullet: bullet, streak: hitStreak };
+
+  // 대미지를 바꾸는 증강들을 order 가 작은 것부터 차례로 부른다
+  // (order 를 안 적으면 0. 덧셈(등차)은 먼저, 곱셈(복리·분산)은 중간, 제곱 증폭은 맨 마지막)
+  const list = [];
   forEachOwnedAugment(function (aug, stats) {
-    if (aug.modifyDamage) {
-      damage = aug.modifyDamage(damage, stats, info);
-    }
+    if (aug.modifyDamage) list.push({ aug: aug, stats: stats });
   });
+  list.sort(function (a, b) { return (a.aug.order || 0) - (b.aug.order || 0); }); // 같은 order 면 배열 순서 유지
+  // 정렬된 순서대로 대미지를 바꾸는 반복문
+  for (const item of list) {
+    damage = item.aug.modifyDamage(damage, item.stats, info);
+  }
   return damage;
 }
 

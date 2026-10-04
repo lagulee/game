@@ -58,11 +58,14 @@ function scenarioRunner(config) {
       [{ type: "basic", count: 6 }],
       [{ type: "basic", count: 10 }],
       [{ type: "basic", count: 15 }]);
-    // 옛 설정: 증강은 처음 3개만 (새 증강이 추가돼도 옛 기록이 그대로 비교되도록)
+    // 옛 설정: 증강은 처음 3개만, 레벨은 2단계까지 (새 증강·Lv.3 이 추가돼도 옛 기록이 그대로 비교되도록)
     const keep = ["compound", "variance", "timeDilation"];
     for (let i = AUGMENTS.length - 1; i >= 0; i--) {
       if (!keep.includes(AUGMENTS[i].id)) AUGMENTS.splice(i, 1);
+      else AUGMENTS[i].levels = AUGMENTS[i].levels.slice(0, 2);
     }
+    // 옛 설정: 보급 카드 없음
+    if (typeof SUPPLIES !== "undefined") SUPPLIES.splice(0, SUPPLIES.length);
   }
 
   function snap() {
