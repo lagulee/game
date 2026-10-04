@@ -878,7 +878,7 @@ function updatePlayerHit(dt) {
   for (const enemy of enemies) {
     if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
                        enemy.x, enemy.y, enemy.radius)) {
-      player.hp -= enemyType(enemy).contactDamage;     // 체력 감소 (종류마다 다름)
+      player.hp -= enemy.contactDamage;                // 체력 감소 (종류·웨이브마다 다름)
       player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
 
       // 체력이 0 이하면 게임 오버

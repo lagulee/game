@@ -235,7 +235,7 @@ module.exports = [
     run: function () {
       runMenuAction(0); player.hp = 1e9;
       const DT = 1 / 60; const seen = [];
-      for (let f = 0; f < 60 * 60 * 6 && gameState !== "clear"; f++) {
+      for (let f = 0; f < 60 * 60 * 20 && gameState !== "clear"; f++) {
         if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
         if (seen[seen.length - 1] !== wave) seen.push(wave);
         player.x = 480 + Math.cos(f / 60) * 300; player.y = 270 + Math.sin(f / 45) * 200;
@@ -454,6 +454,21 @@ module.exports = [
         p45 === 1 && healedTwice && reset;
       return { ok: ok, detail: "후보 1장 → " + one + " / 저체력 보장 " + lowOk + " / 50%에선 없음 " + highOk +
         " / 항상성 30→" + h1 + ", 90→" + h2 + " / 세포 분열 최대 " + m1 + " 체력 " + h3 + " / 3번 고르기 " + healedTwice + " / 다시 시작 시 100: " + reset };
+    },
+  },
+  // ---------------- 30웨이브 A: 웨이브 스케일링 ----------------
+  {
+    name: "[30A] 속도 배율은 1~30웨이브 내내 1.6 이하, 체력 30웨이브 3.03배, 대미지 1.87배",
+    run: function () {
+      let maxSpeed = 0;
+      for (let w = 1; w <= 30; w++) maxSpeed = Math.max(maxSpeed, waveSpeedMult(w));
+      const e30 = createEnemy("basic", 0, 0, 30), e1 = createEnemy("basic", 0, 0, 1);
+      const ok = maxSpeed <= 1.6 && waveSpeedMult(1) === 1 && Math.abs(waveSpeedMult(25) - 1.6) < 1e-12 &&
+        Math.abs(waveHpMult(30) - 3.03) < 1e-9 && Math.abs(waveDamageMult(30) - 1.87) < 1e-9 &&
+        Math.abs(e30.speed - 96) < 1e-9 && Math.abs(e30.maxHp - 181.8) < 1e-9 && Math.abs(e30.contactDamage - 37.4) < 1e-9 &&
+        e1.speed === 60 && e1.maxHp === 60 && e1.contactDamage === 20;
+      return { ok: ok, detail: "최대 속도 배율 " + maxSpeed + " / 30웨이브 기본 적: 속도 " + e30.speed.toFixed(1) +
+        ", 체력 " + e30.maxHp.toFixed(1) + ", 접촉 " + e30.contactDamage.toFixed(1) };
     },
   },
 ];

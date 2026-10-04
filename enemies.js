@@ -37,9 +37,42 @@
 
 // ---- 공통 ----
 
-// 웨이브가 하나 올라갈 때마다 모든 적에게 더해지는 속도 (px/초)
-// 기본 적: 1웨이브 60 → 2웨이브 80 → 3웨이브 100
-const ENEMY_SPEED_PER_WAVE = 20;
+// ---- 웨이브 스케일링 : 웨이브가 올라갈수록 적이 얼마나 강해지는지 ----
+// w = 웨이브 번호 (1부터). 세 배율 모두 "1 + 증가량 × (w − 1)" 꼴의 등차수열이다.
+//   1웨이브는 언제나 1배, 한 웨이브마다 증가량만큼 일정하게 늘어난다.
+
+// 속도: 한 웨이브마다 2.5% 씩 빨라지지만 1.6배를 넘지 않는다
+//   (30웨이브: 1 + 0.025 × 29 = 1.725 → 1.6 에서 멈춤. 기본 적 60 → 96px/초)
+const ENEMY_SPEED_STEP = 0.025;
+const ENEMY_SPEED_MAX_MULT = 1.6;
+// 체력: 한 웨이브마다 7% 씩 (30웨이브: 1 + 0.07 × 29 = 3.03배)
+const ENEMY_HP_STEP = 0.07;
+// 접촉 대미지: 한 웨이브마다 3% 씩 (30웨이브: 1 + 0.03 × 29 = 1.87배)
+const ENEMY_DAMAGE_STEP = 0.03;
+
+// w 웨이브의 속도 배율 = min(1.6, 1 + 0.025 × (w − 1))
+function waveSpeedMult(w) {
+  return Math.min(ENEMY_SPEED_MAX_MULT, 1 + ENEMY_SPEED_STEP * (w - 1));
+}
+
+// w 웨이브의 체력 배율 = 1 + 0.07 × (w − 1)
+function waveHpMult(w) {
+  return 1 + ENEMY_HP_STEP * (w - 1);
+}
+
+// w 웨이브의 접촉 대미지 배율 = 1 + 0.03 × (w − 1)
+function waveDamageMult(w) {
+  return 1 + ENEMY_DAMAGE_STEP * (w - 1);
+}
+
+// 적 종류(type)가 w 웨이브에 태어났을 때의 속도·체력·접촉 대미지를 한 번에 계산
+function waveScaledStats(type, w) {
+  return {
+    speed: type.speed * waveSpeedMult(w),
+    hp: type.hp * waveHpMult(w),
+    contactDamage: type.contactDamage * waveDamageMult(w),
+  };
+}
 
 // ---- 돌격형(charger) 조절용 상수 ----
 const CHARGER_TRIGGER_DISTANCE = 200; // 플레이어가 이 거리(px) 안에 들어오면 돌진 준비
@@ -330,15 +363,16 @@ function splitInto(parent, childType) {
 // typeId: ENEMY_TYPES 의 이름표 (예: "basic") / waveNumber: 몇 웨이브에 태어났는지
 function createEnemy(typeId, x, y, waveNumber) {
   const type = ENEMY_TYPES[typeId];
+  const stats = waveScaledStats(type, waveNumber); // 웨이브에 맞게 강해진 수치
   const enemy = {
     type: typeId,             // 어떤 종류인지 (ENEMY_TYPES 에서 찾을 이름표)
     x: x,                     // 가로 위치
     y: y,                     // 세로 위치
-    hp: type.hp,              // 현재 체력
-    maxHp: type.hp,           // 최대 체력 (체력바 그릴 때 사용)
+    hp: stats.hp,             // 현재 체력 (웨이브 체력 배율 적용)
+    maxHp: stats.hp,          // 최대 체력 (체력바 그릴 때 사용)
     radius: type.radius,      // 몸 반지름
-    // 이동 속도: 종류별 기본 속도 + (웨이브 - 1) × 웨이브당 증가량
-    speed: type.speed + (waveNumber - 1) * ENEMY_SPEED_PER_WAVE,
+    speed: stats.speed,       // 이동 속도 (웨이브 속도 배율 적용)
+    contactDamage: stats.contactDamage, // 플레이어에게 닿았을 때 대미지 (웨이브 배율 적용)
     wave: waveNumber,         // 몇 웨이브에 태어난 적인지 (뿔·가시 모양을 정할 때 사용)
     hitFlash: 0,              // 맞았을 때 하얗게 번쩍이는 남은 시간 (초)
     dead: false,              // 죽었는지 표시. true 면 목록에서 지운다

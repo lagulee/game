@@ -52,6 +52,22 @@ function scenarioRunner(config) {
     return (h >>> 0).toString(16);
   }
 
+  if (config === "legacy") {
+    // "옛 규칙" 되돌리기: 새로 바뀐 규칙만 예전 방식으로 바꿔 끼운다.
+    // 이 상태에서 기록이 golden/old-config-legacy.txt 와 같으면
+    // → 새 규칙 말고는 아무것도 바뀌지 않았다는 증거가 된다.
+    if (typeof waveScaledStats === "function") {
+      // A 이전: 속도는 웨이브마다 +20, 체력·접촉 대미지는 웨이브와 상관없이 그대로
+      window.waveScaledStats = function (type, w) {
+        return { speed: type.speed + (w - 1) * 20, hp: type.hp, contactDamage: type.contactDamage };
+      };
+    }
+    if (typeof waveClearHeal === "function") {
+      window.waveClearHeal = function () { return 0; }; // B 이전: 웨이브를 깨도 회복 없음
+    }
+    config = "old";
+  }
+
   if (config === "old") {
     // 옛 설정: 기본 적만 나오는 3웨이브 (mix 없음)
     WAVES.splice(0, WAVES.length,
@@ -184,7 +200,12 @@ function compare(label, actual, file) {
     await browser.close();
     return;
   }
-  if (args[0] === "--record-new") {
+  if (args[0] === "--record-old-current") {
+    // 옛 설정 기록을 "지금 규칙"으로 다시 만든다 (규칙을 일부러 바꿨을 때만)
+    fs.writeFileSync(path.join(GOLDEN, "old-config.txt"), await trace(browser, ROOT, "old"));
+    console.log("옛 설정 기록을 지금 규칙으로 다시 만들었습니다.");
+  }
+  if (args[0] === "--record-new" || args[0] === "--record-old-current") {
     fs.writeFileSync(path.join(GOLDEN, "new-config.txt"), await trace(browser, ROOT, "new"));
     console.log("새 설정 기록을 다시 만들었습니다.");
   }
@@ -192,6 +213,15 @@ function compare(label, actual, file) {
   console.log("[기록 비교]");
   allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개)", await trace(browser, ROOT, "old"), path.join(GOLDEN, "old-config.txt")) && allOk;
   allOk = compare("새 설정 (지금 waves.js)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config.txt")) && allOk;
+  // 옛 규칙 되돌리기 검사: 화면 그림(draw)은 HUD 글자 등이 바뀔 수 있으니 빼고, 상태 기록만 비교
+  const stateOnly = (text) => text.split("\n").filter((l) => !/ draw /.test(l) && !/ menuDraw /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
+  const legacyFile = path.join(GOLDEN, "old-config-legacy.txt");
+  if (fs.existsSync(legacyFile)) {
+    const now = stateOnly(await trace(browser, ROOT, "legacy"));
+    const want = stateOnly(fs.readFileSync(legacyFile, "utf8"));
+    if (now === want) console.log("  PASS 옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 완전히 같음");
+    else { allOk = false; compare("옛 규칙 되돌리기", now, legacyFile + ".state"); }
+  }
 
   console.log("[동작 검사]");
   for (const check of CHECKS) {
