@@ -32,6 +32,16 @@
 //   onDeath(enemy)
 //     언제: 이 적의 체력이 0 이 되어 죽는 순간
 //     터지는 효과, 작은 적으로 갈라지기 같은 일을 한다.
+//
+//   onHurt(enemy)            (생략 가능)
+//     언제: 총알에 맞아 체력이 줄었지만 아직 살아 있을 때
+//     체력이 몇 % 아래로 내려가면 패턴을 바꾸는 보스에게 쓴다.
+//
+// ---- 보스 전용 항목 ----
+//   isBoss       : true 면 보스. 화면 위쪽 큰 체력바, 처치 시 체력 회복
+//   timeScaleMin : 시간 지연을 받아도 이 배율 아래로는 느려지지 않는다 (보스 0.6)
+//   crown        : true 면 머리에 왕관을 그린다
+//   warnLength   : 돌진 예고선 길이 (생략하면 CHARGER_WARN_LENGTH)
 // =============================================================
 
 
@@ -86,6 +96,27 @@ const CHARGER_WARN_LENGTH = 300;      // 예고선 길이 (px)
 // ---- 사인파형(sine) 조절용 상수 ----
 const SINE_AMPLITUDE = 40;  // 흔들림 크기 A (px): 가운데 줄에서 양옆으로 최대 40px
 const SINE_OMEGA = 2.5;     // 각속도 ω (rad/초): 클수록 빨리 흔들린다. 한 번 왕복 = 2π/ω ≈ 2.5초
+
+// ---- 보스 공통 ----
+const BOSS_TIME_SCALE_MIN = 0.6;  // 보스는 시간 지연을 받아도 0.6배보다 느려지지 않는다
+const BOSS_ENTER_Y = 170;         // 보스가 화면 위에서 내려와 자리 잡는 높이 (px). 위쪽 보스 체력바 아래
+
+// ---- 돌진 대장(chargerKing) 조절용 상수 ----
+const CK_FIRST_WARN_TIME = 0.8;   // 한 사이클의 첫 예고 시간 (초)
+const CK_REAIM_TIME = 0.35;       // 연속 돌진 사이의 짧은 재조준 예고 (초)
+const CK_DASH_TIME = 0.5;         // 돌진 한 번의 시간 (초)
+const CK_DASH_MULT = 4;           // 돌진 속도 = 평소 속도 × 이 값
+const CK_DASHES = 3;              // 한 사이클의 연속 돌진 횟수
+const CK_DASHES_ENRAGED = 4;      // 체력 50% 아래일 때 연속 돌진 횟수
+const CK_ENRAGE_RATIO = 0.5;      // 이 비율 아래로 체력이 떨어지면 화난 상태
+const CK_REST_TIME = 2.0;         // 연속 돌진 후 쉬는 시간 (초)
+const CK_SUMMON_COUNT = 2;        // 화난 상태에서 쉬기 시작할 때 소환하는 돌격형 수
+
+// ---- 분열의 왕(splitterKing) 조절용 상수 ----
+const SK_THRESHOLDS = [0.66, 0.33];  // 이 체력 비율을 지날 때마다 자식을 방출
+const SK_RADII = [40, 32, 24];       // 단계별 반지름 (방출할수록 작아진다)
+const SK_SPEED_UP = 1.3;             // 방출할 때마다 속도 × 1.3
+const SK_RELEASE_COUNT = 3;          // 한 번에 방출하는 splitterChild 수 (120° 간격)
 
 // ---- 분열형(splitter) 조절용 상수 ----
 const SPLITTER_SPEED = 55;   // 큰 분열형의 속도
@@ -304,6 +335,138 @@ const ENEMY_TYPES = {
       spawnParticles(enemy.x, enemy.y, COLORS.orange);
     },
   },
+
+  // =========================================================
+  // 보스
+  // =========================================================
+
+  // ---- 돌진 대장 (물리 · 가속도): 돌격형의 왕. 연속 돌진을 퍼붓는다 ----
+  // 순환: 예고 0.8초 → 돌진 → (재조준 0.35초 → 돌진) ... 총 3번 → 쉬기 2초
+  // 체력 50% 아래: 4연속 돌진, 쉬기 시작할 때 돌격형 2마리 소환
+  chargerKing: {
+    name: "돌진 대장",
+    isBoss: true,
+    hp: 600,
+    speed: 70,
+    radius: 34,
+    color: "brown",
+    contactDamage: 30,
+    score: 1000,
+    shape: "arrow",
+    crown: true,
+    knockResist: 0,
+    timeScaleMin: BOSS_TIME_SCALE_MIN,
+    warnLength: 420,
+
+    init: function (enemy) {
+      enemy.state = "enter";   // 처음에는 화면 위에서 내려온다
+      enemy.stateTime = 0;
+      enemy.dirX = 0;
+      enemy.dirY = 1;
+      enemy.dashesLeft = 0;    // 이번 사이클에 남은 돌진 횟수
+      enemy.enraged = false;   // 체력 50% 아래로 내려갔는지
+    },
+
+    update: function (enemy, dt, info) {
+      // 행동 시간은 보스의 시계(localDt)로 잰다
+      enemy.stateTime += info.localDt;
+
+      if (enemy.state === "enter") {
+        // 등장: 아래로 걸어 내려와 자리를 잡으면 첫 사이클 시작
+        enemy.y += info.speed * dt;
+        if (enemy.y >= BOSS_ENTER_Y) startKingCycle(enemy);
+      } else if (enemy.state === "warn") {
+        // 예고: 멈춰서 떤다. 방향은 예고가 시작된 순간 고정
+        if (enemy.stateTime >= enemy.warnTime) setEnemyState(enemy, "dash");
+      } else if (enemy.state === "dash") {
+        // 돌진: 고정한 방향으로 평소의 4배 속도
+        const step = info.speed * CK_DASH_MULT * dt;
+        enemy.x = clamp(enemy.x + enemy.dirX * step, enemy.radius, CANVAS_WIDTH - enemy.radius);
+        enemy.y = clamp(enemy.y + enemy.dirY * step, enemy.radius, CANVAS_HEIGHT - enemy.radius);
+        if (enemy.stateTime >= CK_DASH_TIME) {
+          enemy.dashesLeft -= 1;
+          if (enemy.dashesLeft > 0) {
+            // 아직 돌진이 남았으면 짧게 재조준하고 또 돌진
+            aimAt(enemy, player.x, player.y);
+            enemy.warnTime = CK_REAIM_TIME;
+            setEnemyState(enemy, "warn");
+          } else {
+            // 다 돌진했으면 쉰다. 화난 상태면 쉬기 시작할 때 부하를 부른다
+            setEnemyState(enemy, "rest");
+            if (enemy.enraged) summonChargers(enemy);
+          }
+        }
+      } else if (enemy.state === "rest") {
+        if (enemy.stateTime >= CK_REST_TIME) startKingCycle(enemy);
+      }
+    },
+
+    // 맞을 때: 체력이 50% 아래로 내려가면 화난 상태 (다음 사이클부터 4연속 돌진)
+    onHurt: function (enemy) {
+      if (!enemy.enraged && enemy.hp < enemy.maxHp * CK_ENRAGE_RATIO) {
+        enemy.enraged = true;
+      }
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.brown);
+      spawnParticles(enemy.x, enemy.y, COLORS.yellow);
+    },
+  },
+
+  // ---- 분열의 왕 (수학 · 등비수열): 맞을수록 작아지고 빨라지며 자식을 뿜는다 ----
+  // 체력 66%, 33% 를 지날 때마다 splitterChild 3마리를 120° 간격으로 방출
+  // 반지름 40 → 32 → 24, 속도는 1.3배씩 (1 → 1.3 → 1.69: 공비 1.3 인 등비수열)
+  // 죽으면 splitter 2마리로 갈라진다
+  splitterKing: {
+    name: "분열의 왕",
+    isBoss: true,
+    hp: 800,
+    speed: 40,
+    radius: 40,
+    color: "orange",
+    contactDamage: 25,
+    score: 1500,
+    shape: "splitter",
+    innerCircles: 3,
+    crown: true,
+    knockResist: 0,
+    timeScaleMin: BOSS_TIME_SCALE_MIN,
+
+    init: function (enemy) {
+      enemy.phase = 0; // 지금까지 몇 번 방출했는지 (0, 1, 2)
+    },
+
+    update: function (enemy, dt, info) {
+      moveToward(enemy, player.x, player.y, info.speed, dt);
+    },
+
+    // 맞을 때: 체력 비율이 다음 기준선 아래면 방출 (한 방에 두 기준선을 넘으면 두 번)
+    onHurt: function (enemy) {
+      while (enemy.phase < SK_THRESHOLDS.length && enemy.hp < enemy.maxHp * SK_THRESHOLDS[enemy.phase]) {
+        // 120° (= 2π/3) 간격으로 3마리. 단계마다 시작 각도를 60° 씩 돌려서 다른 방향으로
+        const start = -Math.PI / 2 + enemy.phase * (Math.PI / 3);
+        // 자식을 하나씩 만드는 반복문
+        for (let i = 0; i < SK_RELEASE_COUNT; i++) {
+          const angle = start + (Math.PI * 2 * i) / SK_RELEASE_COUNT;
+          const child = createEnemy("splitterChild",
+            enemy.x + Math.cos(angle) * enemy.radius, enemy.y + Math.sin(angle) * enemy.radius, enemy.wave);
+          pushEnemy(child, Math.cos(angle) * 240, Math.sin(angle) * 240); // 바깥으로 튕겨 나간다
+          enemies.push(child);
+        }
+        enemy.phase += 1;
+        enemy.radius = SK_RADII[enemy.phase];   // 몸이 작아지고
+        enemy.speed *= SK_SPEED_UP;             // 1.3배 빨라진다
+        spawnParticles(enemy.x, enemy.y, COLORS.orange);
+      }
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.orange);
+      spawnParticles(enemy.x, enemy.y, COLORS.yellow);
+      splitInto(enemy, "splitter");
+    },
+  },
 };
 
 
@@ -342,6 +505,29 @@ function pushEnemy(enemy, vx, vy) {
   const resist = type.getKnockResist ? type.getKnockResist(enemy) : type.knockResist;
   enemy.knockVx = (enemy.knockVx || 0) + vx * resist;
   enemy.knockVy = (enemy.knockVy || 0) + vy * resist;
+}
+
+// 돌진 대장: 새 사이클 시작 (연속 돌진 횟수를 정하고 첫 예고)
+function startKingCycle(enemy) {
+  enemy.dashesLeft = enemy.enraged ? CK_DASHES_ENRAGED : CK_DASHES;
+  aimAt(enemy, player.x, player.y);
+  enemy.warnTime = CK_FIRST_WARN_TIME;
+  setEnemyState(enemy, "warn");
+}
+
+// 돌진 대장: 양옆(바라보는 방향의 수직 양쪽)에 돌격형을 소환
+function summonChargers(boss) {
+  const px = -boss.dirY;  // 바라보는 방향을 90도 돌린 방향 = 옆 방향
+  const py = boss.dirX;
+  const gap = boss.radius + 30;
+  // 왼쪽(-1), 오른쪽(+1) 에 한 마리씩
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < CK_SUMMON_COUNT / 2; k++) {
+      const x = clamp(boss.x + px * gap * side, 20, CANVAS_WIDTH - 20);
+      const y = clamp(boss.y + py * gap * side, 20, CANVAS_HEIGHT - 20);
+      enemies.push(createEnemy("charger", x, y, boss.wave));
+    }
+  }
 }
 
 // 적의 행동 상태를 바꾸고, 상태 시간을 0 부터 다시 잰다

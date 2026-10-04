@@ -494,4 +494,91 @@ module.exports = [
       return { ok: ok, detail: "클리어 50→" + h1 + ", 95→" + h2 + " / 보스 처치 20→" + h3 + " (최대 120) / 챕터 " + ch + " / 디버그 꺼짐 무시=" + offNoHeal + ", Shift+0=" + full };
     `),
   },
+  // ---------------- 30웨이브 C: 보스 ----------------
+  {
+    name: "[30C] 돌진 대장: 예고 0.8 → 3연속 돌진(재조준 0.35) → 쉬기 2, 체력 50% 아래면 4연속 + 돌격형 2마리 소환",
+    run: function () {
+      runMenuAction(0); spawnQueue = []; bannerTimer = 0;
+      player.x = 480; player.y = 400;
+      const boss = createEnemy("chargerKing", 480, -34, 1); enemies = [boss];
+      const DT = 1 / 60; let t = 0; const log = []; let last = boss.state; let dashes = 0; const cycles = []; const summons = [];
+      for (let f = 0; f < 60 * 22; f++) {
+        player.fireTimer = 1e9; player.invincibleTimer = 1e9; player.x = 480; player.y = 400;
+        const before = enemies.length;
+        update(DT); t += DT;
+        if (boss.state !== last) {
+          log.push(boss.state + "@" + t.toFixed(2));
+          if (boss.state === "dash") dashes++;
+          if (boss.state === "rest") { cycles.push(dashes); dashes = 0; summons.push(enemies.length - before); }
+          last = boss.state;
+        }
+        // 두 번째 사이클 도중에 체력을 49% 로 깎는다 → 세 번째 사이클부터 화난 상태
+        if (cycles.length === 1 && boss.hp === boss.maxHp && boss.state === "dash") { boss.hp = boss.maxHp * 0.49; enemyType(boss).onHurt(boss); }
+      }
+      const times = log.map((x) => Number(x.split("@")[1]));
+      const firstWarn = +(times[1] - times[0]).toFixed(2);           // warn → dash
+      const reaim = +(times[3] - times[2]).toFixed(2);               // 두 번째 warn 시간
+      const restIdx = log.findIndex((x) => x.startsWith("rest"));
+      const rest = +(times[restIdx + 1] - times[restIdx]).toFixed(2);
+      const ok = cycles[0] === 3 && cycles[1] === 3 && cycles[2] === 4 && Math.abs(firstWarn - 0.8) < 0.03 &&
+        Math.abs(reaim - 0.35) < 0.03 && Math.abs(rest - 2) < 0.03 && summons.join(",") === "0,2,2" && boss.enraged;
+      return { ok: ok, detail: "사이클별 돌진 " + cycles.join(",") + " / 첫 예고 " + firstWarn + "초, 재조준 " + reaim + "초, 쉬기 " + rest + "초 / 쉬기 시작 때 소환 " + summons.join(",") + " (2번째 사이클 도중 50% 아래)" };
+    },
+  },
+  {
+    name: "[30C] 분열의 왕: 66%·33% 에서 자식 3마리(120°)·반지름 40→32→24·속도 ×1.3, 죽으면 분열형 2마리",
+    run: function () {
+      runMenuAction(0); spawnQueue = [];
+      const boss = createEnemy("splitterKing", 480, 270, 1); enemies = [boss];
+      const s0 = boss.speed;
+      boss.hp = boss.maxHp * 0.70; enemyType(boss).onHurt(boss); const a = [enemies.length - 1, boss.radius];
+      boss.hp = boss.maxHp * 0.65; enemyType(boss).onHurt(boss); const b = [enemies.length - 1, boss.radius, boss.speed / s0];
+      const kids = enemies.filter((e) => e.type === "splitterChild");
+      const angles = kids.map((k) => Math.round(Math.atan2(k.y - boss.y, k.x - boss.x) * 180 / Math.PI)).sort((x, y) => x - y).join(",");
+      boss.hp = boss.maxHp * 0.10; enemyType(boss).onHurt(boss); const c = [enemies.length - 1, boss.radius, boss.speed / s0];
+      // 넉백 안 받음
+      pushEnemy(boss, 500, 0); const noKnock = !boss.knockVx;
+      // 죽으면 분열형 2마리
+      enemies = [boss]; boss.hp = 0.001;
+      bullets = [{ x: boss.x, y: boss.y, vx: 0, vy: 0, age: 0, damageScale: 1, dead: false }]; updateBullets(0);
+      const after = enemies.map((e) => e.type).join(",");
+      const ok = a[0] === 0 && a[1] === 40 && b[0] === 3 && b[1] === 32 && Math.abs(b[2] - 1.3) < 1e-9 && angles === "-90,30,150" &&
+        c[0] === 6 && c[1] === 24 && Math.abs(c[2] - 1.69) < 1e-9 && noKnock && after === "splitter,splitter";
+      return { ok: ok, detail: "70%: 자식 " + a[0] + " / 65%: 자식 " + b[0] + ", 반지름 " + b[1] + ", 속도 ×" + b[2].toFixed(2) + ", 각도 " + angles +
+        " / 10%: 자식 " + c[0] + ", 반지름 " + c[1] + ", 속도 ×" + c[2].toFixed(2) + " / 넉백 없음 " + noKnock + " / 죽은 뒤 " + after };
+    },
+  },
+  {
+    name: "[30C] 보스는 시간 지연을 받아도 0.6배 아래로 안 느려짐 (보통 적은 0.2배)",
+    run: function () {
+      AUGMENTS.push({ id: "slow", name: "s", levels: [{}], modifyEnemySpeed: function (f) { return f * 0.2; } });
+      runMenuAction(0); spawnQueue = []; ownedAugments = { slow: 1 };
+      const boss = createEnemy("splitterKing", 480, 100, 1), e = createEnemy("basic", 200, 100, 1);
+      enemies = [boss, e]; player.fireTimer = 1e9; updateEnemies(1 / 60);
+      return { ok: boss.slowFactor === 0.6 && Math.abs(e.slowFactor - 0.2) < 1e-12, detail: "보스 " + boss.slowFactor + "배, 기본 적 " + e.slowFactor + "배" };
+    },
+  },
+  {
+    name: "[30C] 보스 웨이브: 2초 뒤 보스 등장, 졸개 3초 간격, 빨간 띠, 보스와 졸개가 모두 죽어야 끝",
+    run: function () {
+      runMenuAction(0);
+      WAVES.splice(0, WAVES.length, { boss: "chargerKing", groups: [{ type: "basic", count: 2 }] }, [{ type: "basic", count: 1 }]);
+      startWave(1);
+      const banner = bannerText, red = bannerIsBoss;
+      const DT = 1 / 60; let t = 0; const appear = [];
+      for (let f = 0; f < 60 * 10; f++) {
+        player.fireTimer = 1e9; player.invincibleTimer = 1e9;
+        const before = enemies.map((e) => e.type).join();
+        update(DT); t += DT;
+        for (const e of enemies) if (!e.__seen) { e.__seen = true; appear.push(e.type + "@" + t.toFixed(1)); }
+      }
+      const stillPlaying1 = gameState === "playing";
+      // 졸개만 다 죽여도 보스가 있으면 계속
+      enemies = enemies.filter((e) => enemyType(e).isBoss); checkWaveEnd(); const stillPlaying2 = gameState === "playing";
+      enemies = []; checkWaveEnd();
+      const ok = banner === "웨이브 1 · 보스: 돌진 대장!" && red && appear.join(",") === "chargerKing@2.0,basic@5.0,basic@8.0" &&
+        stillPlaying1 && stillPlaying2 && gameState === "choosing";
+      return { ok: ok, detail: banner + " (빨강=" + red + ") / 등장 " + appear.join(", ") + " / 보스만 남아도 계속=" + stillPlaying2 + " / 다 죽으면 " + gameState };
+    },
+  },
 ];

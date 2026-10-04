@@ -130,6 +130,9 @@ const BANNER_TIME = 1.8;
 // 가진 증강이 이 개수 이상이면 오른쪽 위 목록을 2열로 작게 그린다
 const AUGMENT_LIST_COMPACT_FROM = 5;
 
+// 화면 위쪽 보스 체력바의 폭 (왼쪽 위 패널과 오른쪽 위 증강 목록 사이에 들어가게)
+const BOSS_BAR_WIDTH = 300;
+
 // ※ 적 한 마리 처치 점수 = 종류별 score(enemies.js) × 웨이브 번호
 
 // 점수: 클리어했을 때 남은 체력 1 당 보너스 점수
@@ -417,6 +420,16 @@ let wave = 1;
 // 예: ["basic", "basic", "basic"] → 기본 적 3마리가 남아 있음
 let spawnQueue = [];
 
+// 아직 나오지 않은 보스들의 목록과, 보스가 나올 때까지 남은 시간 (초)
+let bossQueue = [];
+let bossTimer = 0;
+
+// 지금 웨이브에서 졸개가 나오는 간격 (보통 WAVE_SPAWN_INTERVAL, 보스 웨이브는 BOSS_MINION_INTERVAL)
+let currentSpawnInterval = WAVE_SPAWN_INTERVAL;
+
+// 안내 띠가 보스 안내인지 (보스 안내면 띠 색이 빨강)
+let bannerIsBoss = false;
+
 // 플레이어가 가진 증강과 레벨을 기억하는 상자
 // 예: { compound: 2, variance: 1 } → 복리 탄환 Lv.2, 분산 증폭 Lv.1
 let ownedAugments = {};
@@ -553,7 +566,21 @@ function spawnEnemy(typeId) {
 
 // 웨이브 동안 대기열의 적을 하나씩 만드는 함수
 function updateSpawning(dt) {
-  // 이번 웨이브의 적을 이미 다 만들었으면 할 일이 없다
+  // 보스가 기다리고 있으면: 시간이 되면 화면 위쪽에서 한꺼번에 등장
+  if (bossQueue.length > 0) {
+    bossTimer -= dt;
+    if (bossTimer <= 0) {
+      // 보스가 여러 마리면 화면 폭을 (마릿수 + 1) 칸으로 나눠 나란히 세운다
+      for (let i = 0; i < bossQueue.length; i++) {
+        const type = ENEMY_TYPES[bossQueue[i]];
+        const x = (CANVAS_WIDTH * (i + 1)) / (bossQueue.length + 1);
+        enemies.push(createEnemy(bossQueue[i], x, -type.radius, wave));
+      }
+      bossQueue = [];
+    }
+  }
+
+  // 이번 웨이브의 졸개를 이미 다 만들었으면 할 일이 없다
   if (spawnQueue.length === 0) return;
 
   // 남은 시간을 흐른 시간만큼 줄인다
@@ -562,7 +589,7 @@ function updateSpawning(dt) {
   // 시간이 다 됐으면 대기열 맨 앞의 적을 꺼내(shift) 하나 만든다
   if (spawnTimer <= 0) {
     spawnEnemy(spawnQueue.shift());
-    spawnTimer = WAVE_SPAWN_INTERVAL; // 타이머를 다시 채운다
+    spawnTimer = currentSpawnInterval; // 타이머를 다시 채운다
   }
 }
 
@@ -585,14 +612,30 @@ function startWave(n) {
   if (waveIsMixed(waveDef)) {
     shuffle(spawnQueue);
   }
-  spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
+  // 보스 웨이브인지 확인
+  bossQueue = waveBosses(waveDef).slice();
+  if (bossQueue.length > 0) {
+    bossTimer = BOSS_SPAWN_DELAY;                              // 2초 뒤 보스 등장
+    currentSpawnInterval = BOSS_MINION_INTERVAL;               // 졸개는 3초 간격
+    spawnTimer = BOSS_SPAWN_DELAY + BOSS_MINION_INTERVAL;      // 첫 졸개는 보스 등장 3초 뒤
+  } else {
+    currentSpawnInterval = WAVE_SPAWN_INTERVAL;
+    spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
+  }
   gameState = "playing";
 
   // 화면 위에 "웨이브 n" 안내 띠를 띄운다. 처음 나오는 적이 있으면 이름도 함께
   bannerText = "웨이브 " + n;
-  const newNames = newEnemyNames(n);
-  if (newNames.length > 0) {
-    bannerText += " · 새 적: " + newNames.join(", ") + "!";
+  bannerIsBoss = bossQueue.length > 0;
+  if (bannerIsBoss) {
+    // 보스 웨이브: "웨이브 5 · 보스: 돌진 대장!" (여러 마리면 "최종 보스: A & B!")
+    const names = bossQueue.map(function (id) { return ENEMY_TYPES[id].name; });
+    bannerText += (names.length > 1 ? " · 최종 보스: " : " · 보스: ") + names.join(" & ") + "!";
+  } else {
+    const newNames = newEnemyNames(n);
+    if (newNames.length > 0) {
+      bannerText += " · 새 적: " + newNames.join(", ") + "!";
+    }
   }
   bannerTimer = BANNER_TIME;
 }
@@ -881,9 +924,9 @@ function menuButtonAt(x, y) {
 }
 
 // 웨이브가 끝났는지 검사하는 함수
-// 끝나는 조건: 대기열이 비었고(0), 화면에 남은 적도 없다(0)
+// 끝나는 조건: 보스·졸개 대기열이 비었고(0), 화면에 남은 적(보스 포함)도 없다(0)
 function checkWaveEnd() {
-  if (spawnQueue.length > 0 || enemies.length > 0) return;
+  if (bossQueue.length > 0 || spawnQueue.length > 0 || enemies.length > 0) return;
 
   // 웨이브를 깼다! 체력을 조금 회복
   healPlayer(waveClearHeal());
@@ -951,6 +994,10 @@ function resetGame() {
   bossesKilled = 0;
   isNewBest = false;
 
+  // 보스 대기열도 비운다
+  bossQueue = [];
+  spawnQueue = [];
+
   // 가진 증강도 모두 없애고, 증강들이 세던 숫자(발사 번호 등)도 처음으로
   ownedAugments = {};
   // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
@@ -973,6 +1020,9 @@ function updateEnemies(dt) {
 
     // 증강(시간 지연 등)이 정한 속도 배율. 그림 그릴 때도 쓰려고 적에 기록해 둔다
     enemy.slowFactor = enemySpeedFactor(enemy, dist);
+    // 보스처럼 timeScaleMin 이 있는 적은 그보다 더 느려지지 않는다
+    const timeScaleMin = enemyType(enemy).timeScaleMin;
+    if (timeScaleMin !== undefined) enemy.slowFactor = Math.max(enemy.slowFactor, timeScaleMin);
 
     // 종류별 행동 함수(enemies.js)에게 움직임을 맡긴다
     //   speed     : 기본 속도 × 배율 (이동에 사용)
@@ -1276,6 +1326,9 @@ function updateBullets(dt) {
         forEachOwnedAugment(function (aug, stats) {
           if (aug.onHit) aug.onHit(stats, hitInfo);
         });
+
+        // 적 종류별 "맞았을 때" 반응 (보스의 체력 단계별 패턴 변화 등). 죽었으면 부르지 않는다
+        if (!killed && enemyType(enemy).onHurt) enemyType(enemy).onHurt(enemy);
 
         // 체력이 0 이하가 되면 적은 죽는다
         if (killed) {
@@ -1583,10 +1636,11 @@ function drawEnemy(enemy) {
   }
 
   drawEnemyFace(enemy, r);
+  if (type.crown) drawCrown(r);   // 보스는 머리에 왕관
   ctx.restore();
 
-  // 체력바: 한 대라도 맞은 적만 머리 위에 보여 준다 (화면이 덜 복잡하게)
-  if (enemy.hp < enemy.maxHp) {
+  // 체력바: 한 대라도 맞은 적만 머리 위에 보여 준다 (보스는 화면 위쪽 큰 체력바로 대신)
+  if (enemy.hp < enemy.maxHp && !type.isBoss) {
     const barWidth = Math.max(r * 2.2, 24);
     let barTop = r * 1.3;                                              // 기본 높이
     if (type.shape === "basic") barTop = enemy.wave >= 2 ? r * 1.45 : r; // 뿔이 있으면 더 위에
@@ -1663,10 +1717,14 @@ function drawSplitterBody(type, r, bodyColor) {
   if (type.innerCircles > 0) {
     ctx.save();
     ctx.globalAlpha = 0.35;               // 반투명 = "비쳐 보이는" 느낌
-    // 작은 원을 좌우에 하나씩 그리는 반복문
-    for (const side of [-1, 1]) {
+    // 작은 원의 위치 목록 (2개면 좌우, 3개면 아래쪽에 부채꼴로)
+    const spots = type.innerCircles >= 3
+      ? [[-0.5, 0.3, 0.26], [0, 0.55, 0.26], [0.5, 0.3, 0.26]]
+      : [[-0.45, 0.38, 0.34], [0.45, 0.38, 0.34]];
+    // 작은 원을 하나씩 그리는 반복문 ([가로 위치, 세로 위치, 크기] 를 몸 반지름에 곱한다)
+    for (const spot of spots) {
       ctx.beginPath();
-      ctx.arc(side * r * 0.45, r * 0.38, r * 0.34, 0, Math.PI * 2);
+      ctx.arc(spot[0] * r, spot[1] * r, spot[2] * r, 0, Math.PI * 2);
       ctx.fillStyle = COLORS.white;
       ctx.fill();
       setOutline(SMALL_OUTLINE_WIDTH * 0.6);
@@ -1675,6 +1733,20 @@ function drawSplitterBody(type, r, bodyColor) {
     ctx.restore();
   }
   drawHighlight(0, 0, r);
+}
+
+// 보스의 왕관: 노란 톱니 모양 + 가운데 빨간 보석
+function drawCrown(r) {
+  drawOutlinedPolygon([
+    [-r * 0.55, -r * 0.72],   // 왼쪽 아래
+    [-r * 0.62, -r * 1.28],   // 왼쪽 뾰족
+    [-r * 0.3, -r * 0.98],
+    [0, -r * 1.45],           // 가운데 뾰족
+    [r * 0.3, -r * 0.98],
+    [r * 0.62, -r * 1.28],    // 오른쪽 뾰족
+    [r * 0.55, -r * 0.72],    // 오른쪽 아래
+  ], COLORS.yellow, SMALL_OUTLINE_WIDTH);
+  drawOutlinedCircle(0, -r * 0.92, r * 0.11, COLORS.red, SMALL_OUTLINE_WIDTH * 0.7);
 }
 
 // 모든 적 공통: 화난 눈과 눈썹, 악문 입
@@ -1715,14 +1787,17 @@ function drawEnemyFace(enemy, r) {
 function drawChargerWarning(enemy) {
   ctx.save();
   // 예고 시간 동안 점점 진해진다
-  ctx.globalAlpha = 0.35 + 0.55 * Math.min(1, enemy.stateTime / CHARGER_WARN_TIME);
+  const type = enemyType(enemy);
+  const warnTime = enemy.warnTime || CHARGER_WARN_TIME;        // 보스는 예고 시간이 단계마다 다르다
+  ctx.globalAlpha = 0.35 + 0.55 * Math.min(1, enemy.stateTime / warnTime);
   ctx.setLineDash([14, 10]);   // 14px 선, 10px 빈칸
   ctx.strokeStyle = COLORS.red;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = type.isBoss ? 7 : 4;                         // 보스 예고선은 더 굵게
   ctx.lineCap = "round";
+  const length = type.warnLength || CHARGER_WARN_LENGTH;
   ctx.beginPath();
   ctx.moveTo(enemy.x, enemy.y);
-  ctx.lineTo(enemy.x + enemy.dirX * CHARGER_WARN_LENGTH, enemy.y + enemy.dirY * CHARGER_WARN_LENGTH);
+  ctx.lineTo(enemy.x + enemy.dirX * length, enemy.y + enemy.dirY * length);
   ctx.stroke();
   ctx.restore();
 }
@@ -1916,7 +1991,7 @@ function drawAugmentList() {
 
 // 증강이 많을 때의 작은 목록: 2열로, 글자도 조금 작게
 function drawAugmentListCompact(owned) {
-  const colW = 156;                          // 한 열의 폭
+  const colW = 150;                          // 한 열의 폭 (보스 체력바와 겹치지 않게)
   const rowH = 24;                           // 한 줄 높이
   const rows = Math.ceil(owned.length / 2);  // 2열이니 줄 수는 절반(올림)
   const w = colW * 2 + 16;
@@ -1940,6 +2015,20 @@ function drawAugmentListCompact(owned) {
   }
 }
 
+// ---- 보스 체력바 (화면 위쪽 가운데) ----
+// 보스가 여러 마리면 아래로 한 줄씩 쌓는다
+function drawBossBars() {
+  const bosses = enemies.filter(function (e) { return enemyType(e).isBoss; });
+  const w = BOSS_BAR_WIDTH;
+  // 살아 있는 보스를 하나씩 그리는 반복문
+  for (let i = 0; i < bosses.length; i++) {
+    const boss = bosses[i];
+    const y = 24 + i * 50;
+    drawOutlinedText(enemyType(boss).name, CANVAS_WIDTH / 2, y, 20, "center", COLORS.yellow);
+    drawBar(CANVAS_WIDTH / 2 - w / 2, y + 14, w, 18, boss.hp / boss.maxHp, COLORS.red);
+  }
+}
+
 // ---- 웨이브 시작 안내 띠 ----
 // 화면 위쪽에 "웨이브 2" + "복리 탄환 Lv.1 획득!" 을 잠깐 보여 준다
 function drawBanner() {
@@ -1960,7 +2049,8 @@ function drawBanner() {
   let w = Math.max(340, ctx.measureText(bannerText).width + 60);
   ctx.font = "20px " + FONT_FAMILY;
   w = Math.max(w, ctx.measureText(bannerSubText).width + 60);
-  drawOutlinedRoundRect(-w / 2, -28, w, h, 18, COLORS.yellow);
+  // 보스 웨이브 안내는 빨간 띠, 보통은 노란 띠
+  drawOutlinedRoundRect(-w / 2, -28, w, h, 18, bannerIsBoss ? COLORS.red : COLORS.yellow);
   drawOutlinedText(bannerText, 0, 0, 34);
   if (bannerSubText) {
     drawOutlinedText(bannerSubText, 0, 36, 20);
@@ -2314,6 +2404,7 @@ function draw() {
   drawPlayer();     // 플레이어
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
+  drawBossBars();   // 보스 체력바
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
   drawOverlay();    // 게임 오버·클리어 안내 (가장 위)
