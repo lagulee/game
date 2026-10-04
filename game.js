@@ -4,6 +4,7 @@
 // (a) 플레이어 이동 : 게임 루프, 키보드 입력, 화면 밖 제한
 // (b) 자동 발사와 적 : 적 생성·추적, 가장 가까운 적 조준, 총알 충돌, 적 체력
 // (c) 웨이브와 체력  : 웨이브 3개, 플레이어 체력·무적 시간, 게임 오버·클리어, R 재시작
+// (d) 증강 선택 화면 : 웨이브가 끝나면 카드 3장 중 1장 고르기 (마우스 클릭 / 1·2·3 키)
 // [스타일] 스티커 카툰: 두꺼운 외곽선 + 납작한 단색 + 하이라이트 한 줄
 // =============================================================
 
@@ -108,9 +109,20 @@ const WAVE_ENEMY_COUNTS = [6, 10, 15];
 // 웨이브 중에 적이 하나씩 나타나는 간격 (초)
 const WAVE_SPAWN_INTERVAL = 0.8;
 
-// 웨이브와 웨이브 사이 쉬는 시간 (초)
-// ※ (d) 단계에서 이 자리에 "증강 선택 화면"이 들어간다.
-const WAVE_BREAK_TIME = 2.0;
+// 증강 선택 화면에 보여 줄 카드 수
+const CHOICE_COUNT = 3;
+
+// 증강 카드 크기 (px)와 카드 사이 간격
+const CARD_WIDTH = 250;
+const CARD_HEIGHT = 330;
+const CARD_GAP = 40;
+
+// 카드가 나타난 뒤 이 시간(초) 동안은 클릭·키를 무시한다
+// (전투 중 누르고 있던 키나 클릭 때문에 실수로 골라지는 것을 막기 위해)
+const CHOICE_INPUT_DELAY = 0.4;
+
+// 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
+const BANNER_TIME = 1.8;
 
 
 // =============================================================
@@ -142,6 +154,18 @@ window.addEventListener("keydown", function (event) {
     resetGame();
   }
 
+  // 증강 선택 화면에서 1, 2, 3 키(키보드 위쪽 숫자 또는 오른쪽 숫자패드)로 카드 고르기
+  if (gameState === "choosing") {
+    // 키 이름과 카드 번호(0부터)를 짝지은 표
+    const keyToIndex = {
+      Digit1: 0, Digit2: 1, Digit3: 2,
+      Numpad1: 0, Numpad2: 1, Numpad3: 2,
+    };
+    if (event.code in keyToIndex) {
+      chooseAugment(keyToIndex[event.code]);
+    }
+  }
+
   // 방향키를 누를 때 웹페이지가 위아래로 스크롤되는 것을 막는다
   if (event.code.startsWith("Arrow")) {
     event.preventDefault();
@@ -152,6 +176,41 @@ window.addEventListener("keydown", function (event) {
 window.addEventListener("keyup", function (event) {
   // 뗀 키를 "안 눌림(false)"으로 기록한다
   keys[event.code] = false;
+});
+
+
+// =============================================================
+// 3-2. 마우스 입력 (증강 카드 고르기)
+// =============================================================
+
+// 마우스 이벤트의 화면 좌표를 "캔버스 안의 좌표"로 바꾸는 함수
+// 창이 작아서 캔버스가 줄어들어 보여도 정확한 위치를 계산한다.
+function getMousePos(event) {
+  const rect = canvas.getBoundingClientRect();   // 캔버스가 화면에 그려진 위치와 크기
+  const scaleX = canvas.width / rect.width;      // 실제 크기 ÷ 보이는 크기
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+// 마우스를 움직이면: 마우스 아래에 있는 카드를 기억한다 (살짝 들어 올려 보여 주려고)
+canvas.addEventListener("mousemove", function (event) {
+  const pos = getMousePos(event);
+  hoverIndex = gameState === "choosing" ? cardIndexAt(pos.x, pos.y) : -1;
+  // 카드 위에서는 마우스 모양을 손가락으로
+  canvas.style.cursor = hoverIndex >= 0 ? "pointer" : "default";
+});
+
+// 마우스를 클릭하면: 클릭한 위치의 카드를 고른다
+canvas.addEventListener("click", function (event) {
+  if (gameState !== "choosing") return;
+  const pos = getMousePos(event);
+  const index = cardIndexAt(pos.x, pos.y);
+  if (index >= 0) {
+    chooseAugment(index);
+  }
 });
 
 
@@ -188,7 +247,7 @@ let spawnTimer = 0;
 
 // 게임 상태: 지금 어떤 화면인지 기억하는 변수
 //   "playing"   : 전투 중
-//   "waveBreak" : 웨이브 사이 쉬는 시간
+//   "choosing"  : 웨이브 사이, 증강 카드를 고르는 중
 //   "gameover"  : 체력이 0이 되어 게임 오버
 //   "clear"     : 마지막 웨이브까지 모두 통과
 let gameState = "playing";
@@ -199,8 +258,23 @@ let wave = 1;
 // 이번 웨이브에서 아직 나오지 않은(생성할) 적의 수
 let enemiesToSpawn = 0;
 
-// 웨이브 사이 쉬는 시간이 얼마나 남았는지 (초)
-let waveBreakTimer = 0;
+// 플레이어가 가진 증강과 레벨을 기억하는 상자
+// 예: { compound: 2, variance: 1 } → 복리 탄환 Lv.2, 분산 증폭 Lv.1
+let ownedAugments = {};
+
+// 지금 선택 화면에 나와 있는 카드(증강 객체)들의 목록
+let choices = [];
+
+// 마우스가 올라가 있는 카드 번호 (없으면 -1)
+let hoverIndex = -1;
+
+// 선택 화면이 열린 뒤 흐른 시간 (초). 카드 등장 애니메이션과 입력 지연에 사용
+let choosingTime = 0;
+
+// 웨이브 시작 안내 띠: 보여 줄 글자와 남은 시간
+let bannerText = "";
+let bannerSubText = "";
+let bannerTimer = 0;
 
 
 // =============================================================
@@ -328,8 +402,98 @@ function startWave(n) {
   wave = n;
   // 배열은 0번 칸부터 시작하므로 n번째 웨이브의 적 수는 [n - 1] 칸에 있다
   enemiesToSpawn = WAVE_ENEMY_COUNTS[n - 1];
-  spawnTimer = 0.5;       // 0.5초 뒤 첫 적 등장
+  spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
   gameState = "playing";
+
+  // 화면 위에 "웨이브 n" 안내 띠를 띄운다
+  bannerText = "웨이브 " + n;
+  bannerTimer = BANNER_TIME;
+}
+
+// ---- 증강 관련 함수 ----
+
+// 증강의 현재 레벨을 알려 주는 함수 (안 가지고 있으면 0)
+function getAugmentLevel(id) {
+  return ownedAugments[id] || 0;
+}
+
+// 배열의 순서를 무작위로 섞는 함수 (피셔-예이츠 셔플)
+// 맨 뒤 칸부터 앞으로 오면서, 자기 앞쪽(자기 포함)의 아무 칸과 자리를 바꾼다.
+function shuffle(array) {
+  // i 를 맨 뒤에서 1까지 하나씩 줄여 가는 반복문
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1)); // 0 ~ i 중 하나
+    const temp = array[i];                         // 두 칸의 값을 맞바꾼다
+    array[i] = array[j];
+    array[j] = temp;
+  }
+  return array;
+}
+
+// 선택 화면에 보여 줄 카드를 최대 CHOICE_COUNT 장 고르는 함수
+// 이미 최대 레벨인 증강은 더 올릴 수 없으므로 후보에서 뺀다.
+function pickChoices() {
+  const candidates = AUGMENTS.filter(function (aug) {
+    return getAugmentLevel(aug.id) < aug.levels.length;
+  });
+  // 섞은 뒤 앞에서부터 CHOICE_COUNT 장만 자른다
+  return shuffle(candidates).slice(0, CHOICE_COUNT);
+}
+
+// 증강 선택 화면을 여는 함수
+function openChoiceScreen() {
+  choices = pickChoices();
+
+  // 고를 수 있는 증강이 하나도 없으면(모두 최대 레벨) 바로 다음 웨이브로
+  if (choices.length === 0) {
+    startWave(wave + 1);
+    return;
+  }
+
+  gameState = "choosing";
+  choosingTime = 0;
+  hoverIndex = -1;
+}
+
+// index 번째 카드를 골랐을 때 실행되는 함수
+function chooseAugment(index) {
+  // 카드가 막 나타난 직후의 입력은 무시한다 (실수 방지)
+  if (choosingTime < CHOICE_INPUT_DELAY) return;
+  // 없는 번호면 무시 (예: 카드가 2장뿐인데 3번 키를 누른 경우)
+  if (index < 0 || index >= choices.length) return;
+
+  const aug = choices[index];
+  const newLevel = getAugmentLevel(aug.id) + 1;
+  ownedAugments[aug.id] = newLevel; // 레벨 기록 (처음이면 1, 또 고르면 2 ...)
+
+  // 다음 웨이브 시작 + 안내 띠에 무엇을 얻었는지 함께 보여 준다
+  canvas.style.cursor = "default";
+  startWave(wave + 1);
+  bannerSubText = aug.name + " Lv." + newLevel + (newLevel > 1 ? " 레벨업!" : " 획득!");
+}
+
+// 카드 i 의 화면 위치(왼쪽 위 x, y)를 계산하는 함수
+// 카드 수가 몇 장이든 화면 가운데에 나란히 놓이도록 한다.
+function cardPosition(i) {
+  const total = choices.length * CARD_WIDTH + (choices.length - 1) * CARD_GAP; // 전체 폭
+  const startX = (CANVAS_WIDTH - total) / 2;                                   // 첫 카드 왼쪽 끝
+  return {
+    x: startX + i * (CARD_WIDTH + CARD_GAP),
+    y: CANVAS_HEIGHT / 2 - CARD_HEIGHT / 2 + 30, // 위쪽 제목 자리만큼 조금 아래로
+  };
+}
+
+// 캔버스 좌표 (x, y)가 몇 번째 카드 위에 있는지 알려 주는 함수 (없으면 -1)
+function cardIndexAt(x, y) {
+  // 카드를 하나씩 보며 사각형 안에 점이 들어 있는지 검사하는 반복문
+  for (let i = 0; i < choices.length; i++) {
+    const pos = cardPosition(i);
+    if (x >= pos.x && x <= pos.x + CARD_WIDTH &&
+        y >= pos.y && y <= pos.y + CARD_HEIGHT) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // 웨이브가 끝났는지 검사하는 함수
@@ -341,9 +505,8 @@ function checkWaveEnd() {
     // 마지막 웨이브였으면 클리어!
     gameState = "clear";
   } else {
-    // 아니면 잠깐 쉬었다가 다음 웨이브로
-    gameState = "waveBreak";
-    waveBreakTimer = WAVE_BREAK_TIME;
+    // 아니면 증강 선택 화면으로
+    openChoiceScreen();
   }
 }
 
@@ -389,6 +552,11 @@ function resetGame() {
   bullets = [];
   popups = [];
   particles = [];
+
+  // 가진 증강도 모두 없앤다
+  ownedAugments = {};
+  choices = [];
+  bannerSubText = "";
 
   // 1웨이브부터 다시
   startWave(1);
@@ -614,21 +782,15 @@ function update(dt) {
     if (gameState === "playing") {
       checkWaveEnd();
     }
-  } else if (gameState === "waveBreak") {
-    // 쉬는 시간: 움직일 수는 있고, 남은 총알도 계속 날아간다
-    updatePlayer(dt);
-    updateAim();
-    updateBullets(dt);
+  } else if (gameState === "choosing") {
+    // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
+    choosingTime += dt;
     updatePopups(dt);
     updateParticles(dt);
-    player.invincibleTimer = Math.max(0, player.invincibleTimer - dt);
-
-    // 쉬는 시간이 끝나면 다음 웨이브 시작
-    waveBreakTimer -= dt;
-    if (waveBreakTimer <= 0) {
-      startWave(wave + 1);
-    }
   }
+
+  // 안내 띠 남은 시간 줄이기 (어느 상태에서든)
+  bannerTimer = Math.max(0, bannerTimer - dt);
   // "gameover", "clear" 상태에서는 아무것도 움직이지 않는다 (R 키를 기다림)
 }
 
@@ -1067,20 +1229,150 @@ function drawHud() {
   drawBar(28, 54, 218, 18, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
 }
 
-// ---- 상태 안내 (쉬는 시간 / 게임 오버 / 클리어) ----
+// ---- 웨이브 시작 안내 띠 ----
+// 화면 위쪽에 "웨이브 2" + "복리 탄환 Lv.1 획득!" 을 잠깐 보여 준다
+function drawBanner() {
+  if (bannerTimer <= 0 || gameState !== "playing") return;
+
+  // 처음 0.2초 동안 위에서 내려오고, 마지막 0.3초 동안 흐려진다
+  const shown = BANNER_TIME - bannerTimer;           // 나타난 뒤 흐른 시간
+  const slide = Math.min(1, shown / 0.2);            // 0 → 1
+  const alpha = Math.min(1, bannerTimer / 0.3);      // 끝날 때 1 → 0
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(CANVAS_WIDTH / 2, -40 + 110 * slide); // y: -40 → 70 으로 내려온다
+  ctx.rotate(0.02);
+  const h = bannerSubText ? 84 : 56;                  // 부제가 있으면 더 높게
+  drawOutlinedRoundRect(-170, -28, 340, h, 18, COLORS.yellow);
+  drawOutlinedText(bannerText, 0, 0, 34);
+  if (bannerSubText) {
+    drawOutlinedText(bannerSubText, 0, 36, 20);
+  }
+  ctx.restore();
+}
+
+// ---- 긴 글을 카드 폭에 맞게 여러 줄로 나누는 함수 ----
+// 띄어쓰기 단위로 단어를 하나씩 붙여 보다가, 폭을 넘으면 다음 줄로 넘긴다.
+function wrapText(text, maxWidth, size) {
+  ctx.font = size + "px " + FONT_FAMILY;   // 글자 폭을 재려면 글꼴을 먼저 정해야 한다
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  // 단어를 하나씩 꺼내 줄에 붙여 보는 반복문
+  for (const word of words) {
+    const test = line === "" ? word : line + " " + word;
+    if (ctx.measureText(test).width > maxWidth && line !== "") {
+      lines.push(line);   // 지금 줄은 확정하고
+      line = word;        // 이 단어부터 새 줄 시작
+    } else {
+      line = test;
+    }
+  }
+  if (line !== "") lines.push(line);
+  return lines;
+}
+
+// ---- 증강 카드 한 장 ----
+// i: 몇 번째 카드인지 (0, 1, 2)
+function drawCard(aug, i) {
+  const pos = cardPosition(i);
+  const level = getAugmentLevel(aug.id);           // 지금 레벨 (없으면 0)
+  const info = aug.levels[level];                  // 고르면 얻게 될 레벨의 정보
+  const isHover = i === hoverIndex;
+
+  // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다
+  const appear = choosingTime - i * 0.08;
+  if (appear <= 0) return;                         // 아직 차례가 안 됨
+  const scale = popupScale(appear) * (isHover ? 1.04 : 1);
+
+  ctx.save();
+  // 카드 가운데를 기준으로 돌리고 키우기 위해 기준점을 카드 중심으로 옮긴다
+  ctx.translate(pos.x + CARD_WIDTH / 2, pos.y + CARD_HEIGHT / 2 - (isHover ? 10 : 0));
+  ctx.rotate((i - 1) * 0.035);                     // 스티커처럼 왼쪽·가운데·오른쪽 다르게 기울이기
+  ctx.scale(scale, scale);
+
+  // 이제부터 좌표는 카드 중심 기준. 왼쪽 위 = (-w/2, -h/2)
+  const w = CARD_WIDTH;
+  const h = CARD_HEIGHT;
+  const left = -w / 2;
+  const top = -h / 2;
+  const accent = COLORS[aug.color];               // 증강별 색
+
+  // 1) 카드 그림자 (번지지 않는 진한 그림자 = 카툰 느낌)
+  roundRectPath(left + 7, top + 7, w, h, 20);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+
+  // 2) 카드 몸통 (하양)
+  drawOutlinedRoundRect(left, top, w, h, 20, COLORS.white);
+
+  // 3) 위쪽 색 띠 + 제목
+  drawOutlinedRoundRect(left + 12, top + 12, w - 24, 58, 14, accent);
+  drawOutlinedText(aug.name, 0, top + 41, 30);
+
+  // 4) 개념 이름 (작은 갈색 글자)
+  ctx.font = "16px " + FONT_FAMILY;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = COLORS.brown;
+  ctx.fillText(aug.concept, 0, top + 92);
+
+  // 5) 수식 (카드의 주인공: 크게)
+  drawOutlinedText(aug.formula, 0, top + 135, 30, "center", accent);
+
+  // 6) 설명 (여러 줄로 나눠서)
+  const lines = wrapText(info.desc, w - 40, 17);
+  ctx.fillStyle = COLORS.outline;
+  ctx.font = "17px " + FONT_FAMILY;
+  // 줄을 하나씩 아래로 내려가며 쓰는 반복문 (한 줄 높이 23px)
+  for (let n = 0; n < lines.length; n++) {
+    ctx.fillText(lines[n], 0, top + 180 + n * 23);
+  }
+
+  // 7) 아래쪽 레벨 표시: 처음이면 "NEW!", 가지고 있으면 "Lv.1 → Lv.2"
+  const levelText = level === 0 ? "NEW!" : "Lv." + level + " → Lv." + (level + 1);
+  drawOutlinedRoundRect(-70, top + h - 46, 140, 32, 16, level === 0 ? COLORS.yellow : COLORS.green);
+  drawOutlinedText(levelText, 0, top + h - 30, 18);
+
+  // 8) 왼쪽 위 번호 배지 (이 번호 키를 눌러도 고를 수 있다)
+  drawOutlinedCircle(left + 6, top + 6, 18, COLORS.outline);
+  drawOutlinedText(String(i + 1), left + 6, top + 7, 20, "center", COLORS.yellow);
+
+  ctx.restore();
+}
+
+// ---- 증강 선택 화면 전체 ----
+function drawChoiceScreen() {
+  if (gameState !== "choosing") return;
+
+  // 뒤 화면을 어둡게 덮는다
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+
+  // 위쪽 제목
+  drawOutlinedText("웨이브 " + wave + " 클리어!", CANVAS_WIDTH / 2, 48, 40, "center", COLORS.yellow);
+  drawOutlinedText("증강을 하나 고르세요  (클릭 또는 1 · 2 · 3 키)", CANVAS_WIDTH / 2, 88, 20);
+
+  // 카드를 한 장씩 그리는 반복문
+  for (let i = 0; i < choices.length; i++) {
+    drawCard(choices[i], i);
+  }
+}
+
+// ---- 상태 안내 (게임 오버 / 클리어) ----
 function drawOverlay() {
-  // 전투 중에는 안내가 없다
-  if (gameState === "playing") return;
+  // 전투 중에는 안내가 없고, 카드 화면은 drawChoiceScreen 이 따로 그린다
+  if (gameState === "playing" || gameState === "choosing") return;
 
   // 상태별 큰 제목, 작은 설명, 패널 색
   let title = "";
   let sub = "";
   let panelColor = COLORS.brown;
-  if (gameState === "waveBreak") {
-    title = "웨이브 " + wave + " 클리어!";
-    sub = "잠시 후 다음 웨이브가 시작됩니다";
-    panelColor = COLORS.green;
-  } else if (gameState === "gameover") {
+  if (gameState === "gameover") {
     title = "게임 오버";
     sub = "R 키를 눌러 다시 시작";
     panelColor = COLORS.red;
@@ -1118,7 +1410,9 @@ function draw() {
   drawPlayer();     // 플레이어
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바
-  drawOverlay();    // 쉬는 시간·게임 오버·클리어 안내 (가장 위)
+  drawBanner();     // 웨이브 시작 안내 띠
+  drawChoiceScreen(); // 증강 카드 선택 화면
+  drawOverlay();    // 게임 오버·클리어 안내 (가장 위)
 }
 
 
