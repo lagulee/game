@@ -284,4 +284,21 @@ module.exports = [
       return { ok: ok, detail: "기본 10 은 제곱해도 10 / 등차 후 제곱 " + afterArith.toFixed(1) + " / 상한 " + capped + " / D=6 → " + small.toFixed(1) };
     },
   },
+  {
+    name: "[증강] 3방향 탄: n발이 360°/n 간격, 모두 damageScale, onFire 는 한 번만",
+    run: function () {
+      runMenuAction(0); spawnQueue = [];
+      let fires = 0;
+      AUGMENTS.push({ id: "count", name: "c", levels: [{}], onFire: function () { fires++; } });
+      const angles = (list) => list.map((b) => Math.round(Math.atan2(b.vy, b.vx) * 180 / Math.PI)).sort((x, y) => x - y).join(",");
+      ownedAugments = { multiShot: 1, count: 1 };
+      bullets = []; createBullet(1, 0); const lv1 = angles(bullets); const s1 = bullets.map((b) => b.damageScale).join(",");
+      ownedAugments = { multiShot: 2, count: 1, arithmetic: 1 };
+      bullets = []; createBullet(0, -1); const lv2 = angles(bullets); const s2 = bullets.map((b) => b.damageScale).join(",");
+      const ksSame = new Set(bullets.map((b) => b.arithK)).size === 1;
+      const ok = lv1 === "-120,0,120" && s1 === "0.6,0.6,0.6" && lv2 === "-162,-90,-18,54,126" &&
+        s2 === "0.5,0.5,0.5,0.5,0.5" && fires === 2 && ksSame;
+      return { ok: ok, detail: "Lv1 각도 " + lv1 + " / Lv2 각도 " + lv2 + " / onFire " + fires + "회 / 같은 k=" + ksSame };
+    },
+  },
 ];

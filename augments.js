@@ -119,6 +119,11 @@ const SQUARE_EVERY = [3, 2];
 // 제곱 증폭: 레벨별 배율 상한 (D²/10 = D × D/10 에서 D/10 이 이 값을 넘지 않게)
 const SQUARE_MAX_MULT = [5, 5];
 
+// 3방향 탄: 레벨별 총알 수 n (360° ÷ n 간격으로 퍼진다)
+const MULTI_SHOT_COUNT = [3, 5];
+// 3방향 탄: 레벨별 총알 하나의 대미지 배율
+const MULTI_SHOT_SCALE = [0.6, 0.5];
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -318,6 +323,42 @@ const AUGMENTS = [
       //  그래서 D 가 10보다 작으면 배율 D/10 이 1보다 작아 대미지가 줄어든다)
       const mult = Math.min(damage / BULLET_DAMAGE, stats.maxMult);
       return damage * mult;
+    },
+  },
+  {
+    id: "multiShot",
+    name: "3방향 탄",
+    concept: "수학 · 각도",
+    formula: "360° ÷ n",
+    color: "yellow",
+    levels: [
+      {
+        n: MULTI_SHOT_COUNT[0],
+        scale: MULTI_SHOT_SCALE[0],
+        desc: "한 번에 3발을 360° ÷ 3 = 120° 간격으로 쏜다. 대신 모든 총알 대미지 0.6배",
+      },
+      {
+        n: MULTI_SHOT_COUNT[1],
+        scale: MULTI_SHOT_SCALE[1],
+        desc: "5발로 늘어난다! 360° ÷ 5 = 72° 간격, 대미지 0.5배",
+      },
+    ],
+
+    // 쏠 때: 조준한 총알을 기준으로 (360° ÷ n) 씩 돌린 방향으로 n - 1 발을 더 쏜다
+    onFire: function (stats, info) {
+      info.bullet.damageScale = stats.scale; // 조준한 총알도 대미지가 줄어든다
+      const step = (Math.PI * 2) / stats.n;  // 360° 를 라디안으로 쓰면 2π
+      // 1번째부터 n-1번째 추가 총알을 만드는 반복문
+      for (let i = 1; i < stats.n; i++) {
+        // 방향 (x, y) 를 각도 θ 만큼 돌리는 공식 (회전 변환)
+        //   x' = x·cosθ − y·sinθ,  y' = x·sinθ + y·cosθ
+        const theta = step * i;
+        const dirX = info.dirX * Math.cos(theta) - info.dirY * Math.sin(theta);
+        const dirY = info.dirX * Math.sin(theta) + info.dirY * Math.cos(theta);
+        // fromAugment: true → 이 총알 때문에 onFire 가 다시 불리지 않는다
+        const extra = createBullet(dirX, dirY, { damageScale: stats.scale, fromAugment: true });
+        extra.arithK = info.bullet.arithK; // 같은 순간에 쏜 총알이니 등차 번호도 같다
+      }
     },
   },
 ];
