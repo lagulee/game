@@ -544,20 +544,50 @@ function startWave(n) {
 
   // 대기열 만들기: 배열은 0번 칸부터 시작하므로 n번째 웨이브는 WAVES[n - 1]
   // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
+  const waveDef = WAVES[n - 1];
   spawnQueue = [];
   // 이번 웨이브의 묶음을 하나씩 보는 반복문
-  for (const group of WAVES[n - 1]) {
+  for (const group of waveGroups(waveDef)) {
     // 같은 종류를 count 마리만큼 줄 뒤에 붙이는 반복문
     for (let i = 0; i < group.count; i++) {
       spawnQueue.push(group.type);
     }
   }
+  // mix: true 인 웨이브는 대기열을 섞어서 여러 종류가 뒤섞여 나오게 한다
+  if (waveIsMixed(waveDef)) {
+    shuffle(spawnQueue);
+  }
   spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
   gameState = "playing";
 
-  // 화면 위에 "웨이브 n" 안내 띠를 띄운다
+  // 화면 위에 "웨이브 n" 안내 띠를 띄운다. 처음 나오는 적이 있으면 이름도 함께
   bannerText = "웨이브 " + n;
+  const newNames = newEnemyNames(n);
+  if (newNames.length > 0) {
+    bannerText += " · 새 적: " + newNames.join(", ") + "!";
+  }
   bannerTimer = BANNER_TIME;
+}
+
+// n번째 웨이브에서 "처음" 등장하는 적들의 이름 목록
+// (1웨이브는 시작 웨이브라 알리지 않는다. 앞 웨이브들에 나온 종류는 빼고 남은 것)
+function newEnemyNames(n) {
+  if (n <= 1) return [];
+  // 1 ~ (n-1) 웨이브에 나온 종류를 모은다
+  const seen = {};
+  // 앞 웨이브들을 하나씩 보는 반복문
+  for (let i = 0; i < n - 1; i++) {
+    for (const group of waveGroups(WAVES[i])) seen[group.type] = true;
+  }
+  // 이번 웨이브에서 처음 보는 종류의 이름만 고른다 (같은 종류가 두 번 들어가지 않게)
+  const names = [];
+  for (const group of waveGroups(WAVES[n - 1])) {
+    if (!seen[group.type]) {
+      seen[group.type] = true;
+      names.push(ENEMY_TYPES[group.type].name);
+    }
+  }
+  return names;
 }
 
 // ---- 증강 관련 함수 ----
@@ -1760,7 +1790,12 @@ function drawBanner() {
   ctx.translate(CANVAS_WIDTH / 2, -40 + 110 * slide); // y: -40 → 70 으로 내려온다
   ctx.rotate(0.02);
   const h = bannerSubText ? 84 : 56;                  // 부제가 있으면 더 높게
-  drawOutlinedRoundRect(-170, -28, 340, h, 18, COLORS.yellow);
+  // 띠 폭: 기본 340px, 글자가 길면 글자 폭에 맞춰 넓힌다
+  ctx.font = "34px " + FONT_FAMILY;
+  let w = Math.max(340, ctx.measureText(bannerText).width + 60);
+  ctx.font = "20px " + FONT_FAMILY;
+  w = Math.max(w, ctx.measureText(bannerSubText).width + 60);
+  drawOutlinedRoundRect(-w / 2, -28, w, h, 18, COLORS.yellow);
   drawOutlinedText(bannerText, 0, 0, 34);
   if (bannerSubText) {
     drawOutlinedText(bannerSubText, 0, 36, 20);

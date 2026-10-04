@@ -196,4 +196,50 @@ module.exports = [
       return { ok: ok, detail: "1세대 " + gen1 + " / 점수 " + scoreA + "," + scoreB + "," + scoreC + " / 남은 적 있을 때 계속=" + stillPlaying + " / 다 죽으면 " + gameState };
     },
   },
+  // ---------------- C. 웨이브 5개 ----------------
+  {
+    name: "[C] 웨이브 5개 구성, 2~5웨이브는 섞어서 나옴, 1웨이브는 순서대로",
+    run: function () {
+      runMenuAction(0);
+      const want = ["basic:10", "basic:8,charger:4", "basic:6,sine:8", "basic:6,charger:4,splitter:4",
+        "basic:10,charger:5,sine:5,splitter:3"];
+      const got = []; const mixed = [];
+      for (let n = 1; n <= WAVES.length; n++) {
+        startWave(n);
+        const count = {}; for (const t of spawnQueue) count[t] = (count[t] || 0) + 1;
+        got.push(Object.keys(count).sort().map((k) => k + ":" + count[k]).join(","));
+        // 섞였는지: 같은 종류가 모두 붙어 있지 않으면 섞인 것
+        let changes = 0; for (let i = 1; i < spawnQueue.length; i++) if (spawnQueue[i] !== spawnQueue[i - 1]) changes++;
+        mixed.push(changes > Object.keys(count).length - 1);
+      }
+      const ok = WAVES.length === 5 && JSON.stringify(got) === JSON.stringify(want) &&
+        JSON.stringify(mixed) === JSON.stringify([false, true, true, true, true]);
+      return { ok: ok, detail: got.join(" | ") + " / 섞임 " + mixed.join(",") };
+    },
+  },
+  {
+    name: "[C] 새 적 안내 띠: 2웨이브 돌격형, 3웨이브 사인파형, 4웨이브 분열형, 1·5웨이브는 없음",
+    run: function () {
+      runMenuAction(0);
+      const texts = [];
+      for (let n = 1; n <= 5; n++) { startWave(n); texts.push(bannerText); }
+      const ok = texts[0] === "웨이브 1" && texts[1] === "웨이브 2 · 새 적: 돌격형!" &&
+        texts[2] === "웨이브 3 · 새 적: 사인파형!" && texts[3] === "웨이브 4 · 새 적: 분열형!" && texts[4] === "웨이브 5";
+      return { ok: ok, detail: texts.join(" / ") };
+    },
+  },
+  {
+    name: "[C] 5웨이브를 깨면 게임 클리어 (무적으로 끝까지 플레이)",
+    run: function () {
+      runMenuAction(0); player.hp = 1e9;
+      const DT = 1 / 60; const seen = [];
+      for (let f = 0; f < 60 * 60 * 6 && gameState !== "clear"; f++) {
+        if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
+        if (seen[seen.length - 1] !== wave) seen.push(wave);
+        player.x = 480 + Math.cos(f / 60) * 300; player.y = 270 + Math.sin(f / 45) * 200;
+        update(DT);
+      }
+      return { ok: gameState === "clear" && seen.join(",") === "1,2,3,4,5", detail: "지나간 웨이브 " + seen.join(",") + " → " + gameState };
+    },
+  },
 ];
