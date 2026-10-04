@@ -589,4 +589,30 @@ module.exports = [
       return { ok: ok, detail: banner + " (빨강=" + red + ") / 등장 " + appear.join(", ") + " / 보스만 남아도 계속=" + stillPlaying2 + " / 다 죽으면 " + gameState };
     },
   },
+  // ---------------- 성장 A: 저장 장치 ----------------
+  {
+    name: "[성장A] 저장: 기본값, 저장 후 다시 읽기, 깨진 데이터·이상한 값은 기본값, 저장소 오류에도 동작",
+    run: function () {
+      const box = window.__fakeStorage;
+      for (const k in box) delete box[k];
+      const fresh = JSON.stringify(loadSave());
+      saveData = loadSave(); saveData.coins = 123; saveData.upgrades.vitality = 4; saveData.bestWave = 7; writeSave();
+      const back = loadSave();
+      const roundTrip = back.coins === 123 && back.upgrades.vitality === 4 && back.bestWave === 7 && back.version === SAVE_VERSION;
+      box[SAVE_KEY] = "{깨진 데이터"; const broken = JSON.stringify(loadSave());
+      box[SAVE_KEY] = JSON.stringify({ coins: -5, bestWave: "많이", upgrades: { power: 2.7, vitality: NaN } });
+      const weird = loadSave();
+      // 저장소가 아예 오류를 내는 환경
+      const real = window.localStorage;
+      Object.defineProperty(window, "localStorage", { get: () => { throw new Error("막힘"); }, configurable: true });
+      let noThrow = true, wrote;
+      try { const d = loadSave(); wrote = writeSave(); if (d.coins !== 0) noThrow = false; } catch (e) { noThrow = false; }
+      Object.defineProperty(window, "localStorage", { value: real, configurable: true });
+      const def = JSON.stringify(defaultSave());
+      const ok = fresh === def && roundTrip && broken === def && weird.coins === 0 && weird.bestWave === 0 &&
+        weird.upgrades.power === 2 && weird.upgrades.vitality === 0 && noThrow && wrote === false;
+      return { ok: ok, detail: "기본 " + fresh + " / 다시 읽기 " + roundTrip + " / 깨진 데이터 → 기본 " + (broken === def) +
+        " / 이상한 값 → " + JSON.stringify(weird) + " / 저장소 오류에도 동작 " + noThrow };
+    },
+  },
 ];

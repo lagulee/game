@@ -39,6 +39,16 @@ function initScript() {
   };
   window.__reseed = (s) => { seed = s; };
   window.requestAnimationFrame = () => 0; // 게임 루프는 검사기가 직접 돌린다
+  // 가짜 저장소: 실제 브라우저 저장 데이터(코인, 업그레이드)가 검사에 끼어들지 않게 메모리 상자로 바꿔 끼운다
+  const box = {};
+  const fakeStorage = {
+    getItem: (k) => (k in box ? box[k] : null),
+    setItem: (k, v) => { box[k] = String(v); },
+    removeItem: (k) => { delete box[k]; },
+    clear: () => { for (const k in box) delete box[k]; },
+  };
+  Object.defineProperty(window, "localStorage", { value: fakeStorage, configurable: true });
+  window.__fakeStorage = box;
 }
 
 // ---- 브라우저 안에서 돌릴 시나리오 실행기 ----
