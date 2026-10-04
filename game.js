@@ -32,6 +32,9 @@ const COLORS = {
 // 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
 const OUTLINE_WIDTH = 4;
 
+// 작은 도형(적 체력바, 파티클 등)용 외곽선 두께. 기본 두께에서 자동으로 계산된다.
+const SMALL_OUTLINE_WIDTH = OUTLINE_WIDTH * 0.75;
+
 // 글자 외곽선 두께 (px). 선의 절반은 글자 안쪽에 그려지므로 도형보다 조금 두껍게.
 const TEXT_OUTLINE_WIDTH = 6;
 
@@ -75,8 +78,8 @@ const ENEMY_BASE_SPEED = 60;
 // 1웨이브 60 → 2웨이브 80 → 3웨이브 100
 const ENEMY_SPEED_PER_WAVE = 20;
 
-// 적 반지름 (픽셀)
-const ENEMY_RADIUS = 13;
+// 적 반지름 (픽셀). 화난 얼굴을 그리기 위해 조금 크게 잡았다.
+const ENEMY_RADIUS = 16;
 
 // 적 최대 체력. 기본 대미지 10 × 6방 = 60
 // (5~8방 사이로 잡아서, 같은 적을 여러 번 맞히는 "복리 탄환"이 의미 있게 함)
@@ -547,14 +550,30 @@ function setOutline(width = OUTLINE_WIDTH) {
 }
 
 // 외곽선이 있는 원을 그리는 함수
-// fill: 안쪽 색 (팔레트 색 중 하나)
-function drawOutlinedCircle(x, y, radius, fill) {
+// fill: 안쪽 색 (팔레트 색 중 하나) / width: 외곽선 두께 (안 주면 기본 두께)
+function drawOutlinedCircle(x, y, radius, fill, width = OUTLINE_WIDTH) {
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2); // 0도 ~ 360도 원
   ctx.fillStyle = fill;
   ctx.fill();      // 1) 면 칠하기
-  setOutline();
+  setOutline(width);
   ctx.stroke();    // 2) 외곽선 그리기
+}
+
+// 외곽선이 있는 다각형을 그리는 함수 (뿔, 가시 몸통, 세모 파티클 등)
+// points: [[x1, y1], [x2, y2], ...] 처럼 꼭짓점 좌표를 모은 배열
+function drawOutlinedPolygon(points, fill, width = OUTLINE_WIDTH) {
+  ctx.beginPath();
+  ctx.moveTo(points[0][0], points[0][1]);     // 첫 꼭짓점에서 시작
+  // 나머지 꼭짓점을 차례로 잇는 반복문
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i][0], points[i][1]);
+  }
+  ctx.closePath();                            // 마지막 점과 첫 점을 잇는다
+  ctx.fillStyle = fill;
+  ctx.fill();
+  setOutline(width);
+  ctx.stroke();
 }
 
 // 모서리가 둥근 직사각형 "모양(경로)"만 만드는 함수 (칠하지는 않음)
@@ -573,13 +592,13 @@ function roundRectPath(x, y, w, h, r) {
 
 // 외곽선이 있는 둥근 직사각형을 그리는 함수
 // fill 이 null 이면 외곽선만 그린다 (체력바 테두리 등에 사용)
-function drawOutlinedRoundRect(x, y, w, h, r, fill) {
+function drawOutlinedRoundRect(x, y, w, h, r, fill, width = OUTLINE_WIDTH) {
   roundRectPath(x, y, w, h, r);
   if (fill !== null) {
     ctx.fillStyle = fill;
     ctx.fill();
   }
-  setOutline();
+  setOutline(width);
   ctx.stroke();
 }
 
@@ -723,26 +742,97 @@ function drawPlayer() {
   ctx.restore(); // 처음에 저장한 붓 설정으로 되돌린다
 }
 
-// ---- 적 (임시 모양) ----
-// ※ 다음 스타일 단계에서 화난 얼굴 + 웨이브별 뿔/가시 모양으로 바뀐다
+// ---- 적 ----
+// 빨간 몸 + 화난 눈썹과 눈. 태어난 웨이브가 높을수록 험악해진다.
+//   1웨이브: 동그란 몸
+//   2웨이브: 동그란 몸 + 머리 위 뿔 2개
+//   3웨이브: 뾰족뾰족 가시 몸 + 뿔 2개
+function drawEnemy(enemy) {
+  const r = ENEMY_RADIUS;
+  // 맞은 직후엔 하얗게 번쩍, 평소엔 빨강
+  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS.red;
+
+  ctx.save();
+  ctx.translate(enemy.x, enemy.y); // 아래 좌표는 모두 적의 중심 기준
+
+  // 1) 뿔 (2웨이브부터): 몸보다 먼저 그려서 뿌리가 몸에 가려지게 한다
+  if (enemy.wave >= 2) {
+    // 왼쪽 뿔, 오른쪽 뿔을 차례로 그리는 반복문 (side = -1 왼쪽, 1 오른쪽)
+    for (const side of [-1, 1]) {
+      drawOutlinedPolygon([
+        [side * r * 0.25, -r * 0.7],   // 뿌리 안쪽
+        [side * r * 0.85, -r * 0.45],  // 뿌리 바깥쪽
+        [side * r * 0.75, -r * 1.45],  // 뾰족한 끝
+      ], COLORS.brown);
+    }
+  }
+
+  // 2) 몸통
+  if (enemy.wave >= 3) {
+    // 가시 몸: 바깥 점(가시 끝)과 안쪽 점을 번갈아 찍어 별 모양을 만든다
+    const spikes = 10;          // 가시 개수
+    const points = [];
+    // 가시 개수 × 2 만큼 점을 찍는 반복문 (짝수 번째 = 가시 끝, 홀수 번째 = 골짜기)
+    for (let i = 0; i < spikes * 2; i++) {
+      const angle = (Math.PI * 2 * i) / (spikes * 2) - Math.PI / 2; // 위쪽부터 시작
+      const radius = i % 2 === 0 ? r * 1.2 : r * 0.92;
+      points.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+    }
+    drawOutlinedPolygon(points, bodyColor);
+  } else {
+    drawOutlinedCircle(0, 0, r, bodyColor);
+  }
+
+  // 3) 하이라이트 한 줄
+  drawHighlight(0, 0, r);
+
+  // 4) 눈: 플레이어 쪽으로 살짝 쏠려서 노려보는 느낌
+  const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+  const lookX = Math.cos(angle) * 2.5;
+  const lookY = Math.sin(angle) * 2;
+  // 왼쪽 눈, 오른쪽 눈을 차례로 그리는 반복문
+  for (const side of [-1, 1]) {
+    const eyeX = side * r * 0.36;
+    const eyeY = -r * 0.05;
+    // 흰자
+    drawOutlinedCircle(eyeX, eyeY, r * 0.24, COLORS.white, SMALL_OUTLINE_WIDTH * 0.8);
+    // 눈동자 (흰자 안에서 플레이어 쪽으로 움직인다)
+    ctx.fillStyle = COLORS.outline;
+    ctx.beginPath();
+    ctx.arc(eyeX + lookX * 0.6, eyeY + lookY * 0.6, r * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 화난 눈썹: 바깥쪽이 높고 안쪽(가운데)이 낮은 "\ /" 모양 선
+    setOutline(SMALL_OUTLINE_WIDTH);
+    ctx.beginPath();
+    ctx.moveTo(side * r * 0.65, -r * 0.5);   // 바깥쪽 (높게)
+    ctx.lineTo(side * r * 0.12, -r * 0.28);  // 안쪽 (낮게)
+    ctx.stroke();
+  }
+
+  // 5) 이를 악문 입: 짧은 일자 선
+  setOutline(SMALL_OUTLINE_WIDTH * 0.8);
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.25, r * 0.45);
+  ctx.lineTo(r * 0.25, r * 0.45);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // 6) 체력바: 한 대라도 맞은 적만 머리 위에 보여 준다 (화면이 덜 복잡하게)
+  if (enemy.hp < enemy.maxHp) {
+    const barWidth = r * 2.2;
+    const barTop = enemy.wave >= 2 ? r * 1.45 : r; // 뿔이 있으면 더 위에
+    drawBar(enemy.x - barWidth / 2, enemy.y - barTop - 12, barWidth, 7,
+            enemy.hp / enemy.maxHp, COLORS.green, SMALL_OUTLINE_WIDTH);
+  }
+}
+
+// 모든 적을 그리는 함수
 function drawEnemies() {
   // 적 목록을 하나씩 꺼내 그리는 반복문
   for (const enemy of enemies) {
-    // 맞은 직후엔 하양, 평소엔 빨강
-    ctx.fillStyle = enemy.hitFlash > 0 ? COLORS.white : COLORS.red;
-    ctx.beginPath();
-    ctx.arc(enemy.x, enemy.y, ENEMY_RADIUS, 0, Math.PI * 2);
-    ctx.fill();
-
-    // 체력바: 하얀 바탕 위에 남은 체력 비율만큼 초록
-    const barWidth = ENEMY_RADIUS * 2;
-    const barX = enemy.x - ENEMY_RADIUS;
-    const barY = enemy.y - ENEMY_RADIUS - 8;
-    const ratio = Math.max(0, enemy.hp / enemy.maxHp);
-    ctx.fillStyle = COLORS.white;
-    ctx.fillRect(barX, barY, barWidth, 4);
-    ctx.fillStyle = COLORS.green;
-    ctx.fillRect(barX, barY, barWidth * ratio, 4);
+    drawEnemy(enemy);
   }
 }
 
@@ -760,7 +850,7 @@ function drawBullets() {
 
 // ---- 체력바 (스티커 스타일) ----
 // 하얀 바탕 → 남은 비율만큼 색 채우기 → 맨 위에 두꺼운 외곽선
-function drawBar(x, y, w, h, ratio, fillColor) {
+function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
   ratio = clamp(ratio, 0, 1);                 // 비율은 0~1 사이로
   roundRectPath(x, y, w, h, h / 2);           // 1) 바탕
   ctx.fillStyle = COLORS.white;
@@ -770,7 +860,7 @@ function drawBar(x, y, w, h, ratio, fillColor) {
     ctx.fillStyle = fillColor;
     ctx.fill();
   }
-  drawOutlinedRoundRect(x, y, w, h, h / 2, null); // 3) 외곽선만 덮어 그리기
+  drawOutlinedRoundRect(x, y, w, h, h / 2, null, width); // 3) 외곽선만 덮어 그리기
 }
 
 // ---- 화면 위 정보 (HUD) ----
