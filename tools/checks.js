@@ -408,4 +408,20 @@ module.exports = [
       return { ok: ok, detail: got.join(" ") };
     `),
   },
+  {
+    name: "[Lv.3] 증강 9개 모두 3레벨, Lv.3 수치가 요청대로",
+    run: function () {
+      const L3 = {}; for (const a of AUGMENTS) L3[a.id] = a.levels[2];
+      const allThree = AUGMENTS.every((a) => a.levels.length === 3);
+      const ok = allThree && L3.compound.r === 0.25 && L3.variance.maxMult === 3.5 && L3.timeDilation.radius === 160 &&
+        L3.arithmetic.d === 4 && L3.square.every === 2 && L3.square.maxMult === 7 &&
+        L3.multiShot.n === 6 && L3.multiShot.scale === 0.5 && L3.fission.fragments === 3 && L3.fission.energy === 0.3 &&
+        L3.catalyst.reduction === 0.4 && L3.knockback.speed === 480;
+      // 분산 Lv.3 평균이 1배인지 (20만 발)
+      ownedAugments = { variance: 3 }; let sum = 0, max = 0;
+      for (let i = 0; i < 200000; i++) { const d = calcDamage({}, { damageScale: 1 }); sum += d; max = Math.max(max, d); }
+      const mean = sum / 200000;
+      return { ok: ok && Math.abs(mean - 10) < 0.05 && max <= 35, detail: "3레벨=" + allThree + ", 분산 Lv3 평균 " + mean.toFixed(3) + " 최대 " + max.toFixed(1) };
+    },
+  },
 ];

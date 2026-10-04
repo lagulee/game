@@ -112,22 +112,22 @@ const TIME_MIN_FACTOR = 0.2;
 // 등차 탄환: 발사 번호 k 가 0 부터 몇까지 올라가는지 (10 이면 0~9 를 반복)
 const ARITH_CYCLE = 10;
 // 등차 탄환: 레벨별 공차 d ([Lv.1, Lv.2, ...])
-const ARITH_D = [2, 3];
+const ARITH_D = [2, 3, 4];
 
 // 제곱 증폭: 레벨별 "몇 번째 명중마다" 제곱하는지
-const SQUARE_EVERY = [3, 2];
+const SQUARE_EVERY = [3, 2, 2];
 // 제곱 증폭: 레벨별 배율 상한 (D²/10 = D × D/10 에서 D/10 이 이 값을 넘지 않게)
-const SQUARE_MAX_MULT = [5, 5];
+const SQUARE_MAX_MULT = [5, 5, 7];
 
 // 3방향 탄: 레벨별 총알 수 n (360° ÷ n 간격으로 퍼진다)
-const MULTI_SHOT_COUNT = [3, 5];
+const MULTI_SHOT_COUNT = [3, 5, 6];
 // 3방향 탄: 레벨별 총알 하나의 대미지 배율
-const MULTI_SHOT_SCALE = [0.6, 0.5];
+const MULTI_SHOT_SCALE = [0.6, 0.5, 0.5];
 
 // 핵분열 연쇄: 레벨별 파편 개수 m (360° ÷ m 간격)
-const FISSION_FRAGMENTS = [2, 3];
+const FISSION_FRAGMENTS = [2, 3, 3];
 // 핵분열 연쇄: 레벨별 에너지 = 파편 하나의 대미지가 죽은 적 최대 체력의 몇 배인지
-const FISSION_ENERGY = [0.2, 0.25];
+const FISSION_ENERGY = [0.2, 0.25, 0.3];
 // 핵분열 연쇄: 파편이 다시 파편을 낼 때 에너지가 줄어드는 비율 (감쇠)
 const FISSION_DECAY = 0.6;
 // 핵분열 연쇄: 최대 세대 수 (2 이면 "파편의 파편"까지만)
@@ -138,12 +138,12 @@ const FISSION_MAX_FRAGMENTS = 40;
 const FISSION_FRAGMENT_LIFE = 0.5;
 
 // 촉매: 레벨별 발사 간격 감소율 (0.2 = 20% 감소 → 간격 × 0.8)
-const CATALYST_REDUCTION = [0.2, 0.3];
+const CATALYST_REDUCTION = [0.2, 0.3, 0.4];
 
 // 넉백: 레벨별 처음 밀어내는 속도 (px/초)
-const KNOCKBACK_SPEED = [240, 360];
+const KNOCKBACK_SPEED = [240, 360, 480];
 // 넉백: 밀리는 속도가 줄어드는 감쇠율 (1/초). 총 밀리는 거리 ≈ 처음 속도 ÷ 감쇠율
-//   240 ÷ 6 = 40px, 360 ÷ 6 = 60px
+//   240 ÷ 6 = 40px, 360 ÷ 6 = 60px, 480 ÷ 6 = 80px
 const KNOCKBACK_DECAY = 6;
 
 // 모든 증강을 담는 배열(목록)
@@ -164,6 +164,11 @@ const AUGMENTS = [
       {
         r: 0.2,
         desc: "복리 이율이 오른다! r = 0.15 → 0.2 (n 최대 10)",
+      },
+      // Lv.3
+      {
+        r: 0.25,
+        desc: "이율 최고! r = 0.2 → 0.25 (10번 연속이면 1.25¹⁰ ≈ 9.3배)",
       },
     ],
 
@@ -190,6 +195,10 @@ const AUGMENTS = [
         maxMult: 3.0,
         desc: "더 크게 흔들린다! 최대 배율 2.5배 → 3배 (평균은 여전히 1배)",
       },
+      {
+        maxMult: 3.5,
+        desc: "극한의 분산! 최대 배율 3배 → 3.5배 (그래도 평균은 1배)",
+      },
     ],
 
     // 대미지 × (무작위 배율). 배율의 평균이 정확히 1 이 되도록 뽑는다.
@@ -206,6 +215,7 @@ const AUGMENTS = [
       //     p = (1 − 0.6) / (큰쪽평균 − 0.6)
       //   high = 2.5 → p = 0.4 / 1.15 ≈ 0.348 (약 35%)
       //   high = 3.0 → p = 0.4 / 1.4  ≈ 0.286 (약 29%)
+      //   high = 3.5 → p = 0.4 / 1.65 ≈ 0.242 (약 24%)
       const lowMean = (low + 1) / 2;
       const highMean = (1 + high) / 2;
       const p = (1 - lowMean) / (highMean - lowMean);
@@ -233,6 +243,10 @@ const AUGMENTS = [
       {
         radius: 130,
         desc: "시간이 느려지는 범위가 넓어진다! 반경 100px → 130px",
+      },
+      {
+        radius: 160,
+        desc: "시간 지연 범위 최대! 반경 130px → 160px",
       },
     ],
 
@@ -286,6 +300,10 @@ const AUGMENTS = [
         d: ARITH_D[1],
         desc: "공차가 커진다! d = 2 → 3 (k = 9 이면 10 + 27 = 37)",
       },
+      {
+        d: ARITH_D[2],
+        desc: "공차 최대! d = 3 → 4 (k = 9 이면 10 + 36 = 46)",
+      },
     ],
 
     // 증강이 혼자 세는 숫자: 다음에 쏠 총알의 번호 k
@@ -326,6 +344,11 @@ const AUGMENTS = [
         maxMult: SQUARE_MAX_MULT[1],
         desc: "더 자주 제곱한다! 3번째 → 2번째 명중마다 (배율 최대 5배)",
       },
+      {
+        every: SQUARE_EVERY[2],
+        maxMult: SQUARE_MAX_MULT[2],
+        desc: "상한이 풀린다! 2번째 명중마다, 배율 최대 5배 → 7배",
+      },
     ],
 
     // 증강이 혼자 세는 숫자: 지금까지 명중한 횟수
@@ -364,6 +387,11 @@ const AUGMENTS = [
         scale: MULTI_SHOT_SCALE[1],
         desc: "5발로 늘어난다! 360° ÷ 5 = 72° 간격, 대미지 0.5배",
       },
+      {
+        n: MULTI_SHOT_COUNT[2],
+        scale: MULTI_SHOT_SCALE[2],
+        desc: "6발! 360° ÷ 6 = 60° 간격 (정육각형 모양), 대미지 0.5배",
+      },
     ],
 
     // 쏠 때: 조준한 총알을 기준으로 (360° ÷ n) 씩 돌린 방향으로 n - 1 발을 더 쏜다
@@ -399,6 +427,11 @@ const AUGMENTS = [
         fragments: FISSION_FRAGMENTS[1],
         energy: FISSION_ENERGY[1],
         desc: "파편이 3개로! 에너지 20% → 25% (다음 세대는 60% 로 감쇠)",
+      },
+      {
+        fragments: FISSION_FRAGMENTS[2],
+        energy: FISSION_ENERGY[2],
+        desc: "에너지가 더 세진다! 파편 3개, 에너지 25% → 30%",
       },
     ],
 
@@ -467,6 +500,10 @@ const AUGMENTS = [
         reduction: CATALYST_REDUCTION[1],
         desc: "더 좋은 촉매! 발사 간격 30% 감소 (0.4초 → 0.28초)",
       },
+      {
+        reduction: CATALYST_REDUCTION[2],
+        desc: "최고의 촉매! 발사 간격 40% 감소 (0.4초 → 0.24초)",
+      },
     ],
 
     // 발사 간격 × (1 − 감소율)
@@ -488,6 +525,10 @@ const AUGMENTS = [
       {
         speed: KNOCKBACK_SPEED[1],
         desc: "더 세게 민다! 처음 속도 240 → 360 (약 60px)",
+      },
+      {
+        speed: KNOCKBACK_SPEED[2],
+        desc: "가장 세게 민다! 처음 속도 360 → 480 (약 80px)",
       },
     ],
 
