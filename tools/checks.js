@@ -615,4 +615,35 @@ module.exports = [
         " / 이상한 값 → " + JSON.stringify(weird) + " / 저장소 오류에도 동작 " + noThrow };
     },
   },
+  // ---------------- 성장 B: 코인 ----------------
+  {
+    name: "[성장B] 코인: 전투 중에만 시간이 흐름, 초당 1×(1+0.15(w−1)), 웨이브당 60초 상한, 보스 50×챕터, 판 끝에 저장",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      runMenuAction(0); spawnQueue = []; debugMode = true; debugInvincible = true;
+      const far = () => { const e = createEnemy("basic", 940, 520, 1); e.hp = e.maxHp = 1e9; e.speed = 0; return e; };
+      enemies = [far()];
+      const step = (sec) => { for (let i = 0; i < Math.round(sec * 60); i++) { player.fireTimer = 1e9; update(1 / 60); } };
+      step(10); const t1 = runTime, c1 = runCoins;                     // 1웨이브 10초 → 10코인
+      gameState = "choosing"; step(5); gameState = "menu"; step(5);     // 카드·메뉴 시간은 안 셈
+      const t2 = runTime;
+      gameState = "playing"; startWave(5); spawnQueue = []; bossQueue = []; enemies = [far()];
+      const before5 = runCoins; step(100); const c5 = runCoins - before5; // 5웨이브: 60초 상한 × 1.6 = 96
+      // 보스 보너스 (챕터 3 = 웨이브 11)
+      wave = 11; ENEMY_TYPES.tb = Object.assign({}, ENEMY_TYPES.basic, { isBoss: true });
+      const b = createEnemy("tb", 300, 300, 11); b.hp = 0.001; enemies = [b, far()];
+      const beforeBoss = runCoins;
+      bullets = [{ x: 300, y: 300, vx: 0, vy: 0, age: 0, damageScale: 1, dead: false }]; updateBullets(0);
+      const bossBonus = runCoins - beforeBoss;
+      // 판 끝: 내림한 코인 저장, 최고 웨이브
+      const expected = Math.floor(runCoins);
+      endGame("gameover");
+      const saved = loadSave();
+      const ok = Math.abs(t1 - 10) < 0.02 && Math.abs(c1 - 10) < 0.02 && Math.abs(t2 - t1) < 1e-9 &&
+        Math.abs(c5 - 96) < 0.02 && Math.abs(bossBonus - 150) < 1e-9 && saved.coins === expected && lastRunCoins === expected && saved.bestWave === 11;
+      return { ok: ok, detail: "1웨이브 10초 → 시간 " + t1.toFixed(2) + ", 코인 " + c1.toFixed(2) + " / 카드·메뉴 10초 동안 시간 +" + (t2 - t1).toFixed(2) +
+        " / 5웨이브 100초 버텨도 코인 " + c5.toFixed(2) + " / 보스(챕터 3) +" + bossBonus.toFixed(2) + " / 저장 " + saved.coins + "코인, 최고 웨이브 " + saved.bestWave };
+    },
+  },
 ];

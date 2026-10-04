@@ -195,7 +195,10 @@ function compare(label, actual, file) {
   const a = actual.split("\n"), e = expected.split("\n");
   let i = 0;
   while (i < a.length && a[i] === e[i]) i++;
-  console.log("  FAIL " + label + ": " + (i + 1) + "번째 줄부터 다름");
+  // 그림(draw) 줄을 빼고 상태만 비교해서, 그림만 달라졌는지 알려 준다
+  const st = (lines) => lines.filter((l) => !/ (menuDraw|draw) /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
+  const onlyDraw = st(a) === st(e);
+  console.log("  FAIL " + label + ": " + (i + 1) + "번째 줄부터 다름" + (onlyDraw ? " (상태는 같고 화면 그림만 다름)" : " (상태가 다름)"));
   console.log("     기록: " + (e[i] || "(없음)").slice(0, 200));
   console.log("     지금: " + (a[i] || "(없음)").slice(0, 200));
   return false;

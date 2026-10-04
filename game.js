@@ -90,6 +90,16 @@ const BOSS_KILL_HEAL_RATIO = 0.5;
 // 챕터 = 웨이브 몇 개 묶음인지 (5 이면 1~5웨이브가 챕터 1)
 const WAVES_PER_CHAPTER = 5;
 
+// ---- 코인 (영구 업그레이드를 사는 돈) ----
+// 전투 중 1초마다 버는 코인 = COIN_PER_SECOND × (1 + COIN_WAVE_BONUS × (웨이브 − 1))
+//   1웨이브 1개/초, 5웨이브 1.6개/초, 30웨이브 5.35개/초
+const COIN_PER_SECOND = 1;
+const COIN_WAVE_BONUS = 0.15;
+// 한 웨이브에서 코인이 쌓이는 시간은 최대 60초 (적을 일부러 남겨 두고 버티는 것을 막기 위해)
+const COIN_WAVE_TIME_CAP = 60;
+// 보스를 잡으면 보너스 코인 = 이 값 × 챕터 번호
+const BOSS_COIN_BONUS = 50;
+
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
 const PLAYER_INVINCIBLE_TIME = 1.0;
 
@@ -408,6 +418,13 @@ let menuToastTimer = 0;
 // 이번 판에 잡은 보스 수
 let bossesKilled = 0;
 
+// 코인: 이번 판에 번 코인(소수까지), 전투한 시간, 이번 웨이브에서 코인이 쌓인 시간
+let runCoins = 0;
+let runTime = 0;
+let waveCoinTime = 0;
+// 판이 끝날 때 실제로 저장한 코인 수 (결과 화면에 보여 줌)
+let lastRunCoins = 0;
+
 // 점수와 최고 점수
 let score = 0;
 let bestScore = loadBestScore();
@@ -612,6 +629,9 @@ function startWave(n) {
   if (waveIsMixed(waveDef)) {
     shuffle(spawnQueue);
   }
+  // 새 웨이브: 이 웨이브에서 코인이 쌓인 시간을 0 부터 다시 잰다
+  waveCoinTime = 0;
+
   // 보스 웨이브인지 확인
   bossQueue = waveBosses(waveDef).slice();
   if (bossQueue.length > 0) {
@@ -863,7 +883,35 @@ function endGame(result) {
     bestScore = score;
     saveBestScore(bestScore);
   }
+
+  // 이번 판에 번 코인(정수로 내림)과 최고 도달 웨이브를 영구 저장
+  lastRunCoins = Math.floor(runCoins);
+  saveData.coins += lastRunCoins;
+  saveData.bestWave = Math.max(saveData.bestWave, wave);
+  writeSave();
+
   gameState = result;
+}
+
+// 지금 웨이브에서 1초에 버는 코인
+function coinRate(w) {
+  return COIN_PER_SECOND * (1 + COIN_WAVE_BONUS * (w - 1));
+}
+
+// 전투 중에만 불린다: 생존 시간과 코인을 쌓는다
+function updateCoins(dt) {
+  runTime += dt;
+  // 이 웨이브에서 코인이 쌓일 수 있는 남은 시간만큼만 센다 (최대 60초)
+  const t = Math.min(dt, Math.max(0, COIN_WAVE_TIME_CAP - waveCoinTime));
+  runCoins += t * coinRate(wave);
+  waveCoinTime += t;
+}
+
+// 초를 "분:초" 글자로 바꾸는 함수 (예: 125 → "2:05")
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return m + ":" + (s < 10 ? "0" : "") + s; // 10초 미만이면 앞에 0 을 붙인다
 }
 
 // ---- 메뉴 ----
@@ -989,9 +1037,13 @@ function resetGame() {
   lastHitEnemy = null;
   hitStreak = 0;
 
-  // 점수는 0점부터, 잡은 보스도 0
+  // 점수는 0점부터, 잡은 보스도 0, 이번 판 코인과 시간도 0
   score = 0;
   bossesKilled = 0;
+  runCoins = 0;
+  runTime = 0;
+  waveCoinTime = 0;
+  lastRunCoins = 0;
   isNewBest = false;
 
   // 보스 대기열도 비운다
@@ -1340,6 +1392,7 @@ function updateBullets(dt) {
           if (enemyType(enemy).isBoss) {
             healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
             bossesKilled += 1;
+            runCoins += BOSS_COIN_BONUS * chapterOf(wave); // 보스 보너스 코인
           }
 
           // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
@@ -1371,6 +1424,7 @@ function update(dt) {
     updatePlayerHit(dt);  // 7) 적에게 닿았는지 검사
     updatePopups(dt);     // 8) 대미지 숫자 떠오르기
     updateParticles(dt);  // 9) 파티클 날아가기
+    updateCoins(dt);      // 10) 생존 시간과 코인 (전투 중에만)
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -1938,7 +1992,7 @@ function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
 // 왼쪽 위: 웨이브 번호, 체력바, 점수 / 오른쪽 위: 가진 증강 목록
 function drawHud() {
   // ---- 왼쪽 위 패널 ----
-  drawOutlinedRoundRect(12, 12, 250, 104, 14, COLORS.brown);
+  drawOutlinedRoundRect(12, 12, 250, 132, 14, COLORS.brown);
 
   // 챕터와 웨이브 번호 (예: "챕터 2 · 웨이브 7 / 30"). 길면 패널 폭에 맞게 글자를 줄인다
   const waveText = "챕터 " + chapterOf(wave) + " · 웨이브 " + wave + " / " + WAVES.length;
@@ -1950,6 +2004,10 @@ function drawHud() {
 
   // 점수 (노란 글씨)
   drawOutlinedText("점수 " + score, 28, 94, 22, "left", COLORS.yellow);
+
+  // 이번 판에 번 코인 (동전 아이콘 + 내림한 정수)
+  drawCoinIcon(38, 124, 10);
+  drawOutlinedText(String(Math.floor(runCoins)), 56, 124, 20, "left");
 
   // ---- 오른쪽 위: 가진 증강 목록 ----
   drawAugmentList();
@@ -2013,6 +2071,18 @@ function drawAugmentListCompact(owned) {
     drawOutlinedText(aug.name, cx + 27, rowY, 15, "left");
     drawOutlinedText(String(getAugmentLevel(aug.id)), cx + colW - 10, rowY, 15, "right", COLORS.yellow);
   }
+}
+
+// ---- 동전 아이콘 ----
+// 노란 동전 + 안쪽 테두리 + 하이라이트 (모든 코인 표시에 같이 쓴다)
+function drawCoinIcon(x, y, r) {
+  drawOutlinedCircle(x, y, r, COLORS.yellow, SMALL_OUTLINE_WIDTH);
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);   // 안쪽 동그라미 무늬
+  ctx.strokeStyle = COLORS.brown;
+  ctx.lineWidth = Math.max(1.5, r * 0.16);
+  ctx.stroke();
+  drawHighlight(x, y, r);
 }
 
 // ---- 보스 체력바 (화면 위쪽 가운데) ----
@@ -2238,23 +2308,32 @@ function drawOverlay() {
   drawOutlinedRoundRect(-pw / 2, -ph / 2, pw, ph, 26, panelColor);
 
   // 제목
-  drawOutlinedText(title, 0, -122, 48);
+  drawOutlinedText(title, 0, -128, 46);
 
   // 점수 (새 기록이면 "NEW!" 표시)
-  drawOutlinedText("점수 " + score, 0, -66, 38, "center", COLORS.white);
+  drawOutlinedText("점수 " + score, 0, -80, 36, "center", COLORS.white);
   if (isNewBest && score > 0) {
     ctx.save();
-    ctx.translate(180, -82);
+    ctx.translate(180, -96);
     ctx.rotate(0.2);
     drawOutlinedRoundRect(-38, -16, 76, 32, 12, COLORS.green);
     drawOutlinedText("NEW!", 0, 1, 20);
     ctx.restore();
   }
-  drawOutlinedText("최고 점수 " + bestScore, 0, -30, 19);
+  drawOutlinedText("최고 점수 " + bestScore, 0, -48, 18);
 
   // 도달한 웨이브와 잡은 보스 수
   drawOutlinedText("도달 웨이브 " + wave + " / " + WAVES.length + "   ·   잡은 보스 " + bossesKilled + "마리",
-    0, 4, 21, "center", COLORS.yellow);
+    0, -18, 20, "center", COLORS.yellow);
+
+  // 코인: 생존 시간 / 번 코인 / 보유 코인 / 최고 웨이브
+  const coinText = "생존 " + formatTime(runTime) + "  ·  번 코인 +" + lastRunCoins +
+    "  ·  보유 " + saveData.coins + "  ·  최고 웨이브 " + saveData.bestWave;
+  const coinSize = fitTextSize(coinText, 18, pw - 70);
+  ctx.font = coinSize + "px " + FONT_FAMILY;
+  const coinW = ctx.measureText(coinText).width;
+  drawCoinIcon(-coinW / 2 - 16, 12, 9);
+  drawOutlinedText(coinText, 4, 12, coinSize);
 
   // 이번 판에 모은 증강 (많으면 여러 줄로 나눈다)
   const owned = AUGMENTS
@@ -2265,7 +2344,7 @@ function drawOverlay() {
   const augLines = wrapText(augText, pw - 60, 16).slice(0, 3);   // 최대 3줄
   // 증강 목록을 한 줄씩 쓰는 반복문
   for (let i = 0; i < augLines.length; i++) {
-    drawOutlinedText(augLines[i], 0, 36 + i * 22, 16);
+    drawOutlinedText(augLines[i], 0, 42 + i * 20, 15);
   }
 
   // 조작 안내
