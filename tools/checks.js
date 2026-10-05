@@ -1260,4 +1260,29 @@ module.exports = [
         " / 4초 뒤 멈춤 " + stopped + " / 0 이 안 됨 " + neverZero + " (1000초 뒤 체력 " + e.hp.toExponential(1) + ") / 보스 붕괴율 " + bossRate };
     },
   },
+  {
+    name: "[증강+] 발열 반응: 처치하면 반경 R(60/80/100) 안 적에게 최대 체력 × q(15/20/25%), 폭발로 죽은 적은 다시 안 터짐",
+    run: function () {
+      const res = [];
+      for (let lv = 1; lv <= 3; lv++) {
+        startGame(); spawnQueue = []; ownedAugments = { exothermic: lv };
+        const R = [60, 80, 100][lv - 1], q = [0.15, 0.2, 0.25][lv - 1];
+        const dead = createEnemy("basic", 400, 270, 1); dead.hp = 1;
+        const inside = createEnemy("basic", 400 + R - 2, 270, 1), outside = createEnemy("basic", 400 - R - 4, 270, 1);
+        inside.hp = inside.maxHp = 10000; outside.hp = outside.maxHp = 10000;
+        enemies = [dead, inside, outside];
+        const b = createBullet(0, 1, { x: 400, y: 230, fromAugment: true }); for (let i = 0; i < 10 && !b.dead; i++) updateBullets(1 / 60);
+        res.push({ lv, dealt: +(10000 - inside.hp).toFixed(3), want: +(dead.maxHp * q).toFixed(3), out: outside.hp === 10000 });
+      }
+      // 연쇄 없음: A 처치 → B(폭발로 죽음) → B 옆의 C 는 안 맞음
+      startGame(); spawnQueue = []; ownedAugments = { exothermic: 1 };
+      const A = createEnemy("basic", 300, 270, 1), B = createEnemy("basic", 350, 270, 1), C = createEnemy("basic", 400, 270, 1);
+      A.hp = 1; B.hp = 1; C.hp = C.maxHp = 10000; enemies = [A, B, C];
+      const b2 = createBullet(0, 1, { x: 300, y: 230, fromAugment: true }); for (let i = 0; i < 10 && !b2.dead; i++) updateBullets(1 / 60);
+      const chainOk = A.dead && B.dead && C.hp === 10000;
+      draw();
+      const ok = res.every((r) => Math.abs(r.dealt - r.want) < 1e-6 && r.out) && chainOk;
+      return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 안쪽 적 " + r.dealt + " (기대 " + r.want + "), 바깥 안 맞음 " + r.out).join(" / ") + " / 폭발로 죽은 적은 안 터짐 " + chainOk };
+    },
+  },
 ];

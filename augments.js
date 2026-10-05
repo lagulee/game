@@ -178,6 +178,16 @@ const HALFLIFE_DURATION = 4;
 // 반감기: 보스는 붕괴율이 이 배율만큼만 (0.5 = 절반)
 const HALFLIFE_BOSS_MULT = 0.5;
 
+// 발열 반응: 레벨별 폭발 반경 R (px)
+const EXO_RADIUS = [60, 80, 100];
+// 발열 반응: 레벨별 폭발 대미지 = 죽은 적 최대 체력의 몇 배인지 (0.15 = 15%)
+const EXO_RATIO = [0.15, 0.2, 0.25];
+// 발열 반응: 폭발 고리가 퍼지는 시간 (초, 그림 전용)
+const EXO_FLASH_TIME = 0.3;
+
+// 발열 반응 폭발 고리 목록 { x, y, r, born } (그림 전용)
+let exoBlasts = [];
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -728,6 +738,62 @@ const AUGMENTS = [
         ctx.beginPath();
         ctx.arc(enemy.x, enemy.y, enemy.radius + 7, 0, Math.PI * 2);
         ctx.stroke();
+      }
+      ctx.restore();
+    },
+  },
+  {
+    id: "exothermic",
+    name: "발열 반응",
+    concept: "화학 · 에너지 방출",
+    formula: "열 = 최대 체력 × q",
+    color: "orange",
+    levels: [
+      {
+        radius: EXO_RADIUS[0], ratio: EXO_RATIO[0],
+        desc: "적이 죽을 때 열을 내뿜는다. 반경 60px 안의 적에게 죽은 적 최대 체력의 15% 대미지 (폭발로 죽은 적은 다시 안 터짐)",
+      },
+      {
+        radius: EXO_RADIUS[1], ratio: EXO_RATIO[1],
+        desc: "더 뜨겁게! 반경 60 → 80px, 대미지 15% → 20%",
+      },
+      {
+        radius: EXO_RADIUS[2], ratio: EXO_RATIO[2],
+        desc: "폭발적인 발열! 반경 80 → 100px, 대미지 20% → 25%",
+      },
+    ],
+
+    reset: function () {
+      exoBlasts = [];
+    },
+
+    // 적이 죽으면 그 자리에서 열이 퍼진다
+    onKill: function (stats, info) {
+      // 폭발로 죽은 적은 다시 폭발하지 않는다 (연쇄 폭발이 끝없이 이어지지 않게)
+      if (info.explosion) return;
+      const heat = info.enemy.maxHp * stats.ratio;
+      exoBlasts.push({ x: info.x, y: info.y, r: stats.radius, born: runTime });
+      // 지금 살아 있는 적들을 미리 적어 둔다 (폭발 중에 새로 생긴 적, 예: 분열형 자식은 안 맞는다)
+      const targets = enemies.filter(function (e) {
+        return !e.dead && e !== info.enemy &&
+          Math.sqrt((e.x - info.x) ** 2 + (e.y - info.y) ** 2) <= stats.radius;
+      });
+      for (const target of targets) {
+        damageEnemy(target, heat, { explosion: true });
+      }
+    },
+
+    // 폭발 고리: 반경 R 까지 퍼지면서 흐려진다
+    drawEffect: function () {
+      exoBlasts = exoBlasts.filter(function (b) { return runTime - b.born < EXO_FLASH_TIME; });
+      ctx.save();
+      for (const blast of exoBlasts) {
+        const t = Math.max(0, runTime - blast.born) / EXO_FLASH_TIME;   // 0 → 1
+        ctx.globalAlpha = 0.6 * (1 - t);
+        ctx.fillStyle = COLORS.orange;
+        ctx.beginPath();
+        ctx.arc(blast.x, blast.y, blast.r * (0.4 + 0.6 * t), 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
     },
