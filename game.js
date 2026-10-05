@@ -278,8 +278,8 @@ const keys = {};
 
 // 키를 누르는 순간 실행되는 함수를 등록한다
 window.addEventListener("keydown", function (event) {
-  // 숫자 조절판(tuning.js)이 열려 있으면 키는 조절판 몫이다
-  if (isTuningOpen()) return;
+  // 숫자 조절판·비밀번호 창(tuning.js)이 떠 있으면 키는 그 창 몫이다
+  if (isOverlayOpen()) return;
 
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
@@ -368,10 +368,19 @@ function debugSay(text) {
 
 // 디버그 키를 처리하는 함수. 처리했으면 true 를 돌려준다.
 function handleDebugKey(event) {
-  // F2: 켜기/끄기 (언제든 가능)
+  // F2: 켜기/끄기 (켤 때는 주인 비밀번호가 필요하다. 끄는 것은 언제든)
   if (event.code === "F2") {
-    debugMode = !debugMode;
-    debugSay(debugMode ? "디버그 모드 ON" : "");
+    if (debugMode) {
+      debugMode = false;
+      debugSay("");
+    } else {
+      // 전투 중이면 비밀번호를 넣는 동안 게임을 멈춰 둔다
+      if (gameState === "playing" && !paused && !ownerUnlocked) pauseGame();
+      requireOwner("디버그 모드", function () {
+        debugMode = true;
+        debugSay("디버그 모드 ON");
+      });
+    }
     return true;
   }
   if (!debugMode) return false; // 꺼져 있으면 아무것도 하지 않는다
@@ -3776,7 +3785,9 @@ function drawSettingsOverlay() {
   drawScaled(tr.x + tr.w / 2, tr.y + tr.h / 2, buttonScale("settings:tuning"), function () {
     drawOutlinedRoundRect(tr.x, tr.y, tr.w, tr.h, 20, hoverColor("settings:tuning", COLORS.purple));
     const n = tuningActiveCount();
-    drawOutlinedText(n > 0 ? "숫자 조절 (" + n + "개 바꿈)" : "숫자 조절 (실험용)", tr.x + tr.w / 2, tr.y + tr.h / 2 + 1, 19);
+    // 잠겨 있으면 자물쇠를 그린다 (누르면 비밀번호 창)
+    if (!ownerUnlocked) drawPadlock(tr.x + 26, tr.y + tr.h / 2, 14);
+    drawOutlinedText(n > 0 ? "숫자 조절 (" + n + "개 바꿈)" : "숫자 조절 (만든 사람용)", tr.x + tr.w / 2 + (ownerUnlocked ? 0 : 10), tr.y + tr.h / 2 + 1, 19);
   });
 
   // 8) 오른쪽 아래 안내

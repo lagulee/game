@@ -14,6 +14,11 @@
 //   tune() 은 조절판에 저장된 값이 있으면 그 값을, 없으면 기본값(2.0)을 돌려준다.
 //   그래서 이 파일은 index.html 에서 가장 먼저 불러와야 한다.
 //
+// 주인 잠금
+//   숫자 조절판과 디버그 모드(F2)는 비밀번호를 넣어야 열린다 (아래 "주인 잠금" 부분)
+//   한 번 맞히면 그 탭을 닫을 때까지 다시 묻지 않는다 (조절판 "잠그기" 버튼으로 바로 잠글 수 있다)
+//   ※ 이 게임은 브라우저에서 돌아가는 코드라 진짜 보안은 아니다. 코드를 읽을 줄 아는 사람은 풀 수 있다.
+//
 // 조절판에 새 상수를 넣으려면
 //   1) 그 상수를 tune("이름", 기본값) 으로 바꾸고
 //   2) 아래 TUNING_INFO 에 한 줄 추가한다 (어느 묶음, 설명, 정수만인지)
@@ -102,13 +107,118 @@ function tuningActiveCount() {
   return n;
 }
 
+// ---- 주인 잠금 (비밀번호) ----
+
+// 비밀번호를 그대로 적지 않고 "지문"(해시)만 적어 둔다. 비밀번호를 바꾸려면:
+//   브라우저 콘솔에서 pinHash("새 비밀번호") 를 실행해 나온 글자를 아래에 넣는다
+const OWNER_PIN_HASH = "52e6c1c5";
+// 잠금을 푼 상태를 기억하는 이름표 (sessionStorage: 탭을 닫으면 사라진다)
+const OWNER_UNLOCK_KEY = "augmentShooterOwner";
+
+// 글자의 지문 (FNV-1a 해시). 같은 글자는 항상 같은 지문, 조금만 달라도 전혀 다른 지문
+function pinHash(pin) {
+  const text = "augment-shooter:" + pin;
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+// 잠금이 풀려 있는지
+let ownerUnlocked = false;
+try {
+  ownerUnlocked = sessionStorage.getItem(OWNER_UNLOCK_KEY) === "1";
+} catch (e) {
+  ownerUnlocked = false;
+}
+
+// 비밀번호가 맞으면 잠금을 풀고 true
+function unlockOwner(pin) {
+  if (pinHash(String(pin).trim()) !== OWNER_PIN_HASH) return false;
+  ownerUnlocked = true;
+  try { sessionStorage.setItem(OWNER_UNLOCK_KEY, "1"); } catch (e) { /* 이번 페이지 동안만 */ }
+  return true;
+}
+
+// 다시 잠그기
+function lockOwner() {
+  ownerUnlocked = false;
+  try { sessionStorage.removeItem(OWNER_UNLOCK_KEY); } catch (e) { /* 무시 */ }
+}
+
+let pinPrompt = null;   // 열려 있는 비밀번호 창 (닫혀 있으면 null)
+
+// 잠금이 풀려 있으면 바로 onSuccess, 아니면 비밀번호 창을 띄우고 맞히면 onSuccess
+//   title: 무엇을 열려는지 (예: "숫자 조절")
+function requireOwner(title, onSuccess) {
+  if (ownerUnlocked) { onSuccess(); return; }
+  if (pinPrompt) return;
+  const overlay = document.createElement("div");
+  overlay.className = "tuning-overlay";
+  overlay.innerHTML =
+    '<div class="tuning-panel pin-panel">' +
+    '<div class="tuning-head"><span class="tuning-title">🔒 ' + title + '</span>' +
+    '<button class="tuning-close" title="닫기 (Esc)">✕</button></div>' +
+    '<p class="tuning-help">만든 사람만 쓸 수 있어요. 비밀번호를 넣어 주세요.</p>' +
+    '<input class="pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="12">' +
+    '<p class="pin-message"></p>' +
+    '<div class="tuning-foot"><button class="tuning-btn tuning-apply pin-ok">확인</button>' +
+    '<button class="tuning-btn pin-cancel">취소</button></div></div>';
+  const input = overlay.querySelector(".pin-input");
+  const message = overlay.querySelector(".pin-message");
+  const submit = function () {
+    if (unlockOwner(input.value)) {
+      closePinPrompt();
+      onSuccess();
+    } else {
+      message.textContent = "비밀번호가 달라요";
+      input.value = "";
+      input.focus();
+      // 창을 좌우로 살짝 흔든다 (CSS 애니메이션을 다시 시작)
+      const panel = overlay.querySelector(".pin-panel");
+      panel.classList.remove("pin-shake");
+      void panel.offsetWidth;
+      panel.classList.add("pin-shake");
+    }
+  };
+  overlay.querySelector(".pin-ok").addEventListener("click", submit);
+  overlay.querySelector(".pin-cancel").addEventListener("click", closePinPrompt);
+  overlay.querySelector(".tuning-close").addEventListener("click", closePinPrompt);
+  // 창 안의 키는 게임으로 가지 않게 막는다. Enter = 확인, Esc = 취소
+  overlay.addEventListener("keydown", function (event) {
+    event.stopPropagation();
+    if (event.key === "Enter") submit();
+    else if (event.key === "Escape") closePinPrompt();
+  });
+  overlay.addEventListener("mousedown", function (event) {
+    if (event.target === overlay) closePinPrompt();
+  });
+  document.body.appendChild(overlay);
+  pinPrompt = overlay;
+  input.focus();
+}
+
+// 비밀번호 창 닫기
+function closePinPrompt() {
+  if (!pinPrompt) return;
+  pinPrompt.remove();
+  pinPrompt = null;
+}
+
 // ---- 조절판 화면 (HTML 로 만든다. 캔버스 위에 겹쳐 뜬다) ----
 
 let tuningPanel = null;   // 열려 있는 조절판 요소 (닫혀 있으면 null)
 
-// 조절판이 열려 있는지 (열려 있는 동안 게임은 키 입력을 받지 않는다)
+// 조절판이 열려 있는지
 function isTuningOpen() {
   return tuningPanel !== null;
+}
+
+// 조절판이나 비밀번호 창이 떠 있는지 (떠 있는 동안 게임은 키 입력을 받지 않는다)
+function isOverlayOpen() {
+  return tuningPanel !== null || pinPrompt !== null;
 }
 
 // 페이지를 다시 연다 (검사할 때는 이 함수를 바꿔 끼운다)
@@ -132,8 +242,13 @@ function formatTuningNumber(v) {
   return String(Math.round(v * 1e6) / 1e6);
 }
 
-// 조절판 열기
+// 조절판 열기 (잠겨 있으면 비밀번호부터)
 function openTuningPanel() {
+  requireOwner("숫자 조절", showTuningPanel);
+}
+
+// 조절판을 실제로 띄운다
+function showTuningPanel() {
   if (tuningPanel) return;
   const overlay = document.createElement("div");
   overlay.className = "tuning-overlay";
@@ -195,7 +310,8 @@ function openTuningPanel() {
   foot.innerHTML =
     '<button class="tuning-btn tuning-apply">적용하고 다시 시작</button>' +
     '<button class="tuning-btn tuning-copy">바뀐 값 복사</button>' +
-    '<button class="tuning-btn tuning-reset">모두 기본값</button>';
+    '<button class="tuning-btn tuning-reset">모두 기본값</button>' +
+    '<button class="tuning-btn tuning-lock">🔒 잠그기</button>';
   panel.appendChild(foot);
   const note = document.createElement("textarea");
   note.className = "tuning-note";
@@ -214,6 +330,10 @@ function openTuningPanel() {
   };
 
   panel.querySelector(".tuning-close").addEventListener("click", closeTuningPanel);
+  panel.querySelector(".tuning-lock").addEventListener("click", function () {
+    lockOwner();
+    closeTuningPanel();
+  });
   panel.querySelector(".tuning-apply").addEventListener("click", function () {
     applyTuning(collect());
   });

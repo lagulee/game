@@ -12,6 +12,11 @@ const PRESS = "function press(code, shift) {" +
   " window.dispatchEvent(new KeyboardEvent('keydown', { code: code, shiftKey: !!shift }));" +
   " window.dispatchEvent(new KeyboardEvent('keyup', { code: code, shiftKey: !!shift })); }";
 
+// 주인 비밀번호를 지문(해시)에서 찾는 도우미. 검사 파일에 비밀번호를 그대로 적지 않으려고
+// 0000 ~ 9999 를 차례로 넣어 본다 (4자리라 금방 찾는다)
+const FIND_PIN = "function findPin() { for (let i = 0; i < 10000; i++) { const p = String(i).padStart(4, '0');" +
+  " if (pinHash(p) === OWNER_PIN_HASH) return p; } return null; }";
+
 module.exports = [
   {
     name: "최대 레벨 증강은 카드 후보에서 빠진다 (빈자리는 보급 카드)",
@@ -81,7 +86,7 @@ module.exports = [
       press("BracketRight"); press("Digit1", true); press("KeyI");
       const offSame = JSON.stringify([wave, ownedAugments, hash()]) === before && !debugInvincible;
       // 2) 켠 상태
-      press("F2");
+      ownerUnlocked = true; press("F2");
       press("BracketRight"); const w2 = wave;
       for (let i = 0; i < WAVES.length + 3; i++) press("BracketRight"); // 끝까지 누르면 마지막 웨이브에서 멈춘다
       const wMax = wave;
@@ -411,7 +416,7 @@ module.exports = [
     name: "[디버그] Shift+1~9 로 증강 9개를 순서대로 지급",
     run: new Function(PRESS + `
       startGame();
-      press("F2");
+      ownerUnlocked = true; press("F2");
       const got = [];
       for (let i = 1; i <= 9; i++) { press("Digit" + i, true); }
       for (const aug of AUGMENTS) got.push(aug.id + ":" + getAugmentLevel(aug.id));
@@ -503,7 +508,7 @@ module.exports = [
       const ch = [1, 5, 6, 10, 11, 30].map(chapterOf).join(",");
       // Shift+0
       player.hp = 5; press("Digit0", true); const offNoHeal = player.hp === 5;
-      press("F2"); press("Digit0", true); const full = player.hp === player.maxHp;
+      ownerUnlocked = true; press("F2"); press("Digit0", true); const full = player.hp === player.maxHp;
       const ok = Math.abs(h1 - (50 + 100 * WAVE_CLEAR_HEAL_RATIO)) < 1e-9 && h2 === Math.min(100, 95 + 100 * WAVE_CLEAR_HEAL_RATIO) && h3 === 80 && bossesKilled === 1 && ch === "1,1,2,2,3,6" && offNoHeal && full;
       return { ok: ok, detail: "클리어 50→" + h1 + ", 95→" + h2 + " / 보스 처치 20→" + h3 + " (최대 120) / 챕터 " + ch + " / 디버그 꺼짐 무시=" + offNoHeal + ", Shift+0=" + full };
     `),
@@ -715,7 +720,7 @@ module.exports = [
       pressResetSave(); const cleared = saveData.coins === 0 && JSON.stringify(loadSave()) === JSON.stringify(defaultSave());
       // Shift+C (디버그)
       press("KeyC", true); const offNoCoin = saveData.coins === 0;
-      press("F2"); press("KeyC", true); const debugCoin = saveData.coins === 1000 && loadSave().coins === 1000;
+      ownerUnlocked = true; press("F2"); press("KeyC", true); const debugCoin = saveData.coins === 1000 && loadSave().coins === 1000;
       const ok = opened && lv === "1,2" && shook && back && fromResult && armed && notYet && cleared && offNoCoin && debugCoin;
       return { ok: ok, detail: "열림 " + opened + " / 레벨 " + lv + " / 모자랄 때 흔들림 " + shook + " / Esc " + back + " / 결과 U " + fromResult +
         " / 초기화 대기 " + armed + ", 3초 지나 취소 " + notYet + ", 두 번이면 초기화 " + cleared + " / Shift+C 꺼짐 무시 " + offNoCoin + ", 켜면 +1000 " + debugCoin };
@@ -1048,8 +1053,8 @@ module.exports = [
   },
   // ---------------- 숫자 조절판 ----------------
   {
-    name: "[조절판] tune(): 저장값 우선·정수/최솟값 다듬기·이상한 값 무시, 설정 창에서 열기, 열린 동안 게임 키 무시, 적용하면 저장 후 다시 시작, Esc 닫기",
-    run: new Function(PRESS + `
+    name: "[조절판] tune(): 저장값 우선·정수/최솟값 다듬기·이상한 값 무시, 설정 창에서 열기(주인 비밀번호), 잠그기, 열린 동안 게임 키 무시, 적용하면 저장 후 다시 시작, Esc 닫기",
+    run: new Function(PRESS + FIND_PIN + `
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave();
       const keep = tuningOverrides;
@@ -1063,7 +1068,13 @@ module.exports = [
       const cr = canvas.getBoundingClientRect(), tr = settingsTuningRect();
       canvas.dispatchEvent(new MouseEvent("click", { clientX: cr.left + canvas.clientLeft + (tr.x + 20) * canvas.clientWidth / 960,
         clientY: cr.top + canvas.clientTop + (tr.y + 20) * canvas.clientHeight / 540 }));
-      const opened = isTuningOpen() && !settingsOpen && document.querySelectorAll(".tuning-row").length === Object.keys(TUNING_INFO).length;
+      // 잠겨 있으면 비밀번호 창부터: 틀리면 그대로, 맞으면 조절판이 열린다
+      const askedPin = !isTuningOpen() && document.querySelector(".pin-input") !== null;
+      const pin = document.querySelector(".pin-input");
+      pin.value = "1234"; pin.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      const wrongStays = !ownerUnlocked && !isTuningOpen() && document.querySelector(".pin-message").textContent !== "";
+      pin.value = findPin(); document.querySelector(".pin-ok").click();
+      const opened = askedPin && wrongStays && ownerUnlocked && isTuningOpen() && !settingsOpen && document.querySelectorAll(".tuning-row").length === Object.keys(TUNING_INFO).length;
       press("Enter"); press("ArrowLeft"); const blocked = gameState === "menu";
       // 값 바꾸고 적용 (다시 시작은 가짜로)
       let reloaded = 0; const realReload = window.tuningReload; window.tuningReload = () => { reloaded++; };
@@ -1079,10 +1090,36 @@ module.exports = [
       const escClosed = !isTuningOpen();
       openTuningPanel(); document.querySelector(".tuning-reset").click(); document.querySelector(".tuning-apply").click();
       const cleared = !(TUNING_KEY in window.__fakeStorage) && tuningActiveCount() === 0;
+      // 잠그기 버튼 → 다음에 열 때 다시 비밀번호
+      openTuningPanel(); document.querySelector(".tuning-lock").click();
+      openTuningPanel(); const relocked = !ownerUnlocked && !isTuningOpen() && document.querySelector(".pin-input") !== null; closePinPrompt();
       window.tuningReload = realReload; tuningOverrides = keep;
-      const ok = tuneOk && opened && blocked && marked && applied && escClosed && cleared;
-      return { ok: ok, detail: "tune " + [a, b, c, d, e].join(",") + " / 버튼으로 열림 " + opened + " / 게임 키 무시 " + blocked + " / 바꾼 줄 표시 " + marked +
+      const ok = tuneOk && opened && blocked && marked && applied && escClosed && cleared && relocked;
+      return { ok: ok, detail: "tune " + [a, b, c, d, e].join(",") + " / 비밀번호 창 → 틀리면 안 열림, 맞으면 열림 " + opened + " / 잠그기 " + relocked + " / 게임 키 무시 " + blocked + " / 바꾼 줄 표시 " + marked +
         " / 적용: 저장·다시 시작 " + applied + " / Esc 닫기 " + escClosed + " / 기본값으로 적용 시 저장 지움 " + cleared };
+    `),
+  },
+  {
+    name: "[잠금] 디버그 모드: 비밀번호 없이는 F2 로 안 켜지고 디버그 키도 안 먹음, 전투 중이면 비밀번호 동안 멈춤, 맞히면 켜짐, 끄기는 언제든",
+    run: new Function(PRESS + FIND_PIN + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); lockOwner();
+      startGame(); for (let i = 0; i < 30; i++) update(1 / 60);
+      press("F2");
+      const asked = !debugMode && document.querySelector(".pin-input") !== null && paused;
+      press("KeyC", true); press("KeyI"); const noCheat = saveData.coins === 0 && !debugInvincible;   // 창이 떠 있는 동안 게임 키 무시
+      const pin = document.querySelector(".pin-input");
+      pin.value = "0000"; document.querySelector(".pin-ok").click(); const wrong = !debugMode && !ownerUnlocked;
+      document.querySelector(".pin-cancel").click(); const cancelled = !debugMode && !isOverlayOpen();
+      press("KeyC", true); const stillOff = saveData.coins === 0;
+      press("F2"); const p2 = document.querySelector(".pin-input"); p2.value = findPin();
+      p2.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      const on = debugMode && ownerUnlocked && !isOverlayOpen();
+      press("F2"); const off = !debugMode;
+      press("F2"); const noAskAgain = debugMode && !isOverlayOpen();    // 한 번 맞히면 다시 안 물음
+      const ok = asked && noCheat && wrong && cancelled && stillOff && on && off && noAskAgain;
+      return { ok: ok, detail: "F2 → 비밀번호 창·일시정지 " + asked + " / 창 떠 있을 때 치트 키 무시 " + noCheat + " / 틀리면 안 켜짐 " + wrong +
+        " / 취소 " + cancelled + " / 맞히면 켜짐 " + on + " / 끄기 " + off + " / 다시 켤 땐 안 물음 " + noAskAgain };
     `),
   },
 ];

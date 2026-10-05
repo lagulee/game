@@ -177,3 +177,37 @@ body {
   padding: 6px;
   resize: vertical;
 }
+
+/* ---- 비밀번호 창 (tuning.js 주인 잠금) ---- */
+.pin-panel {
+  width: min(380px, calc(100vw - 32px));
+}
+
+.pin-input {
+  font: inherit;
+  font-size: 28px;
+  letter-spacing: 8px;
+  text-align: center;
+  padding: 8px;
+  border: 4px solid #2B2118;
+  border-radius: 14px;
+  background: #F7F4EA;
+}
+
+.pin-message {
+  min-height: 20px;
+  margin: 8px 0 0;
+  color: #D9482B;
+  font-size: 15px;
+}
+
+/* 비밀번호가 틀리면 좌우로 흔들림 */
+.pin-shake {
+  animation: pin-shake 0.35s;
+}
+
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-10px); }
+  40%, 80% { transform: translateX(10px); }
+}
