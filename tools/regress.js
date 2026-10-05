@@ -79,13 +79,47 @@ function scenarioRunner(config) {
     return (h >>> 0).toString(16);
   }
 
-  // ":base9" 가 붙으면: 증강 14개·보급 5개를 추가하기 전처럼 처음 증강 9개·보급 2개만 남긴다
+  // ":base9" 가 붙으면: 증강 14개·보급 5개를 추가하기 전처럼 처음 증강 9개·보급 2개만 남기고,
+  // 웨이브도 4단계 재구성 전의 표로 되돌린다
   if (config.endsWith(":base9")) {
     config = config.slice(0, -":base9".length);
     const keepAug = ["compound", "variance", "timeDilation", "arithmetic", "square", "multiShot", "fission", "catalyst", "knockback"];
     for (let i = AUGMENTS.length - 1; i >= 0; i--) if (!keepAug.includes(AUGMENTS[i].id)) AUGMENTS.splice(i, 1);
     const keepSup = ["homeostasis", "cellDivision"];
     for (let i = SUPPLIES.length - 1; i >= 0; i--) if (!keepSup.includes(SUPPLIES[i].id)) SUPPLIES.splice(i, 1);
+    // 4단계 웨이브 재구성 전의 웨이브 표 (새 적이 없던 30웨이브)
+    WAVES.splice(0, WAVES.length,
+      [{ type: "basic", count: 5 }],
+      { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 2 }] },
+      { mix: true, groups: [{ type: "sine", count: 4 }, { type: "basic", count: 3 }] },
+      { mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 2 }, { type: "basic", count: 2 }] },
+      { boss: "chargerKing", mix: true, groups: [{ type: "basic", count: 4 }] },
+      { mix: true, groups: [{ type: "basic", count: 4 }, { type: "sine", count: 3 }, { type: "charger", count: 2 }] },
+      { mix: true, groups: [{ type: "charger", count: 4 }, { type: "splitter", count: 2 }] },
+      { mix: true, groups: [{ type: "sine", count: 5 }, { type: "splitter", count: 2 }] },
+      { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 3 }, { type: "sine", count: 3 }] },
+      { boss: "splitterKing", mix: true, groups: [{ type: "sine", count: 4 }] },
+      { mix: true, groups: [{ type: "basic", count: 5 }, { type: "charger", count: 3 }, { type: "splitter", count: 2 }] },
+      { mix: true, groups: [{ type: "sine", count: 6 }, { type: "charger", count: 3 }] },
+      { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
+      { mix: true, groups: [{ type: "charger", count: 5 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
+      { boss: "chargerKing", mix: true, groups: [{ type: "charger", count: 2 }, { type: "sine", count: 4 }] },
+      { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
+      { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 3 }] },
+      { mix: true, groups: [{ type: "sine", count: 7 }, { type: "basic", count: 4 }] },
+      { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 3 }] },
+      { boss: "splitterKing", mix: true, groups: [{ type: "charger", count: 4 }, { type: "sine", count: 4 }] },
+      { mix: true, groups: [{ type: "basic", count: 6 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }] },
+      { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "sine", count: 5 }] },
+      { mix: true, groups: [{ type: "charger", count: 7 }, { type: "basic", count: 5 }] },
+      { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }, { type: "basic", count: 2 }] },
+      { boss: "chargerKing", mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 4 }] },
+      { mix: true, groups: [{ type: "sine", count: 8 }, { type: "splitter", count: 4 }] },
+      { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
+      { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 6 }, { type: "charger", count: 2 }] },
+      { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "charger", count: 5 }, { type: "sine", count: 4 }] },
+      { boss: ["chargerKing", "splitterKing"], mix: true, groups: [] },
+    );
   }
 
   if (config === "beforeGrowthD") {

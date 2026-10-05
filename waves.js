@@ -36,44 +36,47 @@ const BOSS_SPAWN_DELAY = tune("BOSS_SPAWN_DELAY", 2);
 const BOSS_MINION_INTERVAL = tune("BOSS_MINION_INTERVAL", 3);
 
 // 모든 웨이브를 담는 배열 (30웨이브 = 6챕터 × 5웨이브, 5웨이브마다 보스)
-// 한 웨이브의 적은 5~14마리로 적게, 대신 웨이브 수가 많게. 1웨이브만 순서대로, 나머지는 mix
+// 한 웨이브의 적은 5~15마리 (× WAVE_COUNT_MULT). 1웨이브만 순서대로, 나머지는 mix
+// 챕터마다 그 챕터에 처음 나오는 적이 "주인공"이다. 처음 나오는 웨이브는 그 적 2~3마리 + 기본 적만 (익히기).
+//   챕터 2: 사수형 (7웨이브 첫 등장)   챕터 3: 방패형 (12)   챕터 4: 공명형 (17)
+//   챕터 5: 자석형 (22)                챕터 6: 모든 종류 섞기
 const WAVES = [
-  // ---- 챕터 1 ----
+  // ---- 챕터 1 (1~5웨이브는 바꾸지 않는다: 초반 난이도의 기준) ----
   /*  1 */ [{ type: "basic", count: 5 }],  // 몸풀기 (순서대로)
   /*  2 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 2 }] },  // 돌격형 첫 등장
   /*  3 */ { mix: true, groups: [{ type: "sine", count: 4 }, { type: "basic", count: 3 }] },  // 사인파형 첫 등장
   /*  4 */ { mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 2 }, { type: "basic", count: 2 }] },  // 분열형 첫 등장
   /*  5 */ { boss: "chargerKing", mix: true, groups: [{ type: "basic", count: 4 }] },  // 보스: 돌진 대장
-  // ---- 챕터 2 ----
+  // ---- 챕터 2: 사수형 ----
   /*  6 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "sine", count: 3 }, { type: "charger", count: 2 }] },
-  /*  7 */ { mix: true, groups: [{ type: "charger", count: 4 }, { type: "splitter", count: 2 }] },
-  /*  8 */ { mix: true, groups: [{ type: "sine", count: 5 }, { type: "splitter", count: 2 }] },
-  /*  9 */ { mix: true, groups: [{ type: "basic", count: 4 }, { type: "charger", count: 3 }, { type: "sine", count: 3 }] },
-  /* 10 */ { boss: "splitterKing", mix: true, groups: [{ type: "sine", count: 4 }] },  // 보스: 분열의 왕
-  // ---- 챕터 3 ----
-  /* 11 */ { mix: true, groups: [{ type: "basic", count: 5 }, { type: "charger", count: 3 }, { type: "splitter", count: 2 }] },
-  /* 12 */ { mix: true, groups: [{ type: "sine", count: 6 }, { type: "charger", count: 3 }] },
-  /* 13 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
-  /* 14 */ { mix: true, groups: [{ type: "charger", count: 5 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
-  /* 15 */ { boss: "chargerKing", mix: true, groups: [{ type: "charger", count: 2 }, { type: "sine", count: 4 }] },  // 보스: 돌진 대장 (체력 1.98배)
-  // ---- 챕터 4 ----
-  /* 16 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
-  /* 17 */ { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 3 }] },
-  /* 18 */ { mix: true, groups: [{ type: "sine", count: 7 }, { type: "basic", count: 4 }] },
-  /* 19 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 3 }] },
-  /* 20 */ { boss: "splitterKing", mix: true, groups: [{ type: "charger", count: 4 }, { type: "sine", count: 4 }] },  // 보스: 분열의 왕 (체력 2.33배)
-  // ---- 챕터 5 ----
-  /* 21 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }] },
-  /* 22 */ { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "sine", count: 5 }] },
-  /* 23 */ { mix: true, groups: [{ type: "charger", count: 7 }, { type: "basic", count: 5 }] },
-  /* 24 */ { mix: true, groups: [{ type: "splitter", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 4 }, { type: "basic", count: 2 }] },
-  /* 25 */ { boss: "chargerKing", mix: true, groups: [{ type: "splitter", count: 2 }, { type: "charger", count: 4 }] },  // 보스: 돌진 대장 (체력 2.68배)
-  // ---- 챕터 6 ----
-  /* 26 */ { mix: true, groups: [{ type: "sine", count: 8 }, { type: "splitter", count: 4 }] },
-  /* 27 */ { mix: true, groups: [{ type: "charger", count: 6 }, { type: "splitter", count: 4 }, { type: "basic", count: 4 }] },
-  /* 28 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 6 }, { type: "charger", count: 2 }] },
-  /* 29 */ { mix: true, groups: [{ type: "splitter", count: 5 }, { type: "charger", count: 5 }, { type: "sine", count: 4 }] },
-  /* 30 */ { boss: ["chargerKing", "splitterKing"], mix: true, groups: [] },  // 최종 보스전: 두 보스 동시 등장 (졸개 없음)
+  /*  7 */ { mix: true, groups: [{ type: "shooter", count: 3 }, { type: "basic", count: 4 }] },  // 사수형 첫 등장
+  /*  8 */ { mix: true, groups: [{ type: "shooter", count: 3 }, { type: "sine", count: 4 }, { type: "splitter", count: 2 }] },
+  /*  9 */ { mix: true, groups: [{ type: "shooter", count: 4 }, { type: "charger", count: 3 }, { type: "basic", count: 3 }] },
+  /* 10 */ { boss: "splitterKing", mix: true, groups: [{ type: "shooter", count: 2 }, { type: "sine", count: 2 }] },  // 보스: 분열의 왕
+  // ---- 챕터 3: 방패형 ----
+  /* 11 */ { mix: true, groups: [{ type: "basic", count: 5 }, { type: "charger", count: 3 }, { type: "splitter", count: 2 }, { type: "shooter", count: 1 }] },
+  /* 12 */ { mix: true, groups: [{ type: "shield", count: 3 }, { type: "basic", count: 5 }] },  // 방패형 첫 등장
+  /* 13 */ { mix: true, groups: [{ type: "shield", count: 3 }, { type: "shooter", count: 3 }, { type: "splitter", count: 3 }] },
+  /* 14 */ { mix: true, groups: [{ type: "shield", count: 4 }, { type: "charger", count: 4 }, { type: "sine", count: 3 }] },
+  /* 15 */ { boss: "waveLord", mix: true, groups: [{ type: "shield", count: 2 }, { type: "basic", count: 3 }] },  // 보스: 파동 군주
+  // ---- 챕터 4: 공명형 ----
+  /* 16 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "sine", count: 4 }, { type: "shooter", count: 2 }] },
+  /* 17 */ { mix: true, groups: [{ type: "resonator", count: 2 }, { type: "basic", count: 6 }] },  // 공명형 첫 등장
+  /* 18 */ { mix: true, groups: [{ type: "resonator", count: 2 }, { type: "charger", count: 5 }, { type: "sine", count: 4 }] },
+  /* 19 */ { mix: true, groups: [{ type: "resonator", count: 3 }, { type: "shield", count: 3 }, { type: "splitter", count: 3 }, { type: "basic", count: 3 }] },
+  /* 20 */ { boss: "turret", mix: true, groups: [{ type: "resonator", count: 1 }, { type: "basic", count: 4 }] },  // 보스: 회전 포대
+  // ---- 챕터 5: 자석형 ----
+  /* 21 */ { mix: true, groups: [{ type: "basic", count: 6 }, { type: "shooter", count: 3 }, { type: "shield", count: 3 }] },
+  /* 22 */ { mix: true, groups: [{ type: "magnet", count: 2 }, { type: "basic", count: 6 }] },  // 자석형 첫 등장
+  /* 23 */ { mix: true, groups: [{ type: "magnet", count: 2 }, { type: "charger", count: 5 }, { type: "shooter", count: 4 }] },
+  /* 24 */ { mix: true, groups: [{ type: "magnet", count: 3 }, { type: "resonator", count: 2 }, { type: "sine", count: 4 }, { type: "splitter", count: 3 }] },
+  /* 25 */ { boss: ["chargerKing", "splitterKing"], mix: true, groups: [{ type: "shooter", count: 2 }, { type: "shield", count: 2 }] },  // 보스: 돌진 대장 & 분열의 왕 동시
+  // ---- 챕터 6: 모든 종류 섞기 ----
+  /* 26 */ { mix: true, groups: [{ type: "basic", count: 3 }, { type: "charger", count: 3 }, { type: "sine", count: 2 }, { type: "splitter", count: 2 }, { type: "shooter", count: 2 }, { type: "shield", count: 2 }] },
+  /* 27 */ { mix: true, groups: [{ type: "shooter", count: 3 }, { type: "shield", count: 3 }, { type: "resonator", count: 2 }, { type: "magnet", count: 2 }, { type: "charger", count: 3 }] },
+  /* 28 */ { mix: true, groups: [{ type: "sine", count: 4 }, { type: "splitter", count: 3 }, { type: "magnet", count: 2 }, { type: "resonator", count: 2 }, { type: "shooter", count: 3 }] },
+  /* 29 */ { mix: true, groups: [{ type: "charger", count: 3 }, { type: "shield", count: 3 }, { type: "shooter", count: 3 }, { type: "resonator", count: 2 }, { type: "magnet", count: 2 }, { type: "splitter", count: 2 }] },
+  /* 30 */ { boss: "blackHole", mix: true, groups: [{ type: "shooter", count: 2 }, { type: "shield", count: 2 }, { type: "resonator", count: 1 }] },  // 최종 보스: 블랙홀
 ];
 
 // 웨이브 칸에서 묶음 목록을 꺼내는 함수 (두 가지 모양 모두 처리)

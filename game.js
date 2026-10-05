@@ -300,8 +300,9 @@ const keys = {};
 // 키를 누르는 순간 실행되는 함수를 등록한다
 window.addEventListener("keydown", function (event) {
   // 숫자 조절판·비밀번호 창(tuning.js), 디버그 지급 창이 떠 있으면 키는 그 창 몫이다
-  if (isOverlayOpen() || isDebugGiveOpen()) {
+  if (isOverlayOpen() || isDebugGiveOpen() || isDebugBossOpen()) {
     if (isDebugGiveOpen() && (event.code === "Escape" || event.code === "KeyG")) closeDebugGivePanel();
+    if (isDebugBossOpen() && (event.code === "Escape" || event.code === "KeyB")) closeDebugBossPanel();
     return;
   }
 
@@ -373,6 +374,7 @@ window.addEventListener("keydown", function (event) {
 // F2       : 디버그 모드 켜기/끄기
 // [ / ]    : 이전 / 다음 웨이브로 바로 이동
 // G        : 증강·보급 목록 창 (클릭해서 지급. 전투·카드 고르기 중에만)
+// B        : 보스 선택 창 (클릭하면 그 보스 웨이브로 바로 전투. 로비에서도 된다)
 // Shift+0  : 체력 가득 채우기
 // Shift+C  : 코인 +1000
 // I        : 무적 켜기/끄기
@@ -436,6 +438,12 @@ function handleDebugKey(event) {
   if (event.shiftKey && event.code === "Digit0") {
     player.hp = player.maxHp;
     debugSay("체력 가득!");
+    return true;
+  }
+
+  // B : 보스 선택 창 열기 (어느 화면에서나)
+  if (event.code === "KeyB" && !event.shiftKey) {
+    openDebugBossPanel();
     return true;
   }
 
@@ -574,6 +582,82 @@ function closeDebugGivePanel() {
   debugGivePanel = null;
   if (debugGivePaused && gameState === "playing" && paused) resumeGame();
   debugGivePaused = false;
+}
+
+// ---- 디버그: 보스 선택 창 (B 키) ----
+// 보스가 나오는 웨이브(5, 10, 15, 20, 25, 30)를 버튼으로 보여 주고, 누르면 그 웨이브를 바로 시작한다.
+// 로비나 결과 화면에서 누르면 새 판을 시작한 뒤 그 웨이브로 간다.
+
+let debugBossPanel = null;      // 열려 있는 창 (닫혀 있으면 null)
+let debugBossPaused = false;    // 이 창이 게임을 멈췄는지
+
+function isDebugBossOpen() {
+  return debugBossPanel !== null;
+}
+
+// 보스가 나오는 웨이브 목록 [{ wave, names }]
+function bossWaveList() {
+  const list = [];
+  for (let i = 0; i < WAVES.length; i++) {
+    const ids = waveBosses(WAVES[i]);
+    if (ids.length) list.push({ wave: i + 1, names: ids.map(function (id) { return ENEMY_TYPES[id].name; }).join(" & ") });
+  }
+  return list;
+}
+
+// n 웨이브(보스 웨이브)를 바로 시작한다
+function debugStartBossWave(n) {
+  closeDebugBossPanel();
+  if (gameState !== "playing" && gameState !== "choosing") startGame();
+  enemies = [];
+  bullets = [];
+  enemyBullets = [];
+  paused = false;
+  resumeTimer = 0;
+  startWave(n);
+  debugSay(n + "웨이브 보스전 시작");
+}
+
+function openDebugBossPanel() {
+  if (debugBossPanel) return;
+  if (gameState === "playing" && !paused) { pauseGame(); debugBossPaused = true; }
+  const overlay = document.createElement("div");
+  overlay.className = "tuning-overlay";
+  const panel = document.createElement("div");
+  panel.className = "tuning-panel debug-give";
+  overlay.appendChild(panel);
+  panel.innerHTML =
+    '<div class="tuning-head"><span class="tuning-title">디버그 · 보스 선택</span>' +
+    '<button class="tuning-close" title="닫기 (Esc / B)">✕</button></div>' +
+    '<p class="tuning-help">누르면 그 보스가 나오는 웨이브를 바로 시작해요 (지금 가진 증강은 그대로). Esc 나 B 로 닫기</p>' +
+    '<div class="tuning-list"><div class="give-grid give-bosses"></div></div>';
+  for (const item of bossWaveList()) {
+    const btn = document.createElement("button");
+    btn.className = "tuning-btn give-btn give-boss";
+    btn.innerHTML = item.names + "<small>" + item.wave + "웨이브</small>";
+    btn.addEventListener("click", function () { debugStartBossWave(item.wave); });
+    panel.querySelector(".give-bosses").appendChild(btn);
+  }
+  panel.querySelector(".tuning-close").addEventListener("click", closeDebugBossPanel);
+  overlay.addEventListener("keydown", function (event) {
+    event.stopPropagation();
+    if (event.key === "Escape" || event.code === "KeyB") closeDebugBossPanel();
+  });
+  overlay.addEventListener("mousedown", function (event) {
+    if (event.target === overlay) closeDebugBossPanel();
+  });
+  overlay.tabIndex = -1;
+  document.body.appendChild(overlay);
+  debugBossPanel = overlay;
+  overlay.focus();
+}
+
+function closeDebugBossPanel() {
+  if (!debugBossPanel) return;
+  debugBossPanel.remove();
+  debugBossPanel = null;
+  if (debugBossPaused && gameState === "playing" && paused) resumeGame();
+  debugBossPaused = false;
 }
 
 // 브라우저 창이 포커스를 잃거나(다른 창 클릭) 탭이 가려지면 자동으로 일시정지
@@ -1067,9 +1151,9 @@ function startWave(n) {
   bannerText = "웨이브 " + n;
   bannerIsBoss = bossQueue.length > 0;
   if (bannerIsBoss) {
-    // 보스 웨이브: "웨이브 5 · 보스: 돌진 대장!" (여러 마리면 "최종 보스: A & B!")
+    // 보스 웨이브: "웨이브 5 · 보스: 돌진 대장!" (여러 마리면 "A & B", 마지막 웨이브면 "최종 보스")
     const names = bossQueue.map(function (id) { return ENEMY_TYPES[id].name; });
-    bannerText += (names.length > 1 ? " · 최종 보스: " : " · 보스: ") + names.join(" & ") + "!";
+    bannerText += (n === WAVES.length ? " · 최종 보스: " : " · 보스: ") + names.join(" & ") + "!";
   } else {
     const newNames = newEnemyNames(n);
     if (newNames.length > 0) {
@@ -4487,7 +4571,7 @@ function drawDebug() {
   const x = 14;
   const y = CANVAS_HEIGHT - 18;
   drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
-  drawOutlinedText("[ ] 웨이브  G 증강·보급 지급  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
+  drawOutlinedText("[ ] 웨이브  G 지급  B 보스  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
   if (debugMessageTimer > 0 && debugMessage) {
     drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
   }

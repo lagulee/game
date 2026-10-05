@@ -208,13 +208,17 @@ module.exports = [
   },
   // ---------------- 웨이브 구성 (30웨이브) ----------------
   {
-    name: "[30D] 30웨이브 구성이 표와 같음, 1웨이브만 순서대로, 5웨이브마다 보스",
+    name: "[30D·4D] 30웨이브 구성이 표와 같음 (1~5웨이브는 예전 그대로), 1웨이브만 순서대로, 5웨이브마다 보스",
     run: function () {
       startGame();
-      const want = ["B5", "B4 C2", "S4 B3", "P2 C2 B2", "[돌진 대장] B4", "B4 S3 C2", "C4 P2", "S5 P2", "B4 C3 S3", "[분열의 왕] S4",
-        "B5 C3 P2", "S6 C3", "P4 B4", "C5 S4 P2", "[돌진 대장] C2 S4", "B6 S4 P2", "C6 P3", "S7 B4", "P4 C4 S3", "[분열의 왕] C4 S4",
-        "B6 C4 S4", "P5 S5", "C7 B5", "P4 C4 S4 B2", "[돌진 대장] P2 C4", "S8 P4", "C6 P4 B4", "B6 S6 C2", "P5 C5 S4", "[돌진 대장 & 분열의 왕]"];
-      const abbr = { basic: "B", charger: "C", sine: "S", splitter: "P" };
+      // B 기본 · C 돌격 · S 사인파 · P 분열 · G 사수 · D 방패 · R 공명 · M 자석
+      const want = ["B5", "B4 C2", "S4 B3", "P2 C2 B2", "[돌진 대장] B4",
+        "B4 S3 C2", "G3 B4", "G3 S4 P2", "G4 C3 B3", "[분열의 왕] G2 S2",
+        "B5 C3 P2 G1", "D3 B5", "D3 G3 P3", "D4 C4 S3", "[파동 군주] D2 B3",
+        "B6 S4 G2", "R2 B6", "R2 C5 S4", "R3 D3 P3 B3", "[회전 포대] R1 B4",
+        "B6 G3 D3", "M2 B6", "M2 C5 G4", "M3 R2 S4 P3", "[돌진 대장 & 분열의 왕] G2 D2",
+        "B3 C3 S2 P2 G2 D2", "G3 D3 R2 M2 C3", "S4 P3 M2 R2 G3", "C3 D3 G3 R2 M2 P2", "[블랙홀] G2 D2 R1"];
+      const abbr = { basic: "B", charger: "C", sine: "S", splitter: "P", shooter: "G", shield: "D", resonator: "R", magnet: "M" };
       const got = WAVES.map((w) => {
         const bosses = waveBosses(w).map((id) => ENEMY_TYPES[id].name);
         const g = waveGroups(w).map((x) => abbr[x.type] + x.count).join(" ");
@@ -222,22 +226,24 @@ module.exports = [
       });
       const mixOk = WAVES.every((w, i) => waveIsMixed(w) === (i !== 0));
       const counts = WAVES.map((w) => waveGroups(w).reduce((a, g) => a + g.count, 0));
-      const normalOk = counts.every((n, i) => (i + 1) % 5 === 0 || (n >= 5 && n <= 14));
+      const normalOk = counts.every((n, i) => (i + 1) % 5 === 0 || (n >= 5 && n <= 15));
       const bossOk = WAVES.every((w, i) => (waveBosses(w).length > 0) === ((i + 1) % 5 === 0));
       const bad = got.map((g, i) => g === want[i] ? null : (i + 1) + ":" + g).filter(Boolean);
       return { ok: WAVES.length === 30 && bad.length === 0 && mixOk && normalOk && bossOk,
-        detail: "웨이브 " + WAVES.length + "개, 다른 칸 " + (bad.join(" ") || "없음") + ", mix " + mixOk + ", 보통 웨이브 5~14마리 " + normalOk + ", 5의 배수만 보스 " + bossOk };
+        detail: "웨이브 " + WAVES.length + "개, 다른 칸 " + (bad.join(" ") || "없음") + ", mix " + mixOk + ", 보통 웨이브 5~15마리 " + normalOk + ", 5의 배수만 보스 " + bossOk };
     },
   },
   {
-    name: "[30D] 안내 띠: 2·3·4웨이브 새 적, 5·10웨이브 보스(빨강), 30웨이브 최종 보스",
+    name: "[30D·4D] 안내 띠: 새 적 첫 등장(2·3·4·7·12·17·22), 보스(빨강), 25웨이브 두 보스, 30웨이브 최종 보스",
     run: function () {
       startGame();
       const t = {};
-      for (const n of [1, 2, 3, 4, 5, 6, 10, 30]) { startWave(n); t[n] = bannerText + (bannerIsBoss ? " (빨강)" : ""); }
+      for (const n of [1, 2, 3, 4, 5, 6, 7, 10, 12, 15, 17, 20, 22, 25, 30]) { startWave(n); t[n] = bannerText + (bannerIsBoss ? " (빨강)" : ""); }
       const ok = t[1] === "웨이브 1" && t[2] === "웨이브 2 · 새 적: 돌격형!" && t[3] === "웨이브 3 · 새 적: 사인파형!" &&
         t[4] === "웨이브 4 · 새 적: 분열형!" && t[5] === "웨이브 5 · 보스: 돌진 대장! (빨강)" && t[6] === "웨이브 6" &&
-        t[10] === "웨이브 10 · 보스: 분열의 왕! (빨강)" && t[30] === "웨이브 30 · 최종 보스: 돌진 대장 & 분열의 왕! (빨강)";
+        t[7] === "웨이브 7 · 새 적: 사수형!" && t[12] === "웨이브 12 · 새 적: 방패형!" && t[17] === "웨이브 17 · 새 적: 공명형!" && t[22] === "웨이브 22 · 새 적: 자석형!" &&
+        t[10] === "웨이브 10 · 보스: 분열의 왕! (빨강)" && t[15] === "웨이브 15 · 보스: 파동 군주! (빨강)" && t[20] === "웨이브 20 · 보스: 회전 포대! (빨강)" &&
+        t[25] === "웨이브 25 · 보스: 돌진 대장 & 분열의 왕! (빨강)" && t[30] === "웨이브 30 · 최종 보스: 블랙홀! (빨강)";
       return { ok: ok, detail: Object.keys(t).map((k) => t[k]).join(" / ") };
     },
   },
@@ -1708,5 +1714,50 @@ module.exports = [
       }
       return { ok: rates.every((r) => r.endsWith(" 0.02")), detail: rates.join(" / ") };
     },
+  },
+  // ---------------- 4단계 D: 웨이브 재구성 ----------------
+  {
+    name: "[웨이브] 새 적 첫 등장 웨이브는 그 적 2~3마리 + 기본 적만, 챕터마다 주인공(그 챕터의 새 적)이 첫 등장 뒤 모든 보통 웨이브에, 챕터 6 은 모든 종류",
+    run: function () {
+      const debut = { shooter: 7, shield: 12, resonator: 17, magnet: 22 };
+      const problems = [];
+      for (const id in debut) {
+        const g = waveGroups(WAVES[debut[id] - 1]);
+        const star = g.find((x) => x.type === id);
+        const others = g.filter((x) => x.type !== id);
+        if (!star || star.count < 2 || star.count > 3 || others.some((x) => x.type !== "basic")) problems.push(debut[id] + "웨이브 구성");
+        // 첫 등장 전에는 나오지 않는다
+        for (let w = 1; w < debut[id]; w++) if (waveGroups(WAVES[w - 1]).some((x) => x.type === id)) problems.push(id + " 가 " + w + "웨이브에 먼저 나옴");
+        // 같은 챕터의 첫 등장 뒤 보통 웨이브에는 꼭 나온다
+        const chapterEnd = Math.ceil(debut[id] / 5) * 5 - 1;
+        for (let w = debut[id]; w <= chapterEnd; w++) if (!waveGroups(WAVES[w - 1]).some((x) => x.type === id)) problems.push(w + "웨이브에 주인공 " + id + " 없음");
+      }
+      const ch6 = new Set(); for (let w = 26; w <= 29; w++) for (const x of waveGroups(WAVES[w - 1])) ch6.add(x.type);
+      const all8 = ["basic", "charger", "sine", "splitter", "shooter", "shield", "resonator", "magnet"].every((t) => ch6.has(t));
+      if (!all8) problems.push("챕터 6 에 빠진 종류");
+      const bosses = [5, 10, 15, 20, 25, 30].map((w) => waveBosses(WAVES[w - 1]).join("&")).join(" / ");
+      if (bosses !== "chargerKing / splitterKing / waveLord / turret / chargerKing&splitterKing / blackHole") problems.push("보스 순서");
+      return { ok: problems.length === 0, detail: (problems.join(", ") || "문제 없음") + " / 보스 " + bosses + " / 챕터 6 종류 " + [...ch6].join(",") };
+    },
+  },
+  {
+    name: "[디버그] B: 보스 선택 창 (5·10·15·20·25·30웨이브), 누르면 그 보스와 바로 전투 (로비에서도), 디버그 꺼지면 안 열림",
+    run: new Function(PRESS + `
+      goToMenu(); ownerUnlocked = true; press("F2");
+      press("KeyB"); const open = isDebugBossOpen();
+      const btns = [...document.querySelectorAll(".give-boss")];
+      const labels = btns.map((b) => b.textContent).join(" | ");
+      btns[2].click();   // 15웨이브: 파동 군주 (로비에서 눌렀으니 새 판 시작)
+      for (let i = 0; i < 60 * 3; i++) { player.fireTimer = 1e9; update(1 / 60); }
+      const fight = gameState === "playing" && wave === 15 && enemies.some((e) => e.type === "waveLord") && !isDebugBossOpen();
+      // 전투 중에도: 30웨이브 블랙홀
+      press("KeyB"); const pausedWhileOpen = paused;
+      document.querySelectorAll(".give-boss")[5].click();
+      for (let i = 0; i < 60 * 3; i++) { player.fireTimer = 1e9; update(1 / 60); }
+      const fight30 = wave === 30 && enemies.some((e) => e.type === "blackHole") && !paused;
+      debugMode = false; press("KeyB"); const offNo = !isDebugBossOpen();
+      const ok = open && btns.length === 6 && fight && pausedWhileOpen && fight30 && offNo;
+      return { ok: ok, detail: "열림 " + open + " / 버튼 " + labels + " / 로비에서 15웨이브 " + fight + " / 전투 중 열면 멈춤 " + pausedWhileOpen + ", 30웨이브 " + fight30 + " / 디버그 꺼짐 " + offNo };
+    `),
   },
 ];
