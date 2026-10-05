@@ -211,3 +211,36 @@ body {
   20%, 60% { transform: translateX(-10px); }
   40%, 80% { transform: translateX(10px); }
 }
+
+/* ---- 디버그 지급 창 (G 키) ---- */
+.debug-give {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.give-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));   /* 칸 폭에 맞춰 여러 줄로 */
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.give-btn {
+  text-align: left;
+  font-size: 15px;
+  padding: 6px 10px;
+}
+
+.give-btn small {
+  display: block;
+  font-size: 12px;
+  color: #C98A4B;
+}
+
+.give-btn.give-owned {
+  background: #F2C14E;           /* 이미 가진 증강은 노랗게 */
+}
+
+.give-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

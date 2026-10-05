@@ -77,22 +77,24 @@ module.exports = [
     },
   },
   {
-    name: "[A] 디버그 모드: 꺼져 있으면 영향 없음, 켜면 [ ] Shift+숫자 I 동작",
+    name: "[A] 디버그 모드: 꺼져 있으면 영향 없음, 켜면 [ ] G(지급 창) I 동작",
     run: new Function(PRESS + `
       startGame();
       const hash = () => { draw(); return canvas.toDataURL(); };
       // 1) 꺼진 상태: 키를 눌러도 아무 변화 없음
       const before = JSON.stringify([wave, ownedAugments, hash()]);
-      press("BracketRight"); press("Digit1", true); press("KeyI");
-      const offSame = JSON.stringify([wave, ownedAugments, hash()]) === before && !debugInvincible;
+      press("BracketRight"); press("KeyG"); press("KeyI");
+      const offSame = JSON.stringify([wave, ownedAugments, hash()]) === before && !debugInvincible && !isDebugGiveOpen();
       // 2) 켠 상태
       ownerUnlocked = true; press("F2");
       press("BracketRight"); const w2 = wave;
       for (let i = 0; i < WAVES.length + 3; i++) press("BracketRight"); // 끝까지 누르면 마지막 웨이브에서 멈춘다
       const wMax = wave;
       press("BracketLeft"); const wBack = wave;
-      press("Digit1", true); const l1 = getAugmentLevel(AUGMENTS[0].id);
-      press("Digit1", true); press("Digit1", true); const l2 = getAugmentLevel(AUGMENTS[0].id);
+      press("KeyG"); const giveBtn = () => document.querySelector(".give-augments button");
+      giveBtn().click(); const l1 = getAugmentLevel(AUGMENTS[0].id);
+      giveBtn().click(); giveBtn().click(); giveBtn().click(); const l2 = getAugmentLevel(AUGMENTS[0].id);
+      press("Escape"); resumeTimer = 0;   // 창을 닫으면 "준비!" 0.5초 뒤 재개 → 검사에서는 바로 재개
       press("KeyI");
       enemies = [createEnemy("basic", player.x, player.y, 1)]; spawnQueue = [];
       const hp0 = player.hp; update(1 / 60); const invOk = player.hp === hp0;
@@ -413,15 +415,25 @@ module.exports = [
     },
   },
   {
-    name: "[디버그] Shift+1~9 로 증강 9개를 순서대로 지급",
+    name: "[디버그] G: 증강·보급 전체 목록 창 → 클릭으로 지급, 최대 레벨이면 버튼 잠김, 전투 중엔 멈췄다가 닫으면 재개, 로비에선 안 열림",
     run: new Function(PRESS + `
-      startGame();
-      ownerUnlocked = true; press("F2");
-      const got = [];
-      for (let i = 1; i <= 9; i++) { press("Digit" + i, true); }
-      for (const aug of AUGMENTS) got.push(aug.id + ":" + getAugmentLevel(aug.id));
-      const ok = AUGMENTS.length === 9 && AUGMENTS.every((a) => getAugmentLevel(a.id) === 1);
-      return { ok: ok, detail: got.join(" ") };
+      goToMenu(); ownerUnlocked = true; press("F2");
+      press("KeyG"); const noLobby = !isDebugGiveOpen();
+      startGame(); for (let i = 0; i < 10; i++) update(1 / 60);
+      press("KeyG");
+      const open = isDebugGiveOpen() && paused;
+      const augBtns = [...document.querySelectorAll(".give-augments button")], supBtns = [...document.querySelectorAll(".give-supplies button")];
+      const counts = augBtns.length === AUGMENTS.length && supBtns.length === SUPPLIES.length;
+      augBtns.forEach((b) => b.click());
+      const allOne = AUGMENTS.every((a) => getAugmentLevel(a.id) === 1);
+      for (let i = 0; i < 5; i++) augBtns[0].click();
+      const capped = getAugmentLevel(AUGMENTS[0].id) === AUGMENTS[0].levels.length && augBtns[0].disabled;
+      player.hp = 10; supBtns[SUPPLIES.findIndex((s) => s.id === "homeostasis")].click(); const healed = player.hp > 10;
+      press("KeyG"); const closed = !isDebugGiveOpen() && !paused;
+      debugMode = false; press("KeyG"); const offNo = !isDebugGiveOpen();
+      const ok = noLobby && open && counts && allOne && capped && healed && closed && offNo;
+      return { ok: ok, detail: "로비에선 안 열림 " + noLobby + " / 열림·일시정지 " + open + " / 버튼 증강 " + augBtns.length + "개·보급 " + supBtns.length + "개 " + counts +
+        " / 모두 Lv1 " + allOne + " / 최대에서 잠김 " + capped + " / 보급 사용 " + healed + " / G 로 닫고 재개 " + closed + " / 디버그 꺼지면 안 열림 " + offNo };
     `),
   },
   {

@@ -278,8 +278,11 @@ const keys = {};
 
 // 키를 누르는 순간 실행되는 함수를 등록한다
 window.addEventListener("keydown", function (event) {
-  // 숫자 조절판·비밀번호 창(tuning.js)이 떠 있으면 키는 그 창 몫이다
-  if (isOverlayOpen()) return;
+  // 숫자 조절판·비밀번호 창(tuning.js), 디버그 지급 창이 떠 있으면 키는 그 창 몫이다
+  if (isOverlayOpen() || isDebugGiveOpen()) {
+    if (isDebugGiveOpen() && (event.code === "Escape" || event.code === "KeyG")) closeDebugGivePanel();
+    return;
+  }
 
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
@@ -348,7 +351,7 @@ window.addEventListener("keydown", function (event) {
 // -------------------------------------------------------------
 // F2       : 디버그 모드 켜기/끄기
 // [ / ]    : 이전 / 다음 웨이브로 바로 이동
-// Shift+1~9: AUGMENTS 배열 순서대로 증강 1개 지급 (이미 있으면 레벨업)
+// G        : 증강·보급 목록 창 (클릭해서 지급. 전투·카드 고르기 중에만)
 // Shift+0  : 체력 가득 채우기
 // Shift+C  : 코인 +1000
 // I        : 무적 켜기/끄기
@@ -414,15 +417,10 @@ function handleDebugKey(event) {
     return true;
   }
 
-  // Shift + 1~9 : 증강 지급 / 레벨업
-  if (event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
-    const index = Number(event.code.slice(5)) - 1; // "Digit3" → 2
-    const aug = AUGMENTS[index];
-    if (aug) {
-      const level = Math.min(getAugmentLevel(aug.id) + 1, aug.levels.length);
-      ownedAugments[aug.id] = level;
-      debugSay(aug.name + " Lv." + level);
-    }
+  // G : 증강·보급 목록 창 열기 (전투 중이거나 카드 고르는 중에만)
+  if (event.code === "KeyG" && !event.shiftKey) {
+    if (inGame) openDebugGivePanel();
+    else debugSay("증강 지급은 전투 중에만");
     return true;
   }
 
@@ -433,6 +431,97 @@ function handleDebugKey(event) {
     return true;
   }
   return false;
+}
+
+// ---- 디버그: 증강·보급 지급 창 (G 키) ----
+// HTML 로 만든 목록 창. 증강 버튼을 누르면 레벨 +1, 보급 버튼을 누르면 바로 사용한다.
+// 전투 중에 열면 게임을 멈췄다가, 닫으면 다시 움직인다.
+
+let debugGivePanel = null;      // 열려 있는 창 (닫혀 있으면 null)
+let debugGivePaused = false;    // 이 창이 게임을 멈췄는지 (닫을 때 다시 움직이려고)
+
+// 디버그 지급 창이 열려 있는지
+function isDebugGiveOpen() {
+  return debugGivePanel !== null;
+}
+
+// 증강 하나를 한 레벨 올린다 (최대 레벨이면 그대로)
+function debugGiveAugment(aug) {
+  const level = Math.min(getAugmentLevel(aug.id) + 1, aug.levels.length);
+  ownedAugments[aug.id] = level;
+  debugSay(aug.name + " Lv." + level);
+}
+
+// 보급 카드 하나를 바로 사용한다
+function debugGiveSupply(card) {
+  applySupply(card);
+  debugSay(card.name + " 사용");
+}
+
+function openDebugGivePanel() {
+  if (debugGivePanel) return;
+  if (gameState === "playing" && !paused) { pauseGame(); debugGivePaused = true; }
+  const overlay = document.createElement("div");
+  overlay.className = "tuning-overlay";
+  const panel = document.createElement("div");
+  panel.className = "tuning-panel debug-give";
+  overlay.appendChild(panel);
+  panel.innerHTML =
+    '<div class="tuning-head"><span class="tuning-title">디버그 · 지급</span>' +
+    '<button class="tuning-close" title="닫기 (Esc / G)">✕</button></div>' +
+    '<p class="tuning-help">증강을 누르면 레벨 +1, 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기</p>' +
+    '<div class="tuning-list"><div class="tuning-group">증강</div><div class="give-grid give-augments"></div>' +
+    '<div class="tuning-group">보급</div><div class="give-grid give-supplies"></div></div>';
+
+  // 버튼 글자를 지금 레벨에 맞게 다시 쓴다
+  const refresh = function () {
+    panel.querySelectorAll(".give-augments button").forEach(function (btn, i) {
+      const aug = AUGMENTS[i], lv = getAugmentLevel(aug.id), max = aug.levels.length;
+      btn.innerHTML = aug.name + "<small>" + (lv >= max ? "MAX" : "Lv." + lv + " → " + (lv + 1)) + "</small>";
+      btn.disabled = lv >= max;
+      btn.classList.toggle("give-owned", lv > 0);
+    });
+  };
+  // 증강 버튼 (AUGMENTS 순서)
+  for (const aug of AUGMENTS) {
+    const btn = document.createElement("button");
+    btn.className = "tuning-btn give-btn";
+    btn.style.borderLeft = "12px solid " + COLORS[aug.color];
+    btn.addEventListener("click", function () { debugGiveAugment(aug); refresh(); });
+    panel.querySelector(".give-augments").appendChild(btn);
+  }
+  // 보급 버튼
+  for (const card of SUPPLIES) {
+    const btn = document.createElement("button");
+    btn.className = "tuning-btn give-btn";
+    btn.style.borderLeft = "12px solid " + COLORS[card.color];
+    btn.innerHTML = card.name + "<small>" + card.formula + "</small>";
+    btn.addEventListener("click", function () { debugGiveSupply(card); });
+    panel.querySelector(".give-supplies").appendChild(btn);
+  }
+  refresh();
+
+  panel.querySelector(".tuning-close").addEventListener("click", closeDebugGivePanel);
+  overlay.addEventListener("keydown", function (event) {
+    event.stopPropagation();
+    if (event.key === "Escape" || event.code === "KeyG") closeDebugGivePanel();
+  });
+  overlay.addEventListener("mousedown", function (event) {
+    if (event.target === overlay) closeDebugGivePanel();
+  });
+  // 창 밖(게임 화면)에서 누른 키도 창이 받게: 창에 초점을 준다
+  overlay.tabIndex = -1;
+  document.body.appendChild(overlay);
+  debugGivePanel = overlay;
+  overlay.focus();
+}
+
+function closeDebugGivePanel() {
+  if (!debugGivePanel) return;
+  debugGivePanel.remove();
+  debugGivePanel = null;
+  if (debugGivePaused && gameState === "playing" && paused) resumeGame();
+  debugGivePaused = false;
 }
 
 // 브라우저 창이 포커스를 잃거나(다른 창 클릭) 탭이 가려지면 자동으로 일시정지
@@ -1057,6 +1146,21 @@ function openChoiceScreen() {
   hoverIndex = -1;
 }
 
+// 보급 카드 하나의 효과를 쓴다 (카드 선택, 디버그 지급)
+// 효과 전후의 체력을 비교해서, 얼마나 바뀌었는지 플레이어 위에 글자로 띄운다
+function applySupply(card) {
+  const beforeMax = player.maxHp, beforeHp = player.hp;
+  card.apply();
+  const gainMax = player.maxHp - beforeMax;
+  const healed = player.hp - beforeHp;
+  if (gainMax > 0) {
+    spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "최대 체력 +" + Math.round(gainMax), COLORS.green);
+    hpFlashTimer = HP_FLASH_TIME;       // 체력바가 잠깐 번쩍인다
+  } else if (healed > 0) {
+    spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "+" + Math.round(healed) + " 회복", COLORS.green);
+  }
+}
+
 // index 번째 카드를 골랐을 때 실행되는 함수
 function chooseAugment(index) {
   // 카드가 막 나타난 직후의 입력은 무시한다 (실수 방지)
@@ -1069,17 +1173,7 @@ function chooseAugment(index) {
 
   // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
   if (aug.isSupply) {
-    // 효과 전후의 체력을 비교해서, 얼마나 바뀌었는지 플레이어 위에 글자로 띄운다
-    const beforeMax = player.maxHp, beforeHp = player.hp;
-    aug.apply();
-    const gainMax = player.maxHp - beforeMax;
-    const healed = player.hp - beforeHp;
-    if (gainMax > 0) {
-      spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "최대 체력 +" + Math.round(gainMax), COLORS.green);
-      hpFlashTimer = HP_FLASH_TIME;       // 체력바가 잠깐 번쩍인다
-    } else if (healed > 0) {
-      spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "+" + Math.round(healed) + " 회복", COLORS.green);
-    }
+    applySupply(aug);
     startWave(wave + 1);
     bannerSubText = aug.name + ": " + aug.formula;
     return;
@@ -3827,7 +3921,7 @@ function drawDebug() {
   const x = 14;
   const y = CANVAS_HEIGHT - 18;
   drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
-  drawOutlinedText("[ ] 웨이브  Shift+1~9 증강  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
+  drawOutlinedText("[ ] 웨이브  G 증강·보급 지급  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
   if (debugMessageTimer > 0 && debugMessage) {
     drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
   }

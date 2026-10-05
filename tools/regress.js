@@ -79,6 +79,15 @@ function scenarioRunner(config) {
     return (h >>> 0).toString(16);
   }
 
+  // ":base9" 가 붙으면: 증강 14개·보급 5개를 추가하기 전처럼 처음 증강 9개·보급 2개만 남긴다
+  if (config.endsWith(":base9")) {
+    config = config.slice(0, -":base9".length);
+    const keepAug = ["compound", "variance", "timeDilation", "arithmetic", "square", "multiShot", "fission", "catalyst", "knockback"];
+    for (let i = AUGMENTS.length - 1; i >= 0; i--) if (!keepAug.includes(AUGMENTS[i].id)) AUGMENTS.splice(i, 1);
+    const keepSup = ["homeostasis", "cellDivision"];
+    for (let i = SUPPLIES.length - 1; i >= 0; i--) if (!keepSup.includes(SUPPLIES[i].id)) SUPPLIES.splice(i, 1);
+  }
+
   if (config === "beforeGrowthD") {
     // 성장 D 이전 규칙 되돌리기: 적 강화 상수를 옛 값(BASE 1, 옛 GROWTH)으로, 회복은 고정량으로.
     // (업그레이드 레벨은 가짜 저장소라 처음부터 0) → golden/old-config-before-growth-d.txt 와 상태가 같아야 한다
@@ -278,14 +287,15 @@ function compare(label, actual, file) {
   //   overrides: 바꿔 끼울 상수 (압박 규칙 이전 값은 모든 되돌리기 검사에 들어간다)
   const ROLLBACKS = [
     { label: "압박 규칙 되돌리기 (옛 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "old", file: "old-config-before-pressure.txt" },
-    { label: "압박 규칙 되돌리기 (새 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "new", file: "new-config-before-pressure.txt" },
+    { label: "압박 규칙 되돌리기 (새 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "new:base9", file: "new-config-before-pressure.txt" },
+    { label: "증강 추가 되돌리기 (새 설정): 증강 9개·보급 2개만 남기면 증강 추가 전 기록과 상태가 같음", config: "new:base9", overrides: {}, file: "new-config-before-aug14.txt" },
     { label: "성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 같음", config: "beforeGrowthD", file: "old-config-before-growth-d.txt" },
     { label: "옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 상태가 같음", config: "legacy", file: "old-config-legacy.txt" },
   ];
   for (const rb of ROLLBACKS) {
     const file = path.join(GOLDEN, rb.file);
     if (!fs.existsSync(file)) { console.log("  ? " + rb.label + ": 기록 파일이 없음"); continue; }
-    const now = stateOnly(await trace(browser, ROOT, rb.config, BEFORE_PRESSURE));
+    const now = stateOnly(await trace(browser, ROOT, rb.config, rb.overrides || BEFORE_PRESSURE));
     const want = stateOnly(fs.readFileSync(file, "utf8"));
     if (now === want) console.log("  PASS " + rb.label);
     else {
