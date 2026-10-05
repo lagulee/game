@@ -92,19 +92,19 @@ function design(png) {
   const objects = [
     // ---------------- 글상자들 (맨 앞) ----------------
     // 배너: 다른 오브젝트가 "배너글"과 "배너시간"(프레임)을 정하면 그동안 보여 준다
-    { name: "배너", type: "textBox", text: "", x: 0, y: 20, width: 440, height: 60, font: "bold 30px NanumSquareRound", colour: "#2B2118", visible: false, scripts: (B) => [
+    { name: "배너", type: "textBox", text: "", x: 0, y: 20, width: 460, height: 46, font: "bold 30px NanumSquareRound", colour: "#2B2118", visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.forever([
         B.ifElse(B.cmp(B.v("배너시간"), ">", 0), [B.write(B.v("배너글")), B.show(), B.change("배너시간", -1)], [B.hide()]),
       ])]),
     ] },
-    { name: "상태창", type: "textBox", text: "", x: -98, y: 122, width: 230, height: 22, font: "15px NanumSquareRound", textAlign: 0, scripts: (B) => [
+    { name: "상태창", type: "textBox", text: "", x: -100, y: 122, width: 264, height: 24, font: "15px NanumSquareRound", textAlign: 1, scripts: (B) => [
       B.when.run([B.forever([
         B.write(B.join("웨이브 ", B.join(B.v("웨이브"), B.join(" / " + WAVE_COUNT + "    체력 ", B.join(B.mathOp("round", B.v("체력")),
           B.join(" / ", B.join(B.v("최대체력"), B.join("    점수 ", B.v("점수"))))))))),
         B.wait(0.1),
       ])]),
     ] },
-    { name: "증강목록", type: "textBox", text: "", x: -98, y: 104, width: 230, height: 20, font: "13px NanumSquareRound", colour: "#8A63B8", textAlign: 0, scripts: (B) => [
+    { name: "증강목록", type: "textBox", text: "", x: -100, y: 104, width: 264, height: 22, font: "13px NanumSquareRound", colour: "#8A63B8", textAlign: 1, scripts: (B) => [
       B.when.run([B.forever([
         // 가지고 있는 증강만 "이름 Lv" 로 이어 붙인다
         B.set("증강글", ""),
@@ -113,7 +113,7 @@ function design(png) {
         B.wait(0.2),
       ])]),
     ] },
-    { name: "보스체력글", type: "textBox", text: "", x: 150, y: 122, width: 220, height: 22, font: "bold 15px NanumSquareRound", colour: "#D9482B", textAlign: 2, scripts: (B) => [
+    { name: "보스체력글", type: "textBox", text: "", x: 140, y: 122, width: 180, height: 24, font: "bold 15px NanumSquareRound", colour: "#D9482B", textAlign: 2, scripts: (B) => [
       B.when.run([B.forever([
         B.ifElse(B.cmp(B.v("보스체력"), ">", 0),
           [B.write(B.join("보스 체력 ", B.join(B.mathOp("ceil", B.v("보스체력")), B.join(" / ", B.v("보스최대")))))],
@@ -121,7 +121,7 @@ function design(png) {
         B.wait(0.1),
       ])]),
     ] },
-    { name: "안내", type: "textBox", text: "", x: 0, y: -118, width: 440, height: 22, font: "15px NanumSquareRound", scripts: (B) => [
+    { name: "안내", type: "textBox", text: "", x: 0, y: -118, width: 440, height: 24, font: "15px NanumSquareRound", scripts: (B) => [
       B.when.run([B.forever([
         B.ifElse(B.cmp(B.v("상태"), "=", "고르기"), [B.write("카드를 눌러 고르세요 (1 · 2 · 3 키)")], [B.write("")]),
         B.wait(0.1),
@@ -145,6 +145,8 @@ function design(png) {
           // 원본의 지역 변수를 정해 두고 복제하면, 복제본이 그 값을 그대로 가져간다
           B.set("칸", k), B.set("내카드", B.v("뽑기")), B.clone("self"),
         ]),
+        // 3장을 다 만든 뒤에야 고를 수 있다 (만드는 도중에 고르면 늦게 나온 카드가 남는다)
+        B.set("상태", "고르기"),
       ])]),
       B.when.clone([
         B.set("복제본", 1),
@@ -399,7 +401,7 @@ function design(png) {
               // 웨이브 클리어: 회복하고 카드 고르기
               B.set("체력", B.add(B.v("체력"), WAVE_HEAL)),
               B.iff(B.cmp(B.v("체력"), ">", B.v("최대체력")), [B.set("체력", B.v("최대체력"))]),
-              B.set("상태", "고르기"), B.send("카드보이기"),
+              B.set("상태", "카드준비"), B.send("카드보이기"),
               B.waitUntil(B.cmp(B.v("상태"), "=", "전투")),
             ]),
             B.change("웨이브", 1),

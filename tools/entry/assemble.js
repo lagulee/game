@@ -76,7 +76,8 @@ function assemble(design) {
       return Object.assign(base, { objectType: "textBox", text: o.text || "", sprite: { pictures: [], sounds: [] }, selectedPictureId: null,
         entity: { x: o.x || 0, y: o.y || 0, regX: w / 2, regY: h / 2, scaleX: 1, scaleY: 1, rotation: 0, direction: 90, width: w, height: h,
           font: o.font || "20px NanumGothic", colour: o.colour || "#2B2118", bgColor: o.bgColor || "transparent", text: o.text || "",
-          textAlign: o.textAlign ?? 1, lineBreak: !!o.lineBreak, underLine: false, strike: false, visible: o.visible !== false } });
+          // textAlign: 0 가운데, 1 왼쪽, 2 오른쪽 (엔트리 값). 정렬이 먹으려면 줄바꿈 글상자(크기 고정)여야 한다
+          textAlign: o.textAlign ?? 0, lineBreak: o.lineBreak !== false, underLine: false, strike: false, visible: o.visible !== false } });
     }
     const first = o.pictureModels[0];
     const scale = o.scale ?? 1;

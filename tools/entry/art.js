@@ -57,7 +57,7 @@ const ART = {
   sideBullet: () => svg(16, 16, '<circle cx="8" cy="8" r="5.5" fill="#F7DC94" stroke="' + C.outline + '" stroke-width="3"/>'),
   enemyBullet: () => svg(20, 20, '<circle cx="10" cy="10" r="7.5" fill="' + C.pink + '" stroke="' + C.outline + '" stroke-width="3"/>'),
   // 시간 지연 범위 원 (반지름 140 → 크기 % 로 줄여 쓴다)
-  slowRing: () => svg(288, 288, '<circle cx="144" cy="144" r="140" fill="' + C.green + '" fill-opacity="0.13" stroke="' + C.green + '" stroke-width="4" stroke-dasharray="14 10"/>'),
+  slowRing: () => svg(288, 288, '<circle cx="144" cy="144" r="138" fill="' + C.green + '" fill-opacity="0.2" stroke="' + C.green + '" stroke-width="10" stroke-dasharray="30 18"/>'),
   // 배경: 크림색 + 옅은 + 무늬 (엔트리 무대 480×270 의 2배)
   background: () => {
     let s = '<rect width="960" height="540" fill="' + C.background + '"/>';
