@@ -130,6 +130,16 @@ const ENRAGE_RATE = tune("ENRAGE_RATE", 0.03);
 // 과열로 빨라져도 적의 속도는 플레이어 최고 속도의 이 배수를 넘지 않는다
 const ENRAGE_MAX_PLAYER_RATIO = tune("ENRAGE_MAX_PLAYER_RATIO", 1.1);
 
+// ---- 적 탄환 (사수형·보스가 쏘는 총알) ----
+// 기본 속도 (px/초). 플레이어(220)보다 훨씬 느려서 보고 피할 수 있다
+const ENEMY_BULLET_SPEED = 160;
+// 충돌 반지름 (px)
+const ENEMY_BULLET_RADIUS = 6;
+// 화면에 남아 있는 최대 시간 (초). 이 시간이 지나면 저절로 사라진다
+const ENEMY_BULLET_LIFE = 9;
+// 그림 크기 배율 (충돌 반지름보다 이만큼 크게 그려서 잘 보이게)
+const ENEMY_BULLET_DRAW_SCALE = 1.3;
+
 // 자동 발사 간격 (초). 0.4 이면 1초에 2.5발
 const FIRE_INTERVAL = tune("FIRE_INTERVAL", 0.4);
 
@@ -400,6 +410,7 @@ function handleDebugKey(event) {
     if (next >= 1 && next <= WAVES.length) {
       enemies = [];
       bullets = [];
+      enemyBullets = [];
       startWave(next);
       debugSay("웨이브 " + next + " 로 이동");
     }
@@ -688,6 +699,9 @@ let enemies = [];
 
 // 지금 날아가고 있는 총알들의 목록 (배열)
 let bullets = [];
+
+// 적이 쏜 총알들의 목록 (배열). 플레이어 총알(bullets)과 따로 관리한다
+let enemyBullets = [];
 
 // 떠오르는 대미지 숫자들의 목록 (배열)
 let popups = [];
@@ -1385,6 +1399,7 @@ function goToMenu() {
   lobbyToastTimer = 0;
   enemies = [];
   bullets = [];
+  enemyBullets = [];
   popups = [];
   particles = [];
   openTab("battle");
@@ -1569,8 +1584,9 @@ function checkWaveEnd() {
 
   // 웨이브를 깼다! 체력을 조금 회복
   healPlayer(waveClearHeal());
-  // "다음 웨이브 동안" 이던 보급 효과는 여기서 끝
+  // "다음 웨이브 동안" 이던 보급 효과는 여기서 끝, 남은 적 탄환도 사라진다
   player.tempEffects = [];
+  enemyBullets = [];
 
   if (wave >= WAVES.length) {
     // 마지막 웨이브였으면 클리어!
@@ -1579,6 +1595,71 @@ function checkWaveEnd() {
     // 아니면 증강 선택 화면으로
     openChoiceScreen();
   }
+}
+
+// 플레이어가 damage 만큼 맞는다 (적과 닿았을 때, 적 탄환에 맞았을 때)
+//   보급 "면역 반응" 보호막이 남아 있으면 대미지 없이 한 번 막는다
+//   맞으면 잠깐 무적, 체력이 0 이하면 게임 오버
+function hurtPlayer(damage) {
+  const shield = getTempEffect("immune");
+  if (shield && shield.charges > 0) {
+    shield.charges -= 1;
+    if (shield.charges <= 0) removeTempEffect("immune");
+    player.invincibleTimer = PLAYER_INVINCIBLE_TIME;
+    spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "막음!", COLORS.white);
+    return;
+  }
+  player.hp -= damage;
+  player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
+  if (player.hp <= 0) {
+    player.hp = 0;
+    endGame("gameover");
+  }
+}
+
+// ---- 적 탄환 ----
+
+// (x, y) 에서 angle(라디안) 방향으로 적 탄환 한 발을 쏜다
+//   opts.damage : 기본 대미지 (웨이브의 접촉 대미지 배율 waveDamageMult 가 곱해진다)
+//   opts.speed  : 속도 (없으면 ENEMY_BULLET_SPEED)
+function spawnEnemyBullet(x, y, angle, opts) {
+  const o = opts || {};
+  const speed = o.speed !== undefined ? o.speed : ENEMY_BULLET_SPEED;
+  const bullet = {
+    x: x, y: y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    radius: o.radius || ENEMY_BULLET_RADIUS,
+    damage: (o.damage !== undefined ? o.damage : 10) * waveDamageMult(wave),
+    age: 0,
+    dead: false,
+  };
+  enemyBullets.push(bullet);
+  return bullet;
+}
+
+// 적 탄환 움직이기와 플레이어 충돌
+function updateEnemyBullets(dt) {
+  const margin = 40;   // 화면 밖으로 이만큼 나가면 지운다
+  for (const b of enemyBullets) {
+    // 시간 지연 범위 안이면 적처럼 느려진다 (증강의 modifyEnemySpeed 를 그대로 쓴다)
+    const dist = distance(b.x, b.y, player.x, player.y);
+    b.slowFactor = enemySpeedFactor(b, dist);
+    b.x += b.vx * b.slowFactor * dt;
+    b.y += b.vy * b.slowFactor * dt;
+    b.age += dt;
+    if (b.age > ENEMY_BULLET_LIFE || b.x < -margin || b.x > CANVAS_WIDTH + margin || b.y < -margin || b.y > CANVAS_HEIGHT + margin) {
+      b.dead = true;
+      continue;
+    }
+    // 플레이어와 닿으면 대미지 (무적 중이면 그냥 지나간다)
+    if (gameState === "playing" && player.invincibleTimer <= 0 && !(debugMode && debugInvincible) &&
+        circlesOverlap(player.x, player.y, PLAYER_RADIUS, b.x, b.y, b.radius)) {
+      b.dead = true;
+      hurtPlayer(b.damage);
+    }
+  }
+  enemyBullets = enemyBullets.filter(function (b) { return !b.dead; });
 }
 
 // 적이 플레이어에게 닿았는지 검사하고, 닿았으면 체력을 깎는 함수
@@ -1596,23 +1677,7 @@ function updatePlayerHit(dt) {
   for (const enemy of enemies) {
     if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
                        enemy.x, enemy.y, enemy.radius)) {
-      // 보급 "면역 반응" 보호막이 남아 있으면 대미지 없이 한 번 막는다
-      const shield = getTempEffect("immune");
-      if (shield && shield.charges > 0) {
-        shield.charges -= 1;
-        if (shield.charges <= 0) removeTempEffect("immune");
-        player.invincibleTimer = PLAYER_INVINCIBLE_TIME;
-        spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "막음!", COLORS.white);
-        break;
-      }
-      player.hp -= enemy.contactDamage;                // 체력 감소 (종류·웨이브마다 다름)
-      player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
-
-      // 체력이 0 이하면 게임 오버
-      if (player.hp <= 0) {
-        player.hp = 0;
-        endGame("gameover");
-      }
+      hurtPlayer(enemy.contactDamage);  // 체력 감소 (종류·웨이브마다 다름)
       break; // 한 프레임에 한 번만 맞는다
     }
   }
@@ -1638,6 +1703,7 @@ function resetGame() {
   // 적과 총알을 모두 지운다
   enemies = [];
   bullets = [];
+  enemyBullets = [];
   popups = [];
   particles = [];
   lastHitEnemy = null;
@@ -2085,6 +2151,7 @@ function update(dt) {
     updateShooting(dt);   // 5) 자동 발사
     updateBullets(dt);    // 6) 총알 이동과 충돌
     updatePlayerHit(dt);  // 7) 적에게 닿았는지 검사
+    if (gameState === "playing") updateEnemyBullets(dt);   // 7-1) 적 탄환 움직이기·맞았는지 검사
     updatePopups(dt);     // 8) 대미지 숫자 떠오르기
     updateParticles(dt);  // 9) 파티클 날아가기
     updateCoins(dt);      // 10) 생존 시간과 코인 (전투 중에만)
@@ -2534,6 +2601,27 @@ function drawEnemies() {
   // 2) 그 위에 적 몸을 그린다. 적 목록을 하나씩 꺼내 그리는 반복문
   for (const enemy of enemies) {
     drawEnemy(enemy);
+  }
+}
+
+// ---- 적 탄환: 빨간 뾰족한 가시 모양 (동그란 노란 플레이어 총알과 확실히 다르게) ----
+function drawEnemyBullets() {
+  for (const b of enemyBullets) {
+    const angle = Math.atan2(b.vy, b.vx);
+    const r = b.radius * ENEMY_BULLET_DRAW_SCALE;   // 잘 보이게 충돌 반지름보다 조금 크게 그린다
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(angle);
+    // 앞이 뾰족한 마름모 (진행 방향으로 길쭉하게)
+    drawOutlinedPolygon([
+      [r * 2.2, 0], [0, -r], [-r * 1.4, 0], [0, r],
+    ], COLORS.red, SMALL_OUTLINE_WIDTH);
+    // 가운데 하얀 점 (빛나는 느낌)
+    ctx.fillStyle = COLORS.white;
+    ctx.beginPath();
+    ctx.arc(r * 0.3, 0, r * 0.32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -4204,6 +4292,7 @@ function draw() {
   drawBullets();    // 총알
   drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적
+  drawEnemyBullets(); // 적 탄환 (적 위에, 잘 보이게)
   drawPlayer();     // 플레이어
   drawImmuneRing(); // 면역 반응 보호막 고리
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)

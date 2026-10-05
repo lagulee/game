@@ -1449,4 +1449,40 @@ module.exports = [
         " / 모두 삭제 " + allGone + " / 지운 반감기는 붕괴 멈춤 " + noDecay };
     `),
   },
+  // ---------------- 4단계 A: 적 탄환 ----------------
+  {
+    name: "[적탄] 속도 160, 맞으면 기본 대미지 × 웨이브 접촉 배율 + 무적(무적 중엔 통과), 면역 보호막이 막음, 시간 지연 범위에서 느려짐, 웨이브 끝나면 사라짐",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [createEnemy("basic", 900, 500, 1)]; enemies[0].speed = 0;
+      player.x = 480; player.y = 270; player.vx = 0; player.vy = 0;
+      // 1) 속도
+      const b = spawnEnemyBullet(100, 100, 0, { damage: 10 });
+      updateEnemyBullets(0.5); const speed = (b.x - 100) / 0.5;
+      // 2) 맞기: 왼쪽 60px 에서 플레이어 쪽으로
+      enemyBullets = []; const hp0 = player.hp;
+      spawnEnemyBullet(420, 270, 0, { damage: 10 });
+      for (let i = 0; i < 40; i++) updateEnemyBullets(1 / 60);
+      const dmg = hp0 - player.hp, inv = player.invincibleTimer > 0;
+      // 무적 중에 온 총알은 통과
+      const hp1 = player.hp; const pass = spawnEnemyBullet(420, 270, 0, { damage: 10 });
+      for (let i = 0; i < 20; i++) updateEnemyBullets(1 / 60);
+      const passed = player.hp === hp1 && !pass.dead;
+      // 3) 면역 보호막
+      enemyBullets = []; player.invincibleTimer = 0; applySupply(SUPPLIES.find((c) => c.id === "immune"));
+      const hp2 = player.hp; spawnEnemyBullet(420, 270, 0, { damage: 10 });
+      for (let i = 0; i < 40; i++) updateEnemyBullets(1 / 60);
+      const blocked = player.hp === hp2 && getTempEffect("immune").charges === 1;
+      // 4) 시간 지연: 플레이어가 최고 속도로 움직일 때 범위 안의 탄환은 느려짐, 밖은 그대로
+      enemyBullets = []; ownedAugments = { timeDilation: 1 }; player.vx = PLAYER_SPEED; player.vy = 0;
+      const near = spawnEnemyBullet(player.x, player.y - 60, 0), far = spawnEnemyBullet(player.x, player.y - 200, 0);
+      updateEnemyBullets(0.1);
+      const slowNear = near.slowFactor < 1 && Math.abs((near.x - player.x) / 0.1 - ENEMY_BULLET_SPEED * near.slowFactor) < 1e-6, normalFar = far.slowFactor === 1;
+      draw();
+      // 5) 웨이브 끝 → 사라짐
+      spawnQueue = []; enemies = []; checkWaveEnd(); const cleared = enemyBullets.length === 0;
+      const ok = Math.abs(speed - 160) < 1e-9 && Math.abs(dmg - 10 * waveDamageMult(1)) < 1e-9 && inv && passed && blocked && slowNear && normalFar && cleared;
+      return { ok: ok, detail: "속도 " + speed + " / 대미지 " + dmg + " (10 × " + waveDamageMult(1) + "), 무적 " + inv + ", 무적 중 통과 " + passed + " / 보호막 " + blocked +
+        " / 시간 지연 안 " + near.slowFactor.toFixed(2) + "배, 밖 " + far.slowFactor + "배 / 웨이브 끝 사라짐 " + cleared };
+    },
+  },
 ];
