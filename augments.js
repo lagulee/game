@@ -171,6 +171,13 @@ const GRAVITY_MAX_ACCEL = 6000;
 // 중력 렌즈: 쏜 뒤 이 시간(초)까지만 휜다 (적 둘레를 영원히 빙빙 도는 총알이 생기지 않게)
 const GRAVITY_MAX_AGE = 2;
 
+// 반감기: 레벨별 붕괴율 p (0.04 = 매초 지금 체력의 4% 를 잃는다)
+const HALFLIFE_RATE = [0.04, 0.06, 0.08];
+// 반감기: 한 번 맞으면 붕괴가 이어지는 시간 (초). 다시 맞으면 처음부터 다시 4초
+const HALFLIFE_DURATION = 4;
+// 반감기: 보스는 붕괴율이 이 배율만큼만 (0.5 = 절반)
+const HALFLIFE_BOSS_MULT = 0.5;
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -662,6 +669,67 @@ const AUGMENTS = [
       const now = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy) || 1;
       bullet.vx *= speed / now;
       bullet.vy *= speed / now;
+    },
+  },
+  {
+    id: "halfLife",
+    name: "반감기",
+    concept: "물리 · 지수 붕괴",
+    formula: "N = N₀(1 − p)ᵗ",
+    color: "purple",
+    levels: [
+      {
+        rate: HALFLIFE_RATE[0],
+        desc: "맞은 적이 4초 동안 붕괴한다. 매초 지금 체력의 4% 를 잃는다 (다시 맞으면 4초 갱신, 보스는 절반)",
+      },
+      {
+        rate: HALFLIFE_RATE[1],
+        desc: "붕괴가 빨라진다! 매초 4% → 6%",
+      },
+      {
+        rate: HALFLIFE_RATE[2],
+        desc: "강한 방사능! 매초 6% → 8%",
+      },
+    ],
+
+    // 맞은 적을 "붕괴 중"으로 만든다 (이미 붕괴 중이면 4초를 다시 채운다)
+    onHit: function (stats, info) {
+      if (info.killed) return;
+      const enemy = info.enemy;
+      enemy.decayTime = HALFLIFE_DURATION;
+      enemy.decayRate = stats.rate * (enemyType(enemy).isBoss ? HALFLIFE_BOSS_MULT : 1);
+    },
+
+    // =========================================================
+    // 지수 붕괴
+    //   1초가 지날 때마다 체력이 (1 − p) 배가 된다: N = N₀ × (1 − p)ᵗ
+    //   한 프레임(dt 초) 동안에는 (1 − p)^dt 배를 곱하면 된다.
+    //   "현재 체력"에 비례해서 줄어들기 때문에 체력이 적을수록 조금씩만 줄어든다.
+    //   그래서 반감기만으로는 체력이 절대 0 이 되지 않는다 (곱하기만 하므로 0 에 다가갈 뿐).
+    //   마무리는 총알이 해야 한다!
+    //   (참고: p = 4% 이면 체력이 절반이 되는 데 ln 2 ÷ −ln 0.96 ≈ 17초 = 반감기)
+    // =========================================================
+    onEnemyUpdate: function (enemy, stats, dt) {
+      if (!(enemy.decayTime > 0) || enemy.dead) return;
+      enemy.hp *= Math.pow(1 - enemy.decayRate, dt);
+      enemy.decayTime = Math.max(0, enemy.decayTime - dt);
+    },
+
+    // 붕괴 중인 적 둘레에 보라색 점선 고리 (남은 시간이 줄수록 흐려진다)
+    drawEffect: function () {
+      ctx.save();
+      ctx.setLineDash([5, 5]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = COLORS.purple;
+      for (const enemy of enemies) {
+        if (!(enemy.decayTime > 0)) continue;
+        ctx.globalAlpha = 0.35 + 0.65 * (enemy.decayTime / HALFLIFE_DURATION);
+        ctx.lineDashOffset = -enemy.decayTime * 20;     // 고리가 빙글빙글 도는 느낌
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, enemy.radius + 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
     },
   },
 ];

@@ -1228,4 +1228,36 @@ module.exports = [
         " (빠르기 그대로 " + lens.speedOk + ") / 120px 떨어진 적: Lv1 vy " + lv1.toFixed(1) + ", Lv3 vy " + lv3.toFixed(1) };
     },
   },
+  {
+    name: "[증강+] 반감기: 맞은 적이 4초 동안 매초 지금 체력의 p%(4/6/8) 잃음, 다시 맞으면 갱신, 보스는 절반, 절대 0 이 되지 않음",
+    run: function () {
+      const hitOnce = (e) => { const b = createBullet(1, 0, { x: e.x - 40, y: e.y, fromAugment: true }); for (let i = 0; i < 10 && !b.dead; i++) updateBullets(1 / 60); };
+      const res = [];
+      for (let lv = 1; lv <= 3; lv++) {
+        startGame(); spawnQueue = []; ownedAugments = { halfLife: lv };
+        const e = createEnemy("basic", 400, 270, 1); e.hp = e.maxHp = 1000; e.speed = 0; enemies = [e];
+        hitOnce(e); const after = e.hp;
+        for (let i = 0; i < 60; i++) updateEnemies(1 / 60);
+        res.push(1 - e.hp / after);                       // 1초 동안 잃은 비율
+      }
+      // 4초 뒤 멈춤, 다시 맞으면 갱신
+      startGame(); spawnQueue = []; ownedAugments = { halfLife: 1 };
+      const e = createEnemy("basic", 400, 270, 1); e.hp = e.maxHp = 1000; e.speed = 0; enemies = [e];
+      hitOnce(e);
+      for (let i = 0; i < 60 * 3; i++) updateEnemies(1 / 60);
+      hitOnce(e); const refreshed = e.decayTime === HALFLIFE_DURATION;
+      for (let i = 0; i < 60 * 4 + 5; i++) updateEnemies(1 / 60);
+      const h = e.hp; for (let i = 0; i < 60; i++) updateEnemies(1 / 60); const stopped = e.hp === h;
+      // 체력이 아주 작아도 0 이 되지 않음 (1000초 동안 붕괴)
+      e.hp = 0.001; e.decayTime = 1e9; e.decayRate = 0.08;
+      for (let i = 0; i < 1000; i++) updateEnemies(1); const neverZero = e.hp > 0 && enemies.includes(e);
+      // 보스는 절반
+      const boss = createEnemy("splitterKing", 300, 270, 1); boss.speed = 0; enemies = [boss]; hitOnce(boss);
+      const bossRate = boss.decayRate;
+      draw();   // 점선 고리 그리기 오류 없음
+      const ok = res.every((r, i) => Math.abs(r - [0.04, 0.06, 0.08][i]) < 1e-6) && refreshed && stopped && neverZero && Math.abs(bossRate - 0.02) < 1e-12;
+      return { ok: ok, detail: "1초 동안 잃은 비율 " + res.map((r) => (r * 100).toFixed(2) + "%").join(", ") + " / 다시 맞으면 4초 갱신 " + refreshed +
+        " / 4초 뒤 멈춤 " + stopped + " / 0 이 안 됨 " + neverZero + " (1000초 뒤 체력 " + e.hp.toExponential(1) + ") / 보스 붕괴율 " + bossRate };
+    },
+  },
 ];
