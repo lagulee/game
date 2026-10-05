@@ -1134,4 +1134,39 @@ module.exports = [
         " / 취소 " + cancelled + " / 맞히면 켜짐 " + on + " / 끄기 " + off + " / 다시 켤 땐 안 물음 " + noAskAgain };
     `),
   },
+  // ---------------- 증강 14개 준비 ----------------
+  {
+    name: "[준비] 총알 충돌 반지름·관통(같은 적 두 번 X), killEnemy 의 onKill(explosion 표시), damageEnemy, onEnemyUpdate 훅",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      // 관통 1: 일렬로 선 적 3마리 중 앞의 2마리만 맞고 사라진다
+      const es = [0, 1, 2].map((i) => { const e = createEnemy("basic", 300 + i * 40, 300, 1); e.hp = e.maxHp = 1000; return e; });
+      enemies = es.slice();
+      const b = createBullet(1, 0, { x: 250, y: 300, fromAugment: true }); b.pierce = 1;
+      for (let i = 0; i < 30; i++) updateBullets(1 / 60);
+      const hits = es.map((e) => e.hp < 1000 ? 1 : 0).join("");
+      const pierceOk = hits === "110" && b.dead;
+      // 반지름: 적 가장자리에서 12px 떨어진 곳을 지나가는 총알 (기본 반지름 5 → 빗나감, 15 → 맞음)
+      const far = createEnemy("basic", 500, 300, 1); far.hp = far.maxHp = 1000; enemies = [far];
+      const miss = createBullet(0, 1, { x: 500 + far.radius + 12, y: 200, fromAugment: true });
+      for (let i = 0; i < 30; i++) updateBullets(1 / 60);
+      const missed = far.hp === 1000;
+      const big = createBullet(0, 1, { x: 500 + far.radius + 12, y: 200, fromAugment: true }); big.radius = 15;
+      for (let i = 0; i < 30; i++) updateBullets(1 / 60);
+      const radiusOk = missed && far.hp < 1000;
+      // onKill: 총알 처치 / 폭발 처치 구별, onEnemyUpdate 호출
+      const kills = []; let enemyUpdates = 0;
+      AUGMENTS.push({ id: "probe", name: "p", levels: [{}], onKill: (st, info) => kills.push(info.explosion ? "폭발" : (info.bullet ? "총알" : "?")),
+        onEnemyUpdate: () => { enemyUpdates++; } });
+      ownedAugments = { probe: 1 };
+      const a = createEnemy("basic", 600, 300, 1), c = createEnemy("basic", 700, 300, 1); a.hp = 1; enemies = [a, c];
+      createBullet(1, 0, { x: 580, y: 300, fromAugment: true });
+      for (let i = 0; i < 10; i++) updateBullets(1 / 60);
+      const scoreBefore = score; damageEnemy(c, 1e6, { explosion: true }); const scored = score > scoreBefore;
+      updateEnemies(1 / 60);
+      AUGMENTS.pop();
+      const ok = pierceOk && radiusOk && kills.join(",") === "총알,폭발" && scored && c.dead && enemyUpdates > 0;
+      return { ok: ok, detail: "관통 1: 맞은 적 " + hits + " / 반지름 5 빗나감 " + missed + ", 15 맞음 " + radiusOk + " / onKill " + kills.join(",") + " / 폭발 처치 점수 " + scored };
+    },
+  },
 ];

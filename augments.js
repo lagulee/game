@@ -71,13 +71,19 @@
 //     언제: 총알에 맞은 적의 체력이 0 이 되어 죽는 순간 (점수를 더한 바로 다음)
 //     info.enemy  : 죽은 적
 //     info.x, y   : 죽은 위치
-//     info.bullet : 마지막 한 방을 날린 총알
+//     info.bullet : 마지막 한 방을 날린 총알 (폭발로 죽었으면 없음)
+//     info.explosion : 발열 반응 폭발로 죽었으면 true
 //     예: 핵분열 (죽은 자리에서 총알이 갈라져 나감), 발열 반응
 //
 //   onBulletUpdate(bullet, stats, dt)
 //     언제: 매 프레임, 날아가는 총알 하나하나가 움직이기 직전
 //     bullet.vx, vy 를 바꾸면 방향이 바뀌고, bullet.age 는 날아간 시간(초)
-//     예: 유도 탄환, 푸리에 탄환
+//     bullet.radius 는 충돌 반지름, bullet.pierce 는 더 뚫고 지나갈 수 있는 적 수
+//     예: 푸리에 탄환, 중력 렌즈
+//
+//   onEnemyUpdate(enemy, stats, dt)
+//     언제: 매 프레임, 적 하나하나가 움직인 직후
+//     예: 반감기 (붕괴 중인 적의 체력을 줄인다)
 //
 // [준비 훅]
 //

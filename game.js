@@ -1639,6 +1639,11 @@ function updateEnemies(dt) {
       }
     }
 
+    // [훅] onEnemyUpdate: 적마다 매 프레임 증강에게 알린다 (반감기 붕괴 등)
+    forEachOwnedAugment(function (aug, stats) {
+      if (aug.onEnemyUpdate) aug.onEnemyUpdate(enemy, stats, dt);
+    });
+
     // 번쩍임 시간을 줄인다 (0 아래로는 안 내려가게)
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
   }
@@ -1722,6 +1727,9 @@ function createBullet(dirX, dirY, options) {
     vx: dirX * BULLET_SPEED,      // 가로 속도
     vy: dirY * BULLET_SPEED,      // 세로 속도
     age: 0,                       // 날아간 시간 (초). 푸리에 탄환 같은 증강이 사용
+    radius: BULLET_RADIUS,        // 충돌 반지름 (푸리에 탄환이 키운다)
+    pierce: 0,                    // 앞으로 더 뚫고 지나갈 수 있는 적 수 (0 이면 맞자마자 사라짐)
+    hitEnemies: null,             // 관통 중에 이미 맞힌 적 목록 (같은 적을 두 번 맞히지 않게)
     damageScale: opt.damageScale !== undefined ? opt.damageScale : 1,
     fromAugment: opt.fromAugment === true,
     generation: opt.generation || 0,
@@ -1867,6 +1875,43 @@ function updateParticles(dt) {
   particles = particles.filter(function (p) { return p.age < PARTICLE_LIFE; });
 }
 
+// 총알의 충돌 반지름 (따로 정하지 않은 총알은 기본 BULLET_RADIUS)
+function bulletRadius(bullet) {
+  return bullet.radius !== undefined ? bullet.radius : BULLET_RADIUS;
+}
+
+// 적이 죽는 처리 (총알에 맞아서, 또는 발열 반응 폭발로)
+//   cause.bullet   : 마지막 한 방을 날린 총알 (폭발이면 없음)
+//   cause.explosion: 발열 반응 폭발로 죽었으면 true (폭발로 죽은 적은 다시 폭발하지 않는다)
+function killEnemy(enemy, cause) {
+  enemy.dead = true;
+  enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
+  score += enemyType(enemy).score * wave; // 점수 획득 (종류별 점수 × 웨이브)
+
+  // 보스를 잡으면 최대 체력의 절반을 회복하고, 잡은 보스 수를 센다
+  if (enemyType(enemy).isBoss) {
+    healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
+    bossesKilled += 1;
+    runCoins += BOSS_COIN_BONUS * chapterOf(wave); // 보스 보너스 코인
+  }
+
+  // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
+  const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: cause.bullet, explosion: cause.explosion === true };
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.onKill) aug.onKill(stats, killInfo);
+  });
+}
+
+// 총알이 아닌 것(발열 반응 폭발 등)으로 적에게 대미지를 준다. 죽으면 killEnemy
+function damageEnemy(enemy, damage, cause) {
+  if (enemy.dead) return;
+  enemy.hp -= damage;
+  spawnPopup(enemy.x, enemy.y - enemy.radius, damage);
+  enemy.hitFlash = 0.08;
+  if (enemy.hp <= 0) killEnemy(enemy, cause);
+  else if (enemyType(enemy).onHurt) enemyType(enemy).onHurt(enemy);
+}
+
 // 총알을 움직이고, 적과 부딪쳤는지 검사하는 함수
 function updateBullets(dt) {
   // 모든 총알을 하나씩 처리하는 반복문
@@ -1897,17 +1942,25 @@ function updateBullets(dt) {
 
     // 이 총알이 어떤 적과 부딪쳤는지 모든 적을 검사하는 반복문
     for (const enemy of enemies) {
-      // 이미 죽은 적은 건너뛴다
+      // 이미 죽은 적, 관통 중에 이미 맞힌 적은 건너뛴다
       if (enemy.dead) continue;
+      if (bullet.hitEnemies && bullet.hitEnemies.includes(enemy)) continue;
 
-      if (circlesOverlap(bullet.x, bullet.y, BULLET_RADIUS,
+      if (circlesOverlap(bullet.x, bullet.y, bulletRadius(bullet),
                          enemy.x, enemy.y, enemy.radius)) {
         // 대미지를 계산해서 적 체력을 깎는다
         const damage = calcDamage(enemy, bullet);
         enemy.hp -= damage;
         spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
-        bullet.dead = true;      // 총알은 맞으면 사라진다
+        // 총알은 맞으면 사라진다. 관통이 남아 있으면 하나 쓰고 계속 날아간다
+        if (bullet.pierce > 0) {
+          bullet.pierce -= 1;
+          bullet.hitEnemies = bullet.hitEnemies || [];
+          bullet.hitEnemies.push(enemy);
+        } else {
+          bullet.dead = true;
+        }
         const killed = enemy.hp <= 0; // 이번 한 방으로 죽었는지
 
         // [훅] onHit: 대미지가 적용된 직후 증강에게 알린다 (넉백, 지속 대미지 등)
@@ -1920,25 +1973,8 @@ function updateBullets(dt) {
         if (!killed && enemyType(enemy).onHurt) enemyType(enemy).onHurt(enemy);
 
         // 체력이 0 이하가 되면 적은 죽는다
-        if (killed) {
-          enemy.dead = true;
-          enemyType(enemy).onDeath(enemy);  // 종류별 죽을 때 효과 (기본 적: 파티클)
-          score += enemyType(enemy).score * wave; // 점수 획득 (종류별 점수 × 웨이브)
-
-          // 보스를 잡으면 최대 체력의 절반을 회복하고, 잡은 보스 수를 센다
-          if (enemyType(enemy).isBoss) {
-            healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
-            bossesKilled += 1;
-            runCoins += BOSS_COIN_BONUS * chapterOf(wave); // 보스 보너스 코인
-          }
-
-          // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
-          const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: bullet };
-          forEachOwnedAugment(function (aug, stats) {
-            if (aug.onKill) aug.onKill(stats, killInfo);
-          });
-        }
-        break; // 총알 하나는 적 하나만 맞힌다
+        if (killed) killEnemy(enemy, { bullet: bullet });
+        if (bullet.dead) break; // 총알 하나는 적 하나만 맞힌다 (관통이 남았으면 계속)
       }
     }
   }
@@ -2430,7 +2466,8 @@ function drawBullets() {
     const tailY = bullet.y - (bullet.vy / speed) * BULLET_TAIL_LENGTH;
 
     // 1) 꼬리 외곽선: 굵은 어두운 선을 먼저 긋고
-    setOutline(BULLET_RADIUS * 0.9 + SMALL_OUTLINE_WIDTH * 2);
+    const radius = bulletRadius(bullet);
+    setOutline(radius * 0.9 + SMALL_OUTLINE_WIDTH * 2);
     ctx.beginPath();
     ctx.moveTo(tailX, tailY);
     ctx.lineTo(bullet.x, bullet.y);
@@ -2439,11 +2476,11 @@ function drawBullets() {
     // 2) 꼬리 속: 그 위에 조금 가는 노란 선을 겹쳐 그으면 외곽선 있는 꼬리가 된다
     const color = bullet.color || COLORS.yellow; // 보통은 노랑, 파편 등은 자기 색
     ctx.strokeStyle = color;
-    ctx.lineWidth = BULLET_RADIUS * 0.9;
+    ctx.lineWidth = radius * 0.9;
     ctx.stroke();
 
     // 3) 알갱이 머리
-    drawOutlinedCircle(bullet.x, bullet.y, BULLET_RADIUS, color, SMALL_OUTLINE_WIDTH);
+    drawOutlinedCircle(bullet.x, bullet.y, radius, color, SMALL_OUTLINE_WIDTH);
 
     // 4) 아주 작은 하이라이트 점
     ctx.fillStyle = COLORS.white;
