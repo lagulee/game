@@ -1402,6 +1402,8 @@ module.exports = [
       // 가장 작은 글자(12px)로 줄여도 칸을 넘는 글자가 있는지
       const tooWide = [];
       const check = (text, size, max, label) => { ctx.font = Math.max(12, fitTextSize(text, size, max)) + "px " + FONT_FAMILY; if (ctx.measureText(text).width > max + 0.5) tooWide.push(label); };
+      const ecols = Math.ceil(COLLECTION_ENEMIES.length / 2);
+      COLLECTION_ENEMIES.forEach((id, i) => { const c = collectionCell(i, COLLECTION_ENEMIES.length, ecols); check(ENEMY_TYPES[id].name, 17, c.w - 12, ENEMY_TYPES[id].name); check(ENEMY_TYPES[id].desc, 12, c.w - 10, ENEMY_TYPES[id].desc); });
       AUGMENTS.forEach((a, i) => { const c = collectionCell(i, AUGMENTS.length, 5); check(a.name, 17, c.w - 16, a.name); check(a.formula, 19, c.w - 14, a.formula); check(a.concept, 13, c.w - 12, a.concept); });
       SUPPLIES.forEach((card, i) => { const c = collectionCell(i, SUPPLIES.length, 5); check(card.formula, 20, c.w - 14, card.formula);
         if (wrapText(card.desc, c.w - 20, 14).length > 7) tooWide.push(card.name + " 설명 줄 수"); });
@@ -1613,6 +1615,98 @@ module.exports = [
       // (공명형은 옆으로 흔들리는 박자도 이 적의 시계로 흘러서 정확히 0.5배는 아니다)
       const ok = res.every((r) => Math.abs(r.slowRatio - 0.5) < 0.06 && r.enrageRatio > 1.2 && r.hpScaled) && inCollection;
       return { ok: ok, detail: res.map((r) => r.id + " 시간 지연 ×" + r.slowRatio.toFixed(2) + ", 과열 ×" + r.enrageRatio.toFixed(2) + ", 체력 배율 " + r.hpScaled).join(" / ") + " / 도감 " + inCollection };
+    },
+  },
+  // ---------------- 4단계 C: 새 보스 ----------------
+  {
+    name: "[새 보스] 파동 군주: 위쪽에서 x = 가운데 + A·sin(ωt), 3초마다 12발(30° 간격), 체력 50% 아래면 0.5초 뒤 15° 어긋난 두 번째 겹",
+    run: function () {
+      const run = (hpRatio) => {
+        startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+        const b = createEnemy("waveLord", 480, -34, 15); enemies = [b];
+        const rings = []; let t = 0, xs = [];
+        for (let f = 0; f < 60 * 13; f++) {
+          player.fireTimer = 1e9; player.x = 480; player.y = 480; b.hp = b.maxHp * hpRatio;
+          const n = enemyBullets.length; update(1 / 60); t += 1 / 60;
+          if (enemyBullets.length > n) rings.push({ t: +t.toFixed(2), n: enemyBullets.length - n, a: enemyBullets.slice(n).map((q) => Math.atan2(q.vy, q.vx)) });
+          if (b.state === "wave") xs.push([b.waveT, b.x]);
+        }
+        debugMode = false;
+        const sineErr = Math.max(...xs.map(([wt, x]) => Math.abs(x - (480 + WL_AMPLITUDE * Math.sin(WL_OMEGA * wt)))));
+        return { rings, sineErr, y: b.y };
+      };
+      const calm = run(1), angry = run(0.4);
+      const gaps = calm.rings.slice(1).map((r, i) => +(r.t - calm.rings[i].t).toFixed(2));
+      const spacing = calm.rings[0].a.map((a, i, arr) => { const d = ((arr[(i + 1) % 12] - a) * 180 / Math.PI + 360) % 360; return Math.round(d); });
+      const pairGap = +(angry.rings[1].t - angry.rings[0].t).toFixed(2);
+      const offset = Math.round((((angry.rings[1].a[0] - angry.rings[0].a[0]) * 180 / Math.PI) % 30 + 30) % 30);
+      const ok = calm.rings.every((r) => r.n === 12) && gaps.every((g) => Math.abs(g - 3) < 0.05) && spacing.every((d) => d === 30) &&
+        calm.sineErr < 1e-6 && calm.y < 120 && Math.abs(pairGap - 0.5) < 0.05 && offset === 15;
+      return { ok: ok, detail: "탄막 " + calm.rings.length + "번 (각 " + calm.rings[0].n + "발, 간격 " + gaps.join(",") + "초, 각도 간격 " + [...new Set(spacing)].join(",") + "°) / 사인 곡선 오차 " + calm.sineErr.toExponential(1) +
+        " / 화나면: 두 번째 겹 " + pairGap + "초 뒤, " + offset + "° 어긋남" };
+    },
+  },
+  {
+    name: "[새 보스] 회전 포대: 가운데에 자리, 4방향 총구로 계속 발사, 체력이 줄수록 ω 증가, 10초마다 방향 반대 (1초 전 예고)",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      const b = createEnemy("turret", 480, -36, 20); enemies = [b];
+      let t = 0, centerAt = null; const flips = [], warnStarts = []; let lastDir = 1, lastWarn = false; let burst = 0;
+      for (let f = 0; f < 60 * 26; f++) {
+        player.fireTimer = 1e9; player.x = 100; player.y = 480;
+        const n = enemyBullets.length; update(1 / 60); t += 1 / 60;
+        if (b.state === "spin" && centerAt === null) centerAt = +t.toFixed(2);
+        if (enemyBullets.length > n) burst = enemyBullets.length - n;
+        if (b.flipWarn && !lastWarn) warnStarts.push(+t.toFixed(2));
+        if (b.spinDir !== lastDir) { flips.push(+t.toFixed(2)); lastDir = b.spinDir; }
+        lastWarn = b.flipWarn;
+      }
+      debugMode = false;
+      const atCenter = distance(b.x, b.y, 480, 270) < 3;
+      const w1 = turretOmega({ hp: 1, maxHp: 1 }), w0 = turretOmega({ hp: 0.5, maxHp: 1 }), wLow = turretOmega({ hp: 0, maxHp: 1 });
+      const flipGap = +(flips[1] - flips[0]).toFixed(2), warnLead = +(flips[0] - warnStarts[0]).toFixed(2);
+      const ok = atCenter && burst === 4 && flips.length >= 2 && Math.abs(flipGap - 10) < 0.05 && Math.abs(warnLead - 1) < 0.05 && w1 < w0 && w0 < wLow && Math.abs(wLow / w1 - 2.2) < 1e-9;
+      return { ok: ok, detail: "가운데 도착 " + centerAt + "초, 자리 " + atCenter + " / 한 번에 " + burst + "발 / ω 체력 100% " + w1 + ", 50% " + w0.toFixed(2) + ", 0% " + wLow.toFixed(2) +
+        " / 방향 전환 " + flips.join(",") + "초 (간격 " + flipGap + "), 예고 " + warnLead + "초 전" };
+    },
+  },
+  {
+    name: "[새 보스] 블랙홀: 1/r² 로 끌어당김(상한, 420px 밖은 안 당김), 사건의 지평선(50px) 큰 대미지·튕겨냄, 플레이어 총알이 휨, 8초마다 3초 약점 (평소 30%)",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      const b = createEnemy("blackHole", 480, 270, 30); b.state = "drift"; b.speed = 0; enemies = [b];
+      const T = ENEMY_TYPES.blackHole, acc = (d) => { const v = T.pullOn(b, 480 + d, 270); return Math.hypot(v.ax, v.ay); };
+      const ratio = acc(200) / acc(400), cap = acc(60), farZero = acc(BH_PULL_RANGE + 10) === 0;
+      // 사건의 지평선
+      player.x = 480 + BH_HORIZON + 10; player.y = 270; player.invincibleTimer = 0; player.hp = player.maxHp = 1000; const hp0 = player.hp;
+      b.cycle = 0; updateEnemies(1 / 60);
+      const horizonDmg = hp0 - player.hp, kicked = player.pullVx > 0;
+      // 플레이어 총알이 휜다: 블랙홀 옆 120px 를 지나가는 총알
+      player.x = 100; player.y = 470; player.invincibleTimer = 1e9;
+      const shot = createBullet(1, 0, { x: 300, y: 270 - 120, fromAugment: true });
+      updateBullets(1 / 60); const bent = shot.vy > 0;
+      // 약점: 주기 8초 중 마지막 3초. 평소 30%, 약점 100%
+      const dmgAt = (cycle) => { b.cycle = cycle; b.hp = b.maxHp = 100000; const q = createBullet(1, 0, { x: 400, y: 270, fromAugment: true }); for (let i = 0; i < 20 && !q.dead; i++) updateBullets(1 / 60); return 100000 - b.hp; };
+      const closed = dmgAt(1), open = dmgAt(6), weakFlags = [0, 4.9, 5.0, 7.9].map((c) => { b.cycle = c; return blackHoleWeak(b) ? 1 : 0; }).join("");
+      b.cycle = 1; b.hp = b.maxHp = 1000; damageEnemy(b, 100, { explosion: true }); const exoClosed = 1000 - b.hp;
+      draw();
+      const ok = Math.abs(ratio - 4) < 1e-9 && farZero && Math.abs(cap - PLAYER_ACCELERATION * BH_PULL_MAX_RATIO) < 1e-9 && Math.abs(horizonDmg - BH_HORIZON_DAMAGE * waveDamageMult(30)) < 1e-6 &&
+        kicked && bent && Math.abs(closed - 3) < 1e-9 && Math.abs(open - 10) < 1e-9 && weakFlags === "0011" && Math.abs(exoClosed - 30) < 1e-9;
+      return { ok: ok, detail: "a(200)/a(400) = " + ratio + ", 상한 " + cap + ", " + BH_PULL_RANGE + "px 밖은 0 " + farZero + " / 지평선 대미지 " + horizonDmg.toFixed(1) + ", 튕겨냄 " + kicked + " / 총알 휨 " + bent +
+        " / 총알 대미지 평소 " + closed + ", 약점 " + open + " / 약점 시각 0·4.9·5·7.9초 → " + weakFlags + " / 폭발도 30% " + exoClosed };
+    },
+  },
+  {
+    name: "[새 보스] 반감기는 새 보스 3종에게도 절반만 (4% → 2%)",
+    run: function () {
+      const rates = [];
+      for (const id of ["waveLord", "turret", "blackHole", "chargerKing"]) {
+        startGame(); spawnQueue = []; ownedAugments = { halfLife: 1 };
+        const b = createEnemy(id, 480, 270, 15); b.speed = 0; b.state = "drift"; b.cycle = 6; enemies = [b];
+        const q = createBullet(1, 0, { x: 400, y: 270, fromAugment: true }); for (let i = 0; i < 20 && !q.dead; i++) updateBullets(1 / 60);
+        rates.push(id + " " + b.decayRate);
+      }
+      return { ok: rates.every((r) => r.endsWith(" 0.02")), detail: rates.join(" / ") };
     },
   },
 ];

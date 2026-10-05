@@ -2092,6 +2092,7 @@ function killEnemy(enemy, cause) {
 // 총알이 아닌 것(발열 반응 폭발 등)으로 적에게 대미지를 준다. 죽으면 killEnemy
 function damageEnemy(enemy, damage, cause) {
   if (enemy.dead) return;
+  if (enemyType(enemy).damageTakenMult) damage *= enemyType(enemy).damageTakenMult(enemy);   // 블랙홀 약점
   enemy.hp -= damage;
   spawnPopup(enemy.x, enemy.y - enemy.radius, damage);
   enemy.hitFlash = 0.08;
@@ -2109,6 +2110,10 @@ function updateBullets(dt) {
     forEachOwnedAugment(function (aug, stats) {
       if (aug.onBulletUpdate) aug.onBulletUpdate(bullet, stats, dt);
     });
+    // 블랙홀처럼 총알을 휘게 하는 적
+    for (const enemy of enemies) {
+      if (!enemy.dead && enemyType(enemy).bendBullet) enemyType(enemy).bendBullet(enemy, bullet, dt);
+    }
 
     // 수명이 정해진 총알(핵분열 파편 등)은 시간이 다 되면 사라진다
     if (bullet.life !== undefined && bullet.age > bullet.life) {
@@ -2138,6 +2143,7 @@ function updateBullets(dt) {
         // 대미지를 계산해서 적 체력을 깎는다 (방패형처럼 총알 대미지를 줄이는 적은 종류별로 한 번 더)
         let damage = calcDamage(enemy, bullet);
         if (enemyType(enemy).modifyBulletDamage) damage = enemyType(enemy).modifyBulletDamage(enemy, damage, bullet);
+        if (enemyType(enemy).damageTakenMult) damage *= enemyType(enemy).damageTakenMult(enemy);   // 블랙홀 약점
         enemy.hp -= damage;
         spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
@@ -2471,6 +2477,12 @@ function drawEnemy(enemy) {
     drawResonatorBody(enemy, r, bodyColor);
   } else if (type.shape === "magnet") {
     drawMagnetBody(enemy, r, bodyColor);
+  } else if (type.shape === "waveLord") {
+    drawWaveLordBody(enemy, r, bodyColor);
+  } else if (type.shape === "turret") {
+    drawTurretBody(enemy, r, bodyColor);
+  } else if (type.shape === "blackHole") {
+    drawBlackHoleBody(enemy, r, bodyColor);
   } else {
     drawBasicBody(enemy, r, bodyColor);
   }
@@ -2645,6 +2657,81 @@ function drawMagnetBody(enemy, r, bodyColor) {
   // 가운데 몸 (얼굴이 들어갈 자리)
   drawOutlinedCircle(0, 0, r * 0.75, bodyColor);
   drawHighlight(0, 0, r * 0.7);
+}
+
+// 파동 군주 몸통: 동그란 몸 + 둘레가 물결치는 테두리 (사인파 모양)
+function drawWaveLordBody(enemy, r, bodyColor) {
+  const pts = [];
+  const n = 48;
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const rr = r * (1.12 + 0.1 * Math.sin(a * 8 + runTime * 4));   // 8개 물결이 빙글 돈다
+    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+  }
+  drawOutlinedPolygon(pts, COLORS.purple, SMALL_OUTLINE_WIDTH);
+  drawOutlinedCircle(0, 0, r * 0.92, bodyColor);
+  drawHighlight(0, 0, r * 0.85);
+}
+
+// 회전 포대 몸통: 4방향 총구 (돌아간다) + 둥근 사각형 몸. 방향이 바뀌기 직전에는 총구가 노랗게 깜빡
+function drawTurretBody(enemy, r, bodyColor) {
+  const warn = enemy.flipWarn && Math.floor(runTime * 8) % 2 === 0;
+  ctx.save();
+  ctx.rotate(enemy.spin || 0);
+  for (let k = 0; k < TURRET_BARRELS; k++) {
+    ctx.save();
+    ctx.rotate((k * Math.PI * 2) / TURRET_BARRELS);
+    drawOutlinedRoundRect(r * 0.5, -r * 0.22, r * 0.85, r * 0.44, 4, warn ? COLORS.yellow : COLORS.dark, SMALL_OUTLINE_WIDTH);
+    ctx.restore();
+  }
+  ctx.restore();
+  drawOutlinedRoundRect(-r * 0.85, -r * 0.85, r * 1.7, r * 1.7, r * 0.45, bodyColor);
+  drawHighlight(-r * 0.2, -r * 0.2, r * 0.7);
+  // 회전 방향 화살표 (예고 중이면 다음 방향을 보여 준다)
+  const dir = (enemy.spinDir || 1) * (enemy.flipWarn ? -1 : 1);
+  setOutline(SMALL_OUTLINE_WIDTH);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.45, -0.6 * dir - Math.PI / 2, 0.6 * dir - Math.PI / 2, dir < 0);
+  ctx.stroke();
+}
+
+// 블랙홀 몸통: 주황 강착 원반(빙글빙글) + 검은 몸 + 사건의 지평선 점선 + 약점이면 노랗게 빛나는 고리
+function drawBlackHoleBody(enemy, r, bodyColor) {
+  const weak = blackHoleWeak(enemy);
+  ctx.save();
+  ctx.rotate(runTime * 1.5);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.9, r * 0.55, 0, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.orange;
+  ctx.globalAlpha = 0.85;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  setOutline(SMALL_OUTLINE_WIDTH);
+  ctx.stroke();
+  ctx.restore();
+  drawOutlinedCircle(0, 0, r, enemy.hitFlash > 0 ? COLORS.white : COLORS.outline);
+  // 사건의 지평선 (닿으면 큰 대미지)
+  ctx.save();
+  ctx.setLineDash([6, 6]);
+  ctx.lineDashOffset = -runTime * 20;
+  ctx.strokeStyle = COLORS.red;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * BH_HORIZON / ENEMY_TYPES.blackHole.radius, 0, Math.PI * 2);   // 몸 크기에 맞춰 (도감에서는 작게)
+  ctx.stroke();
+  ctx.restore();
+  // 약점: 노랗게 빛나는 고리 + 남은 시간 표시
+  if (weak) {
+    ctx.save();
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(runTime * 12);
+    ctx.strokeStyle = COLORS.yellow;
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.7, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    drawOutlinedText("약점!", 0, r + 26, 18, "center", COLORS.yellow);   // 몸 아래 (대미지 숫자는 위에 뜬다)
+  }
 }
 
 // 보스의 왕관: 노란 톱니 모양 + 가운데 빨간 보석
@@ -4174,7 +4261,7 @@ function drawMenu() {
 
 // 도감에 보여 줄 적 종류 (조각·알갱이는 분열형에 포함)
 const COLLECTION_ENEMIES = ["basic", "charger", "sine", "splitter", "shooter", "shield", "resonator", "magnet",
-  "chargerKing", "splitterKing"];
+  "chargerKing", "splitterKing", "waveLord", "turret", "blackHole"];
 // 도감의 쪽 목록 (id, 버튼 글자, 버튼 색)
 const COLLECTION_PAGES = [
   { id: "enemies", label: "적", color: "red" },

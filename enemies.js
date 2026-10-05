@@ -45,6 +45,8 @@
 //   pullOn(enemy, x, y)           : (x, y) 에 있는 플레이어를 당기는 가속도 { ax, ay } (자석형, 블랙홀)
 //   drawAura(enemy)               : 몸보다 먼저 바닥에 범위를 그린다 (공명형 물결, 자석형 자기장)
 //   enemy.chargeFlash = true      : 몸이 빠르게 깜빡인다 (사수형: 곧 쏜다는 신호)
+//   damageTakenMult(enemy)        : 받는 대미지 배율 (총알·폭발 모두). 블랙홀: 약점이 닫혀 있으면 0.3
+//   bendBullet(enemy, bullet, dt) : 플레이어 총알을 휘게 한다 (블랙홀)
 //
 // ---- 보스 전용 항목 ----
 //   isBoss       : true 면 보스. 화면 위쪽 큰 체력바, 처치 시 체력 회복
@@ -76,6 +78,39 @@ const RESONATOR_MARGIN = 30;        // 화면 가장자리에서 이만큼 안�
 const MAGNET_RANGE = 220;           // 당기는 범위 반지름 (px)
 const MAGNET_STRENGTH = 2900000;    // 당기는 세기 G. 가속도 = G ÷ r²  (r = 220px → 약 60 px/초², 110px → 약 240 px/초²)
 const MAGNET_MAX_ACCEL_RATIO = 0.4; // 가속도 상한 = 플레이어 가속도 × 0.4
+
+// ---- 파동 군주 (보스 · 물리 · 파동): 위쪽을 사인 곡선으로 오가며 원형 탄막 ----
+const WL_Y = 95;                       // 오가는 높이 (화면 위쪽)
+const WL_AMPLITUDE = 330;              // 좌우로 오가는 폭 A (가운데에서 ± px)
+const WL_OMEGA = 0.55;                 // 오가는 빠르기 ω (rad/초). 한 번 왕복 2π/ω ≈ 11초
+const WL_FIRE_INTERVAL = 3;            // 원형 탄막 간격 (초)
+const WL_RING_COUNT = 12;              // 한 겹의 탄환 수 (360° ÷ 12 = 30° 간격)
+const WL_SECOND_RING_DELAY = 0.5;      // 화가 나면 두 번째 겹을 이만큼 뒤에 쏜다 (초)
+const WL_SECOND_RING_OFFSET = Math.PI / 12;  // 두 번째 겹은 15° 어긋나게
+const WL_ENRAGE_RATIO = 0.5;           // 체력이 이 비율 아래면 두 겹
+const WL_BULLET_DAMAGE = 14;
+
+// ---- 회전 포대 (보스 · 물리 · 각속도): 가운데에서 4방향 총구를 돌리며 나선 탄막 ----
+const TURRET_BARRELS = 4;              // 총구 수 (90° 간격)
+const TURRET_OMEGA = 1.0;              // 체력이 가득일 때 각속도 ω (rad/초)
+const TURRET_OMEGA_GAIN = 1.2;         // 체력이 줄수록 ω × (1 + 1.2 × 잃은 비율) → 체력 0 에 가까우면 2.2배
+const TURRET_FIRE_INTERVAL = 0.3;      // 총구마다 쏘는 간격 (초)
+const TURRET_FLIP_TIME = 10;           // 이 시간(초)마다 회전 방향이 반대로
+const TURRET_FLIP_WARN = 1;            // 바뀌기 전에 예고하는 시간 (초)
+const TURRET_BULLET_DAMAGE = 12;
+
+// ---- 블랙홀 (보스 · 물리 · 중력): 끌어당기고, 사건의 지평선에 닿으면 큰 대미지 ----
+const BH_PULL_STRENGTH = 7000000;      // 플레이어를 당기는 세기 G (가속도 = G ÷ r²)
+const BH_PULL_MAX_RATIO = 0.25;        // 당기는 가속도 상한 = 플레이어 가속도 × 0.25
+const BH_PULL_RANGE = 420;             // 이 거리(px)보다 멀면 당기지 않는다 (멀리 떨어지면 안전)
+const BH_HORIZON = 50;                 // 사건의 지평선 반지름 (px). 여기에 닿으면 큰 대미지
+const BH_HORIZON_DAMAGE = 40;          // 지평선 대미지 (× 웨이브 접촉 대미지 배율)
+const BH_KICK = 320;                   // 지평선에 닿으면 바깥으로 튕겨 내는 속도 (px/초)
+const BH_BEND_STRENGTH = 3000000;      // 플레이어 총알을 휘게 하는 세기 (가속도 = G ÷ r²)
+const BH_BEND_MAX = 2500;              // 총알을 휘게 하는 가속도 상한 (px/초²)
+const BH_WEAK_PERIOD = 8;              // 약점 주기 (초)
+const BH_WEAK_TIME = 3;                // 주기의 마지막 이 시간(초) 동안 약점이 드러난다
+const BH_ARMOR = 0.3;                  // 약점이 닫혀 있을 때 받는 대미지 배율 (30%)
 
 // ---- 공통 ----
 
@@ -262,7 +297,7 @@ const ENEMY_TYPES = {
   // 진행 방향에 수직인 방향으로 위치가 y = A·sin(ωt + φ) 처럼 흔들린다.
   sine: {
     name: "사인파형",
-    desc: "곡선을 그리며 흔들흔들",
+    desc: "흔들흔들 다가옴",
     hp: 50,
     speed: 60,
     radius: 15,
@@ -387,7 +422,7 @@ const ENEMY_TYPES = {
   // 그래서 쏘는 순간 옆으로 비켜서면 피할 수 있다. 쏘기 0.5초 전에 몸이 깜빡인다.
   shooter: {
     name: "사수형",
-    desc: "거리를 두고 조준탄",
+    desc: "거리 두고 조준탄",
     hp: 40,
     speed: 55,
     radius: 15,
@@ -446,7 +481,7 @@ const ENEMY_TYPES = {
   // 반감기·발열 반응처럼 총알이 아닌 대미지는 방패를 무시한다 (modifyBulletDamage 는 총알에만 쓰인다).
   shield: {
     name: "방패형",
-    desc: "앞쪽 120° 방패, 옆·뒤가 약점",
+    desc: "옆·뒤가 약점",
     hp: 70,
     speed: 38,
     radius: 18,
@@ -488,7 +523,7 @@ const ENEMY_TYPES = {
   // 자기는 약해서 플레이어에게서 멀리 떨어지려 한다 → 먼저 찾아가서 잡는 것이 좋다.
   resonator: {
     name: "공명형",
-    desc: "주변 적 +30% 빠르게, 도망침",
+    desc: "주변 적 +30% 가속",
     hp: 35,
     speed: 60,
     radius: 14,
@@ -557,7 +592,7 @@ const ENEMY_TYPES = {
   // 끌려가는 속도는 플레이어가 조종하는 속도와 따로 쌓이고, 범위를 벗어나면 마찰로 줄어든다.
   magnet: {
     name: "자석형",
-    desc: "220px 안의 플레이어를 끌어당김",
+    desc: "끌어당김",
     hp: 80,
     speed: 25,
     radius: 20,
@@ -735,6 +770,213 @@ const ENEMY_TYPES = {
   },
 };
 
+
+// ---- 새 보스 3종 (4단계) ----
+// 세 보스 모두 화면 위에서 내려와(enter) 자리를 잡은 뒤 패턴을 시작한다.
+// 행동 시간은 모두 보스의 시계 localDt 로 잰다 (시간 지연을 받으면 탄막도 느려진다, 단 0.6배까지만).
+Object.assign(ENEMY_TYPES, {
+  // ---- 파동 군주 (물리 · 파동): x = 가운데 + A·sin(ωt) 로 오가며 3초마다 12발 원형 탄막 ----
+  waveLord: {
+    name: "파동 군주",
+    desc: "보스 · 원형 탄막",
+    isBoss: true,
+    hp: 1000,
+    speed: 60,
+    radius: 34,
+    color: "blue",
+    contactDamage: 30,
+    score: 2000,
+    shape: "waveLord",
+    crown: true,
+    knockResist: 0,
+    timeScaleMin: BOSS_TIME_SCALE_MIN,
+
+    init: function (enemy) {
+      enemy.state = "enter";
+      enemy.waveT = 0;                       // 사인 곡선의 시간 t
+      enemy.fireTimer = WL_FIRE_INTERVAL;    // 다음 원형 탄막까지
+      enemy.secondRingTimer = -1;            // 두 번째 겹까지 남은 시간 (−1 = 없음)
+      enemy.ringAngle = 0;                   // 이번 탄막의 시작 각도
+    },
+
+    update: function (enemy, dt, info) {
+      if (enemy.state === "enter") {
+        enemy.y += info.speed * dt;
+        if (enemy.y >= WL_Y) { enemy.y = WL_Y; enemy.state = "wave"; enemy.centerX = CANVAS_WIDTH / 2; enemy.waveT = Math.asin(clamp((enemy.x - CANVAS_WIDTH / 2) / WL_AMPLITUDE, -1, 1)) / WL_OMEGA; }
+        return;
+      }
+      // 사인 곡선으로 좌우 왕복 (위아래로도 살짝 출렁)
+      enemy.waveT += info.localDt;
+      enemy.x = CANVAS_WIDTH / 2 + WL_AMPLITUDE * Math.sin(WL_OMEGA * enemy.waveT);
+      enemy.y = WL_Y + 12 * Math.sin(WL_OMEGA * 3 * enemy.waveT);
+      // 원형 탄막
+      enemy.fireTimer -= info.localDt;
+      if (enemy.fireTimer <= 0) {
+        enemy.fireTimer += WL_FIRE_INTERVAL;
+        enemy.ringAngle = Math.random() * (Math.PI * 2 / WL_RING_COUNT);  // 매번 조금 다른 각도에서
+        fireRing(enemy, enemy.ringAngle);
+        // 체력 50% 아래: 0.5초 뒤 15° 어긋난 두 번째 겹
+        if (enemy.hp < enemy.maxHp * WL_ENRAGE_RATIO) enemy.secondRingTimer = WL_SECOND_RING_DELAY;
+      }
+      if (enemy.secondRingTimer >= 0) {
+        enemy.secondRingTimer -= info.localDt;
+        if (enemy.secondRingTimer < 0) fireRing(enemy, enemy.ringAngle + WL_SECOND_RING_OFFSET);
+      }
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.blue);
+      spawnParticles(enemy.x, enemy.y, COLORS.yellow);
+    },
+  },
+
+  // ---- 회전 포대 (물리 · 각속도): 가운데에서 4방향 총구를 각속도 ω 로 돌리며 계속 쏜다 → 나선 ----
+  // 총구 각도 θ = θ₀ + ω·t. 일정한 간격으로 쏜 총알들이 저마다 다른 방향으로 곧게 날아가서 나선 팔이 된다.
+  // 체력이 줄수록 ω 가 커지고, 10초마다 회전 방향이 바뀐다 (1초 전부터 총구가 깜빡이며 예고).
+  turret: {
+    name: "회전 포대",
+    desc: "보스 · 나선 탄막",
+    isBoss: true,
+    hp: 1200,
+    speed: 80,
+    radius: 36,
+    color: "slate",
+    contactDamage: 30,
+    score: 2500,
+    shape: "turret",
+    crown: true,
+    knockResist: 0,
+    timeScaleMin: BOSS_TIME_SCALE_MIN,
+
+    init: function (enemy) {
+      enemy.state = "enter";
+      enemy.spin = 0;                        // 총구 각도 θ
+      enemy.spinDir = 1;                     // 회전 방향 (1 = 시계, −1 = 반시계)
+      enemy.flipTimer = TURRET_FLIP_TIME;    // 방향이 바뀌기까지
+      enemy.fireTimer = TURRET_FIRE_INTERVAL;
+      enemy.flipWarn = false;
+    },
+
+    update: function (enemy, dt, info) {
+      if (enemy.state === "enter") {
+        // 화면 가운데로 이동해서 자리 잡기
+        moveToward(enemy, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, info.speed, dt);
+        if (distance(enemy.x, enemy.y, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2) < 2) enemy.state = "spin";
+        return;
+      }
+      enemy.spin += turretOmega(enemy) * enemy.spinDir * info.localDt;
+      // 방향 바꾸기 (1초 전부터 예고)
+      enemy.flipTimer -= info.localDt;
+      enemy.flipWarn = enemy.flipTimer <= TURRET_FLIP_WARN;
+      if (enemy.flipTimer <= 0) {
+        enemy.spinDir = -enemy.spinDir;
+        enemy.flipTimer += TURRET_FLIP_TIME;
+      }
+      // 4방향 총구에서 함께 쏜다
+      enemy.fireTimer -= info.localDt;
+      if (enemy.fireTimer <= 0) {
+        enemy.fireTimer += TURRET_FIRE_INTERVAL;
+        for (let k = 0; k < TURRET_BARRELS; k++) {
+          const a = enemy.spin + (k * Math.PI * 2) / TURRET_BARRELS;
+          spawnEnemyBullet(enemy.x + Math.cos(a) * (enemy.radius + 10), enemy.y + Math.sin(a) * (enemy.radius + 10), a, { damage: TURRET_BULLET_DAMAGE });
+        }
+      }
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.slate);
+      spawnParticles(enemy.x, enemy.y, COLORS.yellow);
+    },
+  },
+
+  // ---- 블랙홀 (물리 · 중력): 끌어당기고, 사건의 지평선(50px)에 닿으면 큰 대미지 ----
+  // 플레이어도, 플레이어의 총알도 블랙홀 쪽으로 휜다 (가속도 = G ÷ r², 상한 있음).
+  // 평소에는 대미지가 30% 만 들어가고, 8초마다 3초 동안 약점이 드러나면 그때만 정상으로 들어간다.
+  blackHole: {
+    name: "블랙홀",
+    desc: "보스 · 끌어당김",
+    isBoss: true,
+    hp: 1600,
+    speed: 18,
+    radius: 40,
+    color: "outline",
+    contactDamage: 35,
+    score: 3500,
+    shape: "blackHole",
+    crown: true,
+    knockResist: 0,
+    timeScaleMin: BOSS_TIME_SCALE_MIN,
+
+    init: function (enemy) {
+      enemy.state = "enter";
+      enemy.cycle = 0;                       // 약점 주기 시계 (0 ~ 8초)
+    },
+
+    update: function (enemy, dt, info) {
+      if (enemy.state === "enter") {
+        moveToward(enemy, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, info.speed * 4, dt);
+        if (enemy.y >= 140) enemy.state = "drift";
+      } else {
+        moveToward(enemy, player.x, player.y, info.speed, dt);   // 아주 천천히 다가온다
+      }
+      enemy.cycle = (enemy.cycle + info.localDt) % BH_WEAK_PERIOD;
+      // 사건의 지평선: 닿으면 큰 대미지 + 바깥으로 튕겨 낸다 (무적 중이면 튕기기만)
+      const d = distance(enemy.x, enemy.y, player.x, player.y);
+      if (gameState === "playing" && d < BH_HORIZON + PLAYER_RADIUS) {
+        const out = d || 1;
+        player.pullVx = ((player.x - enemy.x) / out) * BH_KICK;
+        player.pullVy = ((player.y - enemy.y) / out) * BH_KICK;
+        if (player.invincibleTimer <= 0 && !(debugMode && debugInvincible)) {
+          hurtPlayer(BH_HORIZON_DAMAGE * waveDamageMult(enemy.wave));
+          spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "사건의 지평선!", COLORS.red);
+        }
+      }
+    },
+
+    pullOn: function (enemy, x, y) {
+      return gravityPull(enemy.x, enemy.y, x, y, BH_PULL_RANGE, BH_PULL_STRENGTH, PLAYER_ACCELERATION * BH_PULL_MAX_RATIO);
+    },
+
+    // 플레이어 총알도 휜다 (빠르기는 그대로, 방향만)
+    bendBullet: function (enemy, bullet, dt) {
+      const a = gravityPull(enemy.x, enemy.y, bullet.x, bullet.y, Infinity, BH_BEND_STRENGTH, BH_BEND_MAX);
+      const speed = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy);
+      bullet.vx += a.ax * dt;
+      bullet.vy += a.ay * dt;
+      const now = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy) || 1;
+      bullet.vx *= speed / now;
+      bullet.vy *= speed / now;
+    },
+
+    damageTakenMult: function (enemy) {
+      return blackHoleWeak(enemy) ? 1 : BH_ARMOR;
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.purple);
+      spawnParticles(enemy.x, enemy.y, COLORS.orange);
+    },
+  },
+});
+
+// 파동 군주: 지금 자리에서 12발 원형 탄막 (startAngle 부터 30° 간격)
+function fireRing(enemy, startAngle) {
+  for (let k = 0; k < WL_RING_COUNT; k++) {
+    const a = startAngle + (k * Math.PI * 2) / WL_RING_COUNT;
+    spawnEnemyBullet(enemy.x + Math.cos(a) * enemy.radius, enemy.y + Math.sin(a) * enemy.radius, a, { damage: WL_BULLET_DAMAGE });
+  }
+}
+
+// 회전 포대: 지금 각속도 ω = 기본 ω × (1 + 1.2 × 잃은 체력 비율)
+function turretOmega(enemy) {
+  const lost = 1 - Math.max(0, Math.min(1, enemy.hp / enemy.maxHp));
+  return TURRET_OMEGA * (1 + TURRET_OMEGA_GAIN * lost);
+}
+
+// 블랙홀: 지금 약점이 드러나 있는지 (주기 8초 중 마지막 3초)
+function blackHoleWeak(enemy) {
+  return enemy.cycle >= BH_WEAK_PERIOD - BH_WEAK_TIME;
+}
 
 // ---- 적 행동 도우미 함수 ----
 
