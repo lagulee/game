@@ -24,16 +24,16 @@
 // =============================================================
 
 // 웨이브 중에 적 무리가 나타나는 간격 (초)
-const WAVE_SPAWN_INTERVAL = 1.6;
+const WAVE_SPAWN_INTERVAL = tune("WAVE_SPAWN_INTERVAL", 1.6);
 // 한 무리의 마릿수. 무리는 화면의 서로 다른 변에서 동시에 나와 플레이어를 둘러싼다
-const WAVE_SPAWN_BATCH = 3;
+const WAVE_SPAWN_BATCH = tune("WAVE_SPAWN_BATCH", 3);
 // 표에 적힌 졸개 수에 곱하는 배율 (반올림). 보스 웨이브의 졸개에도 적용, 보스 수는 그대로
-const WAVE_COUNT_MULT = 1.6;
+const WAVE_COUNT_MULT = tune("WAVE_COUNT_MULT", 1.6);
 
 // 보스 웨이브: 웨이브 시작 후 보스가 나타나기까지 걸리는 시간 (초)
-const BOSS_SPAWN_DELAY = 2;
+const BOSS_SPAWN_DELAY = tune("BOSS_SPAWN_DELAY", 2);
 // 보스 웨이브: 보스가 나타난 뒤 졸개가 한 마리씩 나오는 간격 (초. 보스 웨이브는 무리 없이 한 마리씩)
-const BOSS_MINION_INTERVAL = 3;
+const BOSS_MINION_INTERVAL = tune("BOSS_MINION_INTERVAL", 3);
 
 // 모든 웨이브를 담는 배열 (30웨이브 = 6챕터 × 5웨이브, 5웨이브마다 보스)
 // 한 웨이브의 적은 5~14마리로 적게, 대신 웨이브 수가 많게. 1웨이브만 순서대로, 나머지는 mix

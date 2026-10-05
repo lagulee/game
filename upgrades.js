@@ -20,14 +20,14 @@
 // =============================================================
 
 // 업그레이드 비용 공통 값: 비용 = round(40 × 1.15 ^ 지금 레벨)
-const UPGRADE_BASE_COST = 40;
-const UPGRADE_COST_GROWTH = 1.15;
+const UPGRADE_BASE_COST = tune("UPGRADE_BASE_COST", 40);
+const UPGRADE_COST_GROWTH = tune("UPGRADE_COST_GROWTH", 1.15);
 const UPGRADE_MAX_LEVEL = 30;
 
 // 체력 업그레이드: 레벨당 최대 체력 + 이 값
-const UPGRADE_HP_PER_LEVEL = 10;
+const UPGRADE_HP_PER_LEVEL = tune("UPGRADE_HP_PER_LEVEL", 10);
 // 공격력 업그레이드: 레벨당 기본 대미지 + 이 값
-const UPGRADE_DAMAGE_PER_LEVEL = 1;
+const UPGRADE_DAMAGE_PER_LEVEL = tune("UPGRADE_DAMAGE_PER_LEVEL", 1);
 
 const UPGRADES = [
   {

@@ -56,16 +56,16 @@
 //  tools/balance-results.md 에 있다. tools/balance.js 로 다시 잴 수 있다)
 
 // 체력: 1웨이브 2배, 한 웨이브마다 +12%  (30웨이브: 2 × (1 + 0.12 × 29) = 8.96배)
-const ENEMY_HP_BASE = 2.0;
-const ENEMY_HP_GROWTH = 0.12;
+const ENEMY_HP_BASE = tune("ENEMY_HP_BASE", 2.0);
+const ENEMY_HP_GROWTH = tune("ENEMY_HP_GROWTH", 0.12);
 // 접촉 대미지: 1웨이브 1.5배, 한 웨이브마다 +5%  (30웨이브: 1.5 × 2.45 = 3.675배)
-const ENEMY_DMG_BASE = 1.5;
-const ENEMY_DMG_GROWTH = 0.05;
+const ENEMY_DMG_BASE = tune("ENEMY_DMG_BASE", 1.5);
+const ENEMY_DMG_GROWTH = tune("ENEMY_DMG_GROWTH", 0.05);
 // 속도: 1웨이브 1.5배, 한 웨이브마다 +2.5%, 단 2.2배를 넘지 않는다
 //   (기본 적 60 × 1.5 = 90. 플레이어 220 보다 느리지만, 무리로 둘러싸면 도망칠 길이 좁아진다)
-const ENEMY_SPEED_BASE = 1.5;
-const ENEMY_SPEED_STEP = 0.025;
-const ENEMY_SPEED_MAX_MULT = 2.2;
+const ENEMY_SPEED_BASE = tune("ENEMY_SPEED_BASE", 1.5);
+const ENEMY_SPEED_STEP = tune("ENEMY_SPEED_STEP", 0.025);
+const ENEMY_SPEED_MAX_MULT = tune("ENEMY_SPEED_MAX_MULT", 2.2);
 
 // w 웨이브의 속도 배율 = min(2.2, 1.5 × (1 + 0.025 × (w − 1)))
 function waveSpeedMult(w) {

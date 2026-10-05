@@ -66,7 +66,7 @@ const PARTICLE_COUNT_MAX = 10;
 const PARTICLE_LIFE = 0.55;
 
 // 플레이어 최고 속도 (1초에 몇 픽셀 움직이는지)
-const PLAYER_SPEED = 220;
+const PLAYER_SPEED = tune("PLAYER_SPEED", 220);
 
 // 플레이어 가속도 (px/초²). 1초에 속도가 얼마나 빨리 바뀌는지.
 // 800 이면 멈춰 있다가 최고 속도(220)까지 약 0.28초 걸린다.
@@ -79,16 +79,16 @@ const PLAYER_RADIUS = 18;
 
 // 플레이어 최대 체력 (게임을 시작할 때의 값. 보급 카드 "세포 분열"로 늘어날 수 있어서
 // 게임 중에는 player.maxHp 를 쓴다)
-const PLAYER_MAX_HP = 100;
+const PLAYER_MAX_HP = tune("PLAYER_MAX_HP", 100);
 
 // 체력이 최대 체력의 이 비율보다 낮으면, 카드 3장 중 1장은 반드시 보급 카드가 나온다
 const LOW_HP_RATIO = 0.4;
 
 // 웨이브를 깨면 최대 체력의 이 비율만큼 회복 (0.05 = 5%. 최대 체력까지만)
-const WAVE_CLEAR_HEAL_RATIO = 0.05;
+const WAVE_CLEAR_HEAL_RATIO = tune("WAVE_CLEAR_HEAL_RATIO", 0.05);
 
 // 보스를 잡으면 최대 체력의 이 비율만큼 회복 (0.5 = 50%)
-const BOSS_KILL_HEAL_RATIO = 0.5;
+const BOSS_KILL_HEAL_RATIO = tune("BOSS_KILL_HEAL_RATIO", 0.5);
 
 // 챕터 = 웨이브 몇 개 묶음인지 (5 이면 1~5웨이브가 챕터 1)
 const WAVES_PER_CHAPTER = 5;
@@ -112,29 +112,29 @@ const TEXT_POPUP_LIFE = 1.6;
 // ---- 코인 (영구 업그레이드를 사는 돈) ----
 // 전투 중 1초마다 버는 코인 = COIN_PER_SECOND × (1 + COIN_WAVE_BONUS × (웨이브 − 1))
 //   1웨이브 1개/초, 5웨이브 1.6개/초, 30웨이브 5.35개/초
-const COIN_PER_SECOND = 1;
-const COIN_WAVE_BONUS = 0.15;
+const COIN_PER_SECOND = tune("COIN_PER_SECOND", 1);
+const COIN_WAVE_BONUS = tune("COIN_WAVE_BONUS", 0.15);
 // 한 웨이브에서 코인이 쌓이는 시간은 최대 60초 (적을 일부러 남겨 두고 버티는 것을 막기 위해)
-const COIN_WAVE_TIME_CAP = 60;
+const COIN_WAVE_TIME_CAP = tune("COIN_WAVE_TIME_CAP", 60);
 // 보스를 잡으면 보너스 코인 = 이 값 × 챕터 번호
-const BOSS_COIN_BONUS = 50;
+const BOSS_COIN_BONUS = tune("BOSS_COIN_BONUS", 50);
 
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
-const PLAYER_INVINCIBLE_TIME = 0.6;
+const PLAYER_INVINCIBLE_TIME = tune("PLAYER_INVINCIBLE_TIME", 0.6);
 
 // ---- 과열: 한 웨이브를 너무 오래 끌면 적이 점점 빨라진다 (끝없이 도망만 다니는 것을 막는다) ----
 // 웨이브 시작 후 이 시간(초)이 지나면 과열 시작
-const ENRAGE_TIME = 40;
+const ENRAGE_TIME = tune("ENRAGE_TIME", 40);
 // 과열 중에는 살아 있는 모든 적의 속도가 1초마다 이 비율씩 빨라진다 (0.03 = 3%, 복리)
-const ENRAGE_RATE = 0.03;
+const ENRAGE_RATE = tune("ENRAGE_RATE", 0.03);
 // 과열로 빨라져도 적의 속도는 플레이어 최고 속도의 이 배수를 넘지 않는다
-const ENRAGE_MAX_PLAYER_RATIO = 1.1;
+const ENRAGE_MAX_PLAYER_RATIO = tune("ENRAGE_MAX_PLAYER_RATIO", 1.1);
 
 // 자동 발사 간격 (초). 0.4 이면 1초에 2.5발
-const FIRE_INTERVAL = 0.4;
+const FIRE_INTERVAL = tune("FIRE_INTERVAL", 0.4);
 
 // 총알 속도 (px/초)
-const BULLET_SPEED = 480;
+const BULLET_SPEED = tune("BULLET_SPEED", 480);
 
 // 총알 반지름 (픽셀)
 const BULLET_RADIUS = 5;
@@ -143,7 +143,7 @@ const BULLET_RADIUS = 5;
 const BULLET_TAIL_LENGTH = 16;
 
 // 총알 한 발의 기본 대미지 (업그레이드 0레벨 기준. 게임 중에는 player.damage 를 쓴다)
-const BULLET_DAMAGE = 10;
+const BULLET_DAMAGE = tune("BULLET_DAMAGE", 10);
 
 // ※ 적의 체력·속도·크기·접촉 대미지는 enemies.js 의 ENEMY_TYPES 에 있다.
 
@@ -278,6 +278,9 @@ const keys = {};
 
 // 키를 누르는 순간 실행되는 함수를 등록한다
 window.addEventListener("keydown", function (event) {
+  // 숫자 조절판(tuning.js)이 열려 있으면 키는 조절판 몫이다
+  if (isTuningOpen()) return;
+
   // 눌린 키를 "눌림(true)"으로 기록한다
   keys[event.code] = true;
 
@@ -1313,6 +1316,10 @@ function settingsResetRect() {
   const P = SETTINGS_PANEL;
   return { x: P.x + 372, y: P.y + 274, w: 218, h: 46 };
 }
+function settingsTuningRect() {
+  const P = SETTINGS_PANEL;
+  return { x: P.x + 34, y: P.y + 362, w: 290, h: 40 };      // 왼쪽 아래: 숫자 조절판 열기
+}
 
 // 지금 화면에서 누를 수 있는 로비 버튼 목록 { id, rect }.
 // 그리기와 클릭 판정이 모두 이 목록의 사각형을 쓴다.
@@ -1323,6 +1330,7 @@ function lobbyButtons() {
       { id: "settings:close", rect: settingsCloseRect() },
       { id: "settings:hud", rect: settingsHudRect() },
       { id: "settings:reset", rect: settingsResetRect() },
+      { id: "settings:tuning", rect: settingsTuningRect() },
     ];
   }
   const G = GEAR_BUTTON;
@@ -1355,6 +1363,7 @@ function runLobbyButton(id) {
   else if (id === "settings:close") closeSettings();
   else if (id === "settings:hud") toggleHud();
   else if (id === "settings:reset") pressResetSave();
+  else if (id === "settings:tuning") { closeSettings(); openTuningPanel(); }
   else if (id.startsWith("tab:")) openTab(id.slice(4));
   else if (id.startsWith("buy:")) tryBuyUpgrade(Number(id.slice(4)));
 }
@@ -3486,6 +3495,16 @@ function drawLobbyTopBar() {
   drawFlagIcon(waveX + 22, y, 11);
   drawOutlinedText(waveText, waveX + 38, y + 1, 18, "left", COLORS.white);
 
+  // 전투 탭: 숫자 조절판으로 바꾼 값을 쓰고 있으면 가운데에 알림 (잊지 않게)
+  const tuned = tuningActiveCount();
+  if (tuned > 0 && currentTabId() === "battle") {
+    const text = "숫자 조절 " + tuned + "개 적용 중";
+    ctx.font = "16px " + FONT_FAMILY;
+    const tw = ctx.measureText(text).width + 32;
+    drawOutlinedRoundRect(CANVAS_WIDTH / 2 - tw / 2, y - 16, tw, 32, 16, COLORS.purple, SMALL_OUTLINE_WIDTH);
+    drawOutlinedText(text, CANVAS_WIDTH / 2, y + 1, 16);
+  }
+
   // 가운데 제목 스티커 (도감·업그레이드 화면)
   const tab = LOBBY_TABS.find(function (t) { return t.id === currentTabId(); });
   if (tab && tab.id !== "battle") {
@@ -3752,8 +3771,16 @@ function drawSettingsOverlay() {
   drawFitText("코인 · 업그레이드 · 최고 웨이브가 지워져요", rx, reset.y + reset.h + 20, 13, 218, COLORS.outline, "left");
   drawFitText("(3초 안에 한 번 더 눌러야 실행)", rx, reset.y + reset.h + 40, 13, 218, COLORS.outline, "left");
 
-  // 7) 아래쪽 안내
-  drawOutlinedText("Esc 또는 X 버튼으로 닫기", P.x + P.w / 2, P.y + P.h - 22, 16);
+  // 7) 왼쪽 아래: 숫자 조절판 (tuning.js, 상수를 바꿔 시험해 보기)
+  const tr = settingsTuningRect();
+  drawScaled(tr.x + tr.w / 2, tr.y + tr.h / 2, buttonScale("settings:tuning"), function () {
+    drawOutlinedRoundRect(tr.x, tr.y, tr.w, tr.h, 20, hoverColor("settings:tuning", COLORS.purple));
+    const n = tuningActiveCount();
+    drawOutlinedText(n > 0 ? "숫자 조절 (" + n + "개 바꿈)" : "숫자 조절 (실험용)", tr.x + tr.w / 2, tr.y + tr.h / 2 + 1, 19);
+  });
+
+  // 8) 오른쪽 아래 안내
+  drawOutlinedText("Esc 또는 X 버튼으로 닫기", rx, P.y + P.h - 24, 15, "left");
 }
 
 // ---- 로비 화면 전체: 지금 탭 내용 → 위쪽 줄 → 탭 바 → 알림 → 설정 창 순서로 겹쳐 그린다 ----

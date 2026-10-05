@@ -1046,4 +1046,43 @@ module.exports = [
       return { ok: ok, detail: "3→5 신기록 " + rec + " / 5→4 신기록 아님 " + noRec + " / 코인 10: 강조 안 함 " + poor + ", 코인 110: 강조 " + rich + " / 애니메이션 시간 " + animT };
     },
   },
+  // ---------------- 숫자 조절판 ----------------
+  {
+    name: "[조절판] tune(): 저장값 우선·정수/최솟값 다듬기·이상한 값 무시, 설정 창에서 열기, 열린 동안 게임 키 무시, 적용하면 저장 후 다시 시작, Esc 닫기",
+    run: new Function(PRESS + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      const keep = tuningOverrides;
+      tuningOverrides = { T_A: 1.6, WAVE_SPAWN_BATCH: 2.6, PLAYER_SPEED: "빠르게", FIRE_INTERVAL: -3 };
+      const a = tune("T_A", 2), b = tune("WAVE_SPAWN_BATCH", 3), c = tune("PLAYER_SPEED", 220), d = tune("FIRE_INTERVAL", 0.4), e = tune("T_NONE", 7);
+      delete tuningDefaults.T_A; delete tuningDefaults.T_NONE;
+      const tuneOk = a === 1.6 && b === 3 && c === 220 && d === 0.05 && e === 7;
+      tuningOverrides = {};
+      // 설정 창 → 숫자 조절 버튼
+      goToMenu(); openSettings();
+      const cr = canvas.getBoundingClientRect(), tr = settingsTuningRect();
+      canvas.dispatchEvent(new MouseEvent("click", { clientX: cr.left + canvas.clientLeft + (tr.x + 20) * canvas.clientWidth / 960,
+        clientY: cr.top + canvas.clientTop + (tr.y + 20) * canvas.clientHeight / 540 }));
+      const opened = isTuningOpen() && !settingsOpen && document.querySelectorAll(".tuning-row").length === Object.keys(TUNING_INFO).length;
+      press("Enter"); press("ArrowLeft"); const blocked = gameState === "menu";
+      // 값 바꾸고 적용 (다시 시작은 가짜로)
+      let reloaded = 0; const realReload = window.tuningReload; window.tuningReload = () => { reloaded++; };
+      const input = [...document.querySelectorAll(".tuning-row")].find((r) => r.textContent.includes("ENEMY_HP_BASE")).querySelector("input");
+      input.value = "1.6"; input.dispatchEvent(new Event("input"));
+      const marked = input.parentElement.classList.contains("tuning-changed");
+      document.querySelector(".tuning-apply").click();
+      const saved = JSON.parse(window.__fakeStorage[TUNING_KEY] || "{}");
+      const applied = reloaded === 1 && !isTuningOpen() && saved.ENEMY_HP_BASE === 1.6 && Object.keys(saved).length === 1 && tuningActiveCount() === 1;
+      draw();   // 로비 "숫자 조절 1개 적용 중"
+      // 다시 열어서 Esc 로 닫기, 모두 기본값으로 적용하면 저장도 지워짐
+      openTuningPanel(); document.querySelector(".tuning-row input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      const escClosed = !isTuningOpen();
+      openTuningPanel(); document.querySelector(".tuning-reset").click(); document.querySelector(".tuning-apply").click();
+      const cleared = !(TUNING_KEY in window.__fakeStorage) && tuningActiveCount() === 0;
+      window.tuningReload = realReload; tuningOverrides = keep;
+      const ok = tuneOk && opened && blocked && marked && applied && escClosed && cleared;
+      return { ok: ok, detail: "tune " + [a, b, c, d, e].join(",") + " / 버튼으로 열림 " + opened + " / 게임 키 무시 " + blocked + " / 바꾼 줄 표시 " + marked +
+        " / 적용: 저장·다시 시작 " + applied + " / Esc 닫기 " + escClosed + " / 기본값으로 적용 시 저장 지움 " + cleared };
+    `),
+  },
 ];
