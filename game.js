@@ -35,6 +35,9 @@ const COLORS = {
   gray: "#A39D92",       // 회색 (코인이 모자라 살 수 없는 버튼)
   dark: "#4A3B2E",       // 어두운 갈색 (고르지 않은 탭)
   dim: "#8C8173",        // 흐린 회갈색 (고르지 않은 탭의 아이콘·글자)
+  blue: "#4E8FC6",       // 파랑 (사수형)
+  pink: "#D7739F",       // 분홍 (공명형)
+  slate: "#6F7F8C",      // 쇳빛 회색 (방패형)
 };
 
 // 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
@@ -118,6 +121,10 @@ const COIN_WAVE_BONUS = tune("COIN_WAVE_BONUS", 0.15);
 const COIN_WAVE_TIME_CAP = tune("COIN_WAVE_TIME_CAP", 60);
 // 보스를 잡으면 보너스 코인 = 이 값 × 챕터 번호
 const BOSS_COIN_BONUS = tune("BOSS_COIN_BONUS", 50);
+
+// 자석형·블랙홀에게 끌려가는 속도가 저절로 줄어드는 정도 (1/초). 클수록 금방 멈춘다
+//   (끌려가는 속도는 플레이어가 조종하는 속도와 따로 쌓인다. 당기는 힘 ÷ 이 값 = 계속 끌릴 때의 속도)
+const PULL_FRICTION = 2;
 
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
 const PLAYER_INVINCIBLE_TIME = tune("PLAYER_INVINCIBLE_TIME", 0.6);
@@ -844,6 +851,20 @@ function circlesOverlap(x1, y1, r1, x2, y2, r2) {
 // 6. 업데이트 (값 바꾸기)
 // =============================================================
 
+// 플레이어를 당기는 적들(자석형, 블랙홀)의 가속도를 모두 더한다 { ax, ay }
+// 적 종류에 pullOn(enemy, x, y) 이 있으면 그 적이 주는 가속도를 돌려준다
+function enemyPullOnPlayer() {
+  let ax = 0, ay = 0;
+  for (const enemy of enemies) {
+    const type = enemyType(enemy);
+    if (!type.pullOn || enemy.dead) continue;
+    const a = type.pullOn(enemy, player.x, player.y);
+    ax += a.ax;
+    ay += a.ay;
+  }
+  return { ax: ax, ay: ay };
+}
+
 // 플레이어 이동을 처리하는 함수. dt = 지난 프레임 이후 흐른 시간(초)
 function updatePlayer(dt) {
   // 이번 프레임에 어느 방향으로 갈지 (-1, 0, 1)
@@ -886,17 +907,23 @@ function updatePlayer(dt) {
     player.vy = (player.vy / speed) * PLAYER_SPEED;
   }
 
-  // 위치 = 위치 + 속도 × 시간
-  player.x += player.vx * dt;
-  player.y += player.vy * dt;
+  // 자석형·블랙홀이 당기는 힘: 끌려가는 속도(pullVx, pullVy)를 따로 쌓고, 마찰로 조금씩 줄인다
+  const pull = enemyPullOnPlayer();
+  const keep = Math.exp(-PULL_FRICTION * dt);
+  player.pullVx = ((player.pullVx || 0) + pull.ax * dt) * keep;
+  player.pullVy = ((player.pullVy || 0) + pull.ay * dt) * keep;
+
+  // 위치 = 위치 + (조종 속도 + 끌려가는 속도) × 시간
+  player.x += (player.vx + player.pullVx) * dt;
+  player.y += (player.vy + player.pullVy) * dt;
 
   // 화면 밖으로 나가지 않게 가둔다 (몸의 반지름만큼 안쪽까지만 허용)
   const clampedX = clamp(player.x, PLAYER_RADIUS, CANVAS_WIDTH - PLAYER_RADIUS);
   const clampedY = clamp(player.y, PLAYER_RADIUS, CANVAS_HEIGHT - PLAYER_RADIUS);
 
   // 벽에 막혔으면 그 방향 속도는 0 (벽을 밀고 있는 건 "움직이는 것"이 아니다)
-  if (clampedX !== player.x) player.vx = 0;
-  if (clampedY !== player.y) player.vy = 0;
+  if (clampedX !== player.x) { player.vx = 0; player.pullVx = 0; }
+  if (clampedY !== player.y) { player.vy = 0; player.pullVy = 0; }
   player.x = clampedX;
   player.y = clampedY;
 }
@@ -1697,6 +1724,8 @@ function resetGame() {
   player.fireTimer = 0;
   player.invincibleTimer = 0;
   player.facing = 0;
+  player.pullVx = 0;          // 자석형·블랙홀에게 끌려가는 속도
+  player.pullVy = 0;
   player.tempEffects = [];    // "다음 웨이브 동안" 만 유지되는 보급 효과 목록 (ATP 충전, 면역 반응)
   player.healBonus = 0;       // 광합성: 웨이브 클리어 회복 비율에 더해지는 값 (이번 판 동안)
 
@@ -1741,6 +1770,15 @@ function resetGame() {
   startWave(1);
 }
 
+// 공명형 범위 안에 있는 적의 속도 배율 (여러 공명형 범위가 겹쳐도 한 번만: 1 또는 RESONATOR_BOOST)
+function resonanceFactor(enemy) {
+  for (const other of enemies) {
+    if (other === enemy || other.dead || !enemyType(other).resonance) continue;
+    if (distance(enemy.x, enemy.y, other.x, other.y) <= enemyType(other).resonance.range) return enemyType(other).resonance.boost;
+  }
+  return 1;
+}
+
 // 모든 적을 움직이는 함수 (어떻게 움직일지는 종류별 update 함수가 정한다)
 function updateEnemies(dt) {
   // 적 목록을 처음부터 끝까지 하나씩 꺼내서 처리하는 반복문
@@ -1759,7 +1797,8 @@ function updateEnemies(dt) {
     //   timeScale : 배율 그 자체 = 이 적의 시간이 흐르는 빠르기
     //   localDt   : 이 적의 시계로 흐른 시간 (예고·돌진·흔들림 같은 행동 시간에 사용)
     enemyType(enemy).update(enemy, dt, {
-      speed: enemy.speed * enemy.slowFactor * enrageFactor(enemy),   // 과열 중이면 더 빠르게
+      // 과열 중이면 더 빠르게, 공명형 범위 안이면 더 빠르게
+      speed: enemy.speed * enemy.slowFactor * enrageFactor(enemy) * resonanceFactor(enemy),
       timeScale: enemy.slowFactor,
       localDt: dt * enemy.slowFactor,
     });
@@ -2096,8 +2135,9 @@ function updateBullets(dt) {
 
       if (circlesOverlap(bullet.x, bullet.y, bulletRadius(bullet),
                          enemy.x, enemy.y, enemy.radius)) {
-        // 대미지를 계산해서 적 체력을 깎는다
-        const damage = calcDamage(enemy, bullet);
+        // 대미지를 계산해서 적 체력을 깎는다 (방패형처럼 총알 대미지를 줄이는 적은 종류별로 한 번 더)
+        let damage = calcDamage(enemy, bullet);
+        if (enemyType(enemy).modifyBulletDamage) damage = enemyType(enemy).modifyBulletDamage(enemy, damage, bullet);
         enemy.hp -= damage;
         spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
@@ -2405,7 +2445,9 @@ function drawEnemy(enemy) {
   const type = enemyType(enemy);
   const r = enemy.radius;
   // 맞은 직후엔 하얗게 번쩍, 평소엔 종류별 색 (기본 적: 빨강)
-  const bodyColor = enemy.hitFlash > 0 ? COLORS.white : COLORS[type.color];
+  // 쏘기 직전(chargeFlash)인 적은 빠르게 깜빡인다 (사수형: 곧 쏜다는 신호)
+  const blink = enemy.chargeFlash && Math.floor(runTime * 12) % 2 === 0;
+  const bodyColor = enemy.hitFlash > 0 || blink ? COLORS.white : COLORS[type.color];
 
   ctx.save();
   ctx.translate(enemy.x, enemy.y); // 아래 좌표는 모두 적의 중심 기준
@@ -2421,6 +2463,8 @@ function drawEnemy(enemy) {
     drawDiamondBody(enemy, r, bodyColor);
   } else if (type.shape === "splitter") {
     drawSplitterBody(type, r, bodyColor);
+  } else if (type.shape === "shooter") {
+    drawShooterBody(enemy, r, bodyColor);
   } else {
     drawBasicBody(enemy, r, bodyColor);
   }
@@ -2525,6 +2569,22 @@ function drawSplitterBody(type, r, bodyColor) {
   drawHighlight(0, 0, r);
 }
 
+// 사수형 몸통: 육각형 + 플레이어 쪽을 겨누는 총신
+function drawShooterBody(enemy, r, bodyColor) {
+  ctx.save();
+  ctx.rotate(Math.atan2(enemy.dirY || 0, enemy.dirX || 1));
+  // 총신 (몸보다 먼저 그려서 뿌리가 몸에 가려지게)
+  drawOutlinedRoundRect(r * 0.3, -r * 0.32, r * 1.15, r * 0.64, r * 0.2, COLORS.slate, SMALL_OUTLINE_WIDTH);
+  ctx.restore();
+  const pts = [];
+  for (let k = 0; k < 6; k++) {
+    const a = Math.PI / 6 + (k * Math.PI) / 3;
+    pts.push([Math.cos(a) * r * 1.1, Math.sin(a) * r * 1.1]);
+  }
+  drawOutlinedPolygon(pts, bodyColor);
+  drawHighlight(0, 0, r * 0.9);
+}
+
 // 보스의 왕관: 노란 톱니 모양 + 가운데 빨간 보석
 function drawCrown(r) {
   drawOutlinedPolygon([
@@ -2590,6 +2650,14 @@ function drawChargerWarning(enemy) {
   ctx.lineTo(enemy.x + enemy.dirX * length, enemy.y + enemy.dirY * length);
   ctx.stroke();
   ctx.restore();
+}
+
+// 적 종류에 drawAura(enemy) 가 있으면 몸보다 먼저(바닥에) 범위를 그린다 (공명형 물결, 자석형 자기장)
+function drawEnemyAuras() {
+  for (const enemy of enemies) {
+    const type = enemyType(enemy);
+    if (type.drawAura) type.drawAura(enemy);
+  }
 }
 
 // 모든 적을 그리는 함수
@@ -4289,6 +4357,7 @@ function draw() {
   }
 
   drawAugmentEffects(); // 증강 효과 범위 (바닥에 깔리듯이)
+  drawEnemyAuras();   // 공명형·자석형의 범위 (바닥에)
   drawBullets();    // 총알
   drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적

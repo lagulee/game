@@ -38,6 +38,14 @@
 //     언제: 총알에 맞아 체력이 줄었지만 아직 살아 있을 때
 //     체력이 몇 % 아래로 내려가면 패턴을 바꾸는 보스에게 쓴다.
 //
+// ---- 4단계에서 추가된 항목 (생략 가능) ----
+//   modifyBulletDamage(enemy, damage, bullet) : 총알에 맞을 때 대미지를 바꿔 돌려준다 (방패형)
+//                                               반감기·발열 반응처럼 총알이 아닌 대미지는 거치지 않는다
+//   resonance: { range, boost }   : 범위 안의 다른 적 속도 × boost (공명형. 여러 마리가 겹쳐도 한 번만)
+//   pullOn(enemy, x, y)           : (x, y) 에 있는 플레이어를 당기는 가속도 { ax, ay } (자석형, 블랙홀)
+//   drawAura(enemy)               : 몸보다 먼저 바닥에 범위를 그린다 (공명형 물결, 자석형 자기장)
+//   enemy.chargeFlash = true      : 몸이 빠르게 깜빡인다 (사수형: 곧 쏜다는 신호)
+//
 // ---- 보스 전용 항목 ----
 //   isBoss       : true 면 보스. 화면 위쪽 큰 체력바, 처치 시 체력 회복
 //   timeScaleMin : 시간 지연을 받아도 이 배율 아래로는 느려지지 않는다 (보스 0.6)
@@ -45,6 +53,13 @@
 //   warnLength   : 돌진 예고선 길이 (생략하면 CHARGER_WARN_LENGTH)
 // =============================================================
 
+
+// ---- 사수형 (물리 · 등속 직선 운동): 거리를 두고 조준탄을 쏜다 ----
+const SHOOTER_RANGE = 250;          // 플레이어와 이 거리(px)를 유지하려 한다
+const SHOOTER_RANGE_SLACK = 30;     // ± 이만큼은 괜찮은 거리로 본다 (그 안에서는 옆으로 돈다)
+const SHOOTER_FIRE_INTERVAL = 2.5;  // 쏘는 간격 (초)
+const SHOOTER_WARN_TIME = 0.5;      // 쏘기 전에 몸이 깜빡이는 시간 (초)
+const SHOOTER_BULLET_DAMAGE = 12;   // 조준탄 기본 대미지 (× 웨이브 접촉 대미지 배율)
 
 // ---- 공통 ----
 
@@ -350,6 +365,64 @@ const ENEMY_TYPES = {
   // =========================================================
   // 보스
   // =========================================================
+
+  // ---- 사수형 (물리 · 등속 직선 운동): 250px 거리를 유지하며 2.5초마다 조준탄 1발 ----
+  // 조준탄은 쏜 순간의 플레이어 쪽으로 똑같은 빠르기로 곧게 날아간다 (등속 직선 운동).
+  // 그래서 쏘는 순간 옆으로 비켜서면 피할 수 있다. 쏘기 0.5초 전에 몸이 깜빡인다.
+  shooter: {
+    name: "사수형",
+    desc: "거리를 두고 조준탄",
+    hp: 40,
+    speed: 55,
+    radius: 15,
+    color: "blue",
+    contactDamage: 15,
+    knockResist: 1,
+    score: 130,
+    shape: "shooter",
+
+    init: function (enemy) {
+      enemy.fireTimer = SHOOTER_FIRE_INTERVAL;   // 다음 발사까지 남은 시간
+      enemy.strafe = Math.random() < 0.5 ? -1 : 1; // 알맞은 거리에서 옆으로 도는 방향
+      enemy.dirX = 1;
+      enemy.dirY = 0;
+      enemy.chargeFlash = false;
+    },
+
+    update: function (enemy, dt, info) {
+      aimAt(enemy, player.x, player.y);           // 총신은 늘 플레이어 쪽
+      const dist = distance(enemy.x, enemy.y, player.x, player.y);
+      if (dist > SHOOTER_RANGE + SHOOTER_RANGE_SLACK) {
+        moveToward(enemy, player.x, player.y, info.speed, dt);          // 멀면 다가간다
+      } else if (dist < SHOOTER_RANGE - SHOOTER_RANGE_SLACK) {
+        moveToward(enemy, player.x, player.y, -info.speed, dt);         // 가까우면 물러난다
+      } else {
+        // 알맞은 거리: 플레이어 둘레를 천천히 돈다 (바라보는 방향의 수직)
+        enemy.x += -enemy.dirY * enemy.strafe * info.speed * 0.5 * dt;
+        enemy.y += enemy.dirX * enemy.strafe * info.speed * 0.5 * dt;
+      }
+      // 화면 안에 들어온 뒤에는 화면 밖으로 물러나지 않는다
+      const onScreen = enemy.x > 0 && enemy.x < CANVAS_WIDTH && enemy.y > 0 && enemy.y < CANVAS_HEIGHT;
+      if (onScreen || enemy.entered) {
+        enemy.entered = true;
+        enemy.x = clamp(enemy.x, enemy.radius, CANVAS_WIDTH - enemy.radius);
+        enemy.y = clamp(enemy.y, enemy.radius, CANVAS_HEIGHT - enemy.radius);
+        // 발사 타이머 (이 적의 시계 localDt 로 잰다 → 시간 지연을 받으면 늦게 쏜다)
+        enemy.fireTimer -= info.localDt;
+        enemy.chargeFlash = enemy.fireTimer <= SHOOTER_WARN_TIME;
+        if (enemy.fireTimer <= 0) {
+          const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+          spawnEnemyBullet(enemy.x + enemy.dirX * enemy.radius, enemy.y + enemy.dirY * enemy.radius, angle, { damage: SHOOTER_BULLET_DAMAGE });
+          enemy.fireTimer = SHOOTER_FIRE_INTERVAL;
+          enemy.chargeFlash = false;
+        }
+      }
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.blue);
+    },
+  },
 
   // ---- 돌진 대장 (물리 · 가속도): 돌격형의 왕. 연속 돌진을 퍼붓는다 ----
   // 순환: 예고 0.8초 → 돌진 → (재조준 0.35초 → 돌진) ... 총 3번 → 쉬기 2초

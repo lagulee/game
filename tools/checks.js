@@ -1485,4 +1485,34 @@ module.exports = [
         " / 시간 지연 안 " + near.slowFactor.toFixed(2) + "배, 밖 " + far.slowFactor + "배 / 웨이브 끝 사라짐 " + cleared };
     },
   },
+  // ---------------- 4단계 B: 새 적 ----------------
+  {
+    name: "[새 적] 사수형: 250px 거리 유지, 2.5초마다 조준탄 1발, 쏘기 0.5초 전 깜빡임, 조준탄은 쏜 순간의 플레이어 쪽으로",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      player.x = 480; player.y = 270;
+      const e = createEnemy("shooter", 80, 270, 1); enemies = [e];
+      const shots = [], flashBefore = [];
+      let t = 0, lastFlash = false, flashStart = 0;
+      for (let f = 0; f < 60 * 12; f++) {
+        player.fireTimer = 1e9; player.x = 480; player.y = 270;
+        const n = enemyBullets.length;
+        update(1 / 60); t += 1 / 60;
+        if (e.chargeFlash && !lastFlash) flashStart = t;
+        lastFlash = e.chargeFlash;
+        if (enemyBullets.length > n) {
+          const b = enemyBullets[enemyBullets.length - 1];
+          const aimErr = Math.abs(Math.atan2(b.vy, b.vx) - Math.atan2(270 - b.y, 480 - b.x));
+          shots.push({ t: +t.toFixed(2), aimErr });
+          flashBefore.push(+(t - flashStart).toFixed(2));
+        }
+      }
+      debugMode = false;
+      const dist = distance(e.x, e.y, 480, 270);
+      const gaps = shots.slice(1).map((s, i) => +(s.t - shots[i].t).toFixed(2));
+      const ok = shots.length >= 4 && gaps.every((g) => Math.abs(g - 2.5) < 0.05) && flashBefore.every((f) => Math.abs(f - 0.5) < 0.05) &&
+        shots.every((s) => s.aimErr < 0.05) && Math.abs(dist - SHOOTER_RANGE) <= SHOOTER_RANGE_SLACK + 2;
+      return { ok: ok, detail: "발사 " + shots.length + "번, 간격 " + gaps.join(",") + " / 깜빡임 시작 → 발사 " + flashBefore.join(",") + "초 / 12초 뒤 거리 " + dist.toFixed(0) + "px" };
+    },
+  },
 ];
