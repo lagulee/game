@@ -940,4 +940,17 @@ const SUPPLIES = [
       addTempEffect("immune", { charges: SUPPLY_IMMUNE_CHARGES });
     },
   },
+  {
+    id: "photosynthesis",
+    isSupply: true,
+    name: "광합성",
+    concept: "생물 · 광합성",
+    formula: "회복 +5%p",
+    color: "green",
+    icon: "leaf",
+    desc: "빛으로 양분을 만든다. 이번 판 동안 웨이브를 깰 때 회복량이 최대 체력의 5%p 늘어난다 (여러 번 쌓임)",
+    apply: function () {
+      player.healBonus = (player.healBonus || 0) + SUPPLY_PHOTO_BONUS;
+    },
+  },
 ];

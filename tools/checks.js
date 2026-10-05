@@ -1300,10 +1300,10 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 증강 14개·보급 4개, 이름·id 겹침 없음",
+    name: "[증강+] 증강 14개·보급 5개, 이름·id 겹침 없음",
     run: function () {
       const ids = AUGMENTS.map((a) => a.id).concat(SUPPLIES.map((s) => s.id));
-      const ok = AUGMENTS.length === 14 && SUPPLIES.length === 4 && new Set(ids).size === ids.length;
+      const ok = AUGMENTS.length === 14 && SUPPLIES.length === 5 && new Set(ids).size === ids.length;
       return { ok: ok, detail: "증강 " + AUGMENTS.length + "개, 보급 " + SUPPLIES.length + "개 / " + ids.join(",") };
     },
   },
@@ -1343,6 +1343,23 @@ module.exports = [
       const cleared = !getTempEffect("immune");
       const ok = blockedTwice && badge === "1" && cleared && popups.some((p) => p.text === "막음!");
       return { ok: ok, detail: "피격 3번: " + log.join(" → ") + " (체력/남은 보호막) / 아이콘 숫자 " + badge + " / 웨이브 뒤 끝 " + cleared };
+    },
+  },
+  {
+    name: "[보급+] 광합성: 이번 판 동안 웨이브 클리어 회복 +5%p, 여러 번 쌓임, 다음 판엔 초기화, 아이콘 +N%",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = []; player.maxHp = 200;
+      const photo = SUPPLIES.find((c) => c.id === "photosynthesis");
+      const h0 = waveClearHeal();
+      applySupply(photo); const h1 = waveClearHeal();
+      applySupply(photo); const h2 = waveClearHeal();
+      const badge = activeEffectIcons().find((i) => i.icon === "leaf").badge;
+      player.hp = 50; checkWaveEnd(); const healed = player.hp;                   // 웨이브 클리어: 200 × (0.05 + 0.1)
+      const keptAfterWave = player.healBonus > 0;
+      startGame(); const reset = player.healBonus === 0;
+      const ok = Math.abs(h1 - h0 - 200 * 0.05) < 1e-9 && Math.abs(h2 - h0 - 200 * 0.1) < 1e-9 &&
+        Math.abs(healed - (50 + 200 * (WAVE_CLEAR_HEAL_RATIO + 0.1))) < 1e-9 && keptAfterWave && reset && badge === "+10%";
+      return { ok: ok, detail: "회복량 " + h0 + " → " + h1 + " → " + h2 + " / 웨이브 클리어 50 → " + healed + " / 웨이브 뒤에도 유지 " + keptAfterWave + " / 새 판 초기화 " + reset + " / 아이콘 " + badge };
     },
   },
   {
