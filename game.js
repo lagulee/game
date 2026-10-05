@@ -3175,8 +3175,8 @@ function pauseButtonAt(x, y) {
 // 가진 증강 목록을 영역(폭 w, 높이 h) 안에 들어가게 배치한다.
 // 글자 크기와 설명 줄 수를 줄여 가며 맞는 배치를 찾는다.
 function layoutPauseAugments(owned, w, h) {
-  // 글자 크기 14 → 11, 설명 최대 3줄 → 1줄 순서로 시도하는 이중 반복문
-  for (let maxLines = 3; maxLines >= 1; maxLines--) {
+  // 글자 크기 14 → 11, 설명 최대 3줄 → 1줄 → 0줄(이름·수식만) 순서로 시도하는 이중 반복문
+  for (let maxLines = 3; maxLines >= 0; maxLines--) {
     for (let size = 14; size >= 11; size--) {
       const lineH = size + 4;
       let total = 0;
@@ -3185,13 +3185,14 @@ function layoutPauseAugments(owned, w, h) {
         let lines = wrapText(aug.levels[level - 1].desc, w - 18, size);
         if (lines.length > maxLines) {
           lines = lines.slice(0, maxLines);
-          lines[maxLines - 1] = lines[maxLines - 1].replace(/.$/, "…"); // 잘린 줄 끝에 말줄임표
+          // 잘린 줄 끝에 말줄임표 (0줄이면 설명 없이 이름만)
+          if (maxLines > 0) lines[maxLines - 1] = lines[maxLines - 1].replace(/.$/, "…");
         }
-        const itemH = 22 + lines.length * lineH + 6;    // 이름 줄 + 설명 줄들 + 간격
+        const itemH = 22 + lines.length * lineH + (lines.length > 0 ? 6 : 2);   // 이름 줄 + 설명 줄들 + 간격
         total += itemH;
         return { aug: aug, level: level, lines: lines, h: itemH };
       });
-      if (total <= h || (maxLines === 1 && size === 11)) return { size: size, lineH: lineH, items: items };
+      if (total <= h || (maxLines === 0 && size === 11)) return { size: size, lineH: lineH, items: items };
     }
   }
 }

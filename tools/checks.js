@@ -1400,4 +1400,20 @@ module.exports = [
       return { ok: ok, detail: "클릭 " + byClick + " / 키 " + byKey + "," + back + " / 항목 수 " + counts + " / 넘치는 글자 " + (tooWide.join(",") || "없음") };
     `),
   },
+  {
+    name: "[일시정지] 증강 14개를 모두 가져도 '가진 증강' 목록이 창 안에 들어감 (설명을 줄이다 안 되면 이름·수식만)",
+    run: function () {
+      startGame(); for (const a of AUGMENTS) ownedAugments[a.id] = 3;
+      const owned = AUGMENTS.slice();
+      const fits = [];
+      for (const n of [3, 6, 9, 14]) {
+        const layout = layoutPauseAugments(owned.slice(0, n), PAUSE_PANEL.w - 360, PAUSE_PANEL.h - 80);   // drawPauseScreen 과 같은 영역
+        const total = layout.items.reduce((t, it) => t + it.h, 0);
+        fits.push(n + "개 " + total + "px");
+        if (total > PAUSE_PANEL.h - 80) return { ok: false, detail: "넘침: " + fits.join(", ") };
+      }
+      pauseGame(); draw();
+      return { ok: true, detail: fits.join(", ") + " (영역 380px)" };
+    },
+  },
 ];
