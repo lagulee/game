@@ -124,6 +124,16 @@ const BH_ARMOR = 0.3;                  // 약점이 닫혀 있을 때 받는 대
 // 체력: 1웨이브 2배, 한 웨이브마다 +12%  (30웨이브: 2 × (1 + 0.12 × 29) = 8.96배)
 const ENEMY_HP_BASE = tune("ENEMY_HP_BASE", 2.0);
 const ENEMY_HP_GROWTH = tune("ENEMY_HP_GROWTH", 0.12);
+// 체력의 제곱 항: 웨이브가 지날수록 더 빠르게 늘어나게 (후반 난이도)
+//   체력 배율 = HP_BASE × (1 + HP_GROWTH × (w − 1) + HP_QUAD × (w − 1)²)
+//   일차식(등차수열)은 웨이브마다 늘어나는 양이 늘 같지만(2 × 0.12 = 0.24 씩),
+//   이차식은 늘어나는 양 자체가 점점 커진다 (w − 1 이 2배면 제곱 항은 4배).
+//   HP_QUAD = 0.004 일 때 실제 숫자 (HP_BASE 2, HP_GROWTH 0.12):
+//      5웨이브: 일차식만 2.96배 → 이차식 더해서 3.09배  (+4%,  제곱 항 = 2 × 0.004 × 4² = 0.13)
+//     15웨이브: 일차식만 5.36배 → 이차식 더해서 6.93배  (+29%, 제곱 항 = 2 × 0.004 × 14² = 1.57)
+//     30웨이브: 일차식만 8.96배 → 이차식 더해서 15.69배 (+75%, 제곱 항 = 2 × 0.004 × 29² = 6.73)
+//   → 초반(1~5웨이브)은 거의 그대로, 후반만 크게 어려워진다
+const ENEMY_HP_QUAD = tune("ENEMY_HP_QUAD", 0.004);
 // 접촉 대미지: 1웨이브 1.5배, 한 웨이브마다 +5%  (30웨이브: 1.5 × 2.45 = 3.675배)
 const ENEMY_DMG_BASE = tune("ENEMY_DMG_BASE", 1.5);
 const ENEMY_DMG_GROWTH = tune("ENEMY_DMG_GROWTH", 0.05);
@@ -140,7 +150,7 @@ function waveSpeedMult(w) {
 
 // w 웨이브의 체력 배율 = 2.0 × (1 + 0.12 × (w − 1))
 function waveHpMult(w) {
-  return ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1));
+  return ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1) + ENEMY_HP_QUAD * (w - 1) * (w - 1));
 }
 
 // w 웨이브의 접촉 대미지 배율 = 1.5 × (1 + 0.05 × (w − 1))

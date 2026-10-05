@@ -1087,8 +1087,11 @@ function spawnBatch(count) {
 }
 
 // 표의 마릿수에 WAVE_COUNT_MULT 를 곱한 실제 마릿수 (반올림)
-function scaledCount(count) {
-  return Math.round(count * WAVE_COUNT_MULT);
+// waveNumber 가 6 이상이면 WAVE_COUNT_MULT_LATE 도 곱한다 (주지 않으면 지금 웨이브)
+function scaledCount(count, waveNumber) {
+  const w = waveNumber === undefined ? wave : waveNumber;
+  const late = w >= LATE_WAVE_FROM ? WAVE_COUNT_MULT_LATE : 1;
+  return Math.round(count * WAVE_COUNT_MULT * late);
 }
 
 // 지금 과열 배율: 과열 전에는 1, 과열이 시작되면 1초마다 (1 + ENRAGE_RATE) 배씩
@@ -1121,7 +1124,7 @@ function startWave(n) {
   // 이번 웨이브의 묶음을 하나씩 보는 반복문
   for (const group of waveGroups(waveDef)) {
     // 같은 종류를 count 마리만큼 줄 뒤에 붙이는 반복문
-    for (let i = 0; i < scaledCount(group.count); i++) {
+    for (let i = 0; i < scaledCount(group.count, n); i++) {
       spawnQueue.push(group.type);
     }
   }

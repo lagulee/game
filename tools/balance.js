@@ -24,6 +24,7 @@
 //   (게임 파일은 그대로 두고, 측정할 때만 파일 글자를 바꿔 끼운다 → tools/serve.js)
 //   레벨들은 브라우저 탭 여러 개에서 동시에 돌린다 (--parallel 4)
 //   다른 판들로 다시 재기: --seed 1 (운에 따른 차이를 볼 때. 0 이 기본)
+//   증강 기여도: --contrib 10 --runs 20  (레벨 (10,10) 에서 증강마다 "첫 카드로 얻는 판" vs "안 나오는 판")
 // =============================================================
 
 const { chromium } = require("playwright");
@@ -51,6 +52,7 @@ const PRESETS = {
     WAVE_SPAWN_INTERVAL: 0.8, WAVE_SPAWN_BATCH: 1, WAVE_COUNT_MULT: 1,
     ENRAGE_TIME: "Infinity", PLAYER_INVINCIBLE_TIME: 1.0, WAVE_CLEAR_HEAL_RATIO: 0.1,
     ENEMY_HP_GROWTH: 0.12, ENEMY_DMG_GROWTH: 0.05, COIN_PER_SECOND: 1,
+    ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1,
   },
 };
 const OVERRIDES = Object.assign({}, PRESETS[args.preset] || {});
@@ -76,6 +78,8 @@ function initScript() {
 
 // ---- 브라우저 안에서 한 레벨을 RUNS 판 돌리는 함수 ----
 function runLevel(opts) {
+  // 기여도 측정: opts.ban 증강은 이 측정 동안 카드 후보에서 뺀다 (끝나면 되돌린다)
+  const banned = opts.ban ? AUGMENTS.splice(AUGMENTS.findIndex((a) => a.id === opts.ban), 1) : [];
   const keyList = ["KeyW", "KeyA", "KeyS", "KeyD"];
   const CX = CANVAS_WIDTH / 2, CY = CANVAS_HEIGHT / 2;
 
@@ -151,7 +155,8 @@ function runLevel(opts) {
       const reach = DANGER + e.radius + extra;
       if (d < reach) {
         const w = Math.pow(1 - d / reach, 2) * 4;
-        fx += (ex / d) * w; fy += (ey / d) * w;
+        if (Math.hypot(ex, ey) < 2) { fx += tx * w; fy += ty * w; }   // 적이 바로 위에 겹치면 (방향이 없으니) 도는 방향으로 빠져나간다
+        else { fx += (ex / d) * w; fy += (ey / d) * w; }
         // 적이 내가 가는 쪽 앞에 있는지 (접선과 적 방향의 내적)
         const ahead = (-ex / d) * tx + (-ey / d) * ty;
         if (ahead > 0.3) aheadThreat += (1 - d / reach) * ahead;
@@ -242,9 +247,19 @@ function runLevel(opts) {
     startGame();
     let frames = 0;
     const MAX_FRAMES = 60 * 60 * 60; // 게임 시간 1시간이면 멈춤 (안전장치)
+    let firstPick = true;
     while (gameState !== "gameover" && gameState !== "clear" && frames < MAX_FRAMES) {
       if (gameState === "choosing") {
         choosingTime = 1;
+        // 기여도 측정: 첫 카드는 반드시 opts.force 증강
+        if (firstPick && opts.force) {
+          const forced = AUGMENTS.find((a) => a.id === opts.force);
+          if (!choices.includes(forced)) choices[0] = forced;
+          firstPick = false;
+          chooseAugment(choices.indexOf(forced));
+          continue;
+        }
+        firstPick = false;
         chooseAugment(Math.floor(Math.random() * choices.length));
         continue;
       }
@@ -254,6 +269,7 @@ function runLevel(opts) {
     }
     results.push({ wave: wave, clear: gameState === "clear", coins: lastRunCoins, time: runTime, cards: wave - 1 });
   }
+  if (banned.length) AUGMENTS.push(banned[0]);
   return results;
 }
 
@@ -262,6 +278,32 @@ function runLevel(opts) {
   server.setOverrides(OVERRIDES);
   const browser = await chromium.launch();
   const errors = [];
+
+  // ---- 증강 기여도 모드: --contrib 레벨 ----
+  if (args.contrib !== undefined) {
+    const lv = Number(args.contrib);
+    const page = await browser.newPage();
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(initScript);
+    await page.goto(server.url + "index.html");
+    const ids = await page.evaluate(() => AUGMENTS.map((a) => [a.id, a.name]));
+    const avg = (r) => r.reduce((a, x) => a + x.wave, 0) / r.length;
+    const rows = [];
+    console.log("증강 기여도: 레벨 (" + lv + "," + lv + "), 증강마다 " + RUNS + "판씩 (같은 씨앗)");
+    console.log("증강 | 먼저 얻는 판 | 안 나오는 판 | 차이");
+    for (const [id, name] of ids) {
+      const forced = await page.evaluate(runLevel, { v: lv, p: lv, runs: RUNS, bot: BOT, seed: SEED, force: id });
+      const banned = await page.evaluate(runLevel, { v: lv, p: lv, runs: RUNS, bot: BOT, seed: SEED, ban: id });
+      const row = { id, name, forced: avg(forced), banned: avg(banned) };
+      row.diff = row.forced - row.banned;
+      rows.push(row);
+      console.log(name + " | " + row.forced.toFixed(2) + " | " + row.banned.toFixed(2) + " | " + (row.diff >= 0 ? "+" : "") + row.diff.toFixed(2));
+    }
+    console.log("JSON " + JSON.stringify(rows));
+    await browser.close();
+    server.close();
+    return;
+  }
 
   console.log("봇: " + BOT + " / 판 수: " + RUNS + " / 씨앗: " + SEED + " / 바꾼 상수: " + (Object.keys(OVERRIDES).length ? JSON.stringify(OVERRIDES) : "없음"));
   console.log("레벨(체력,공격력) | 평균 웨이브 | 최소 | 최대 | 클리어 | 평균 생존 시간 | 평균 코인 | 최소 코인 | 40코인 이상 | 5웨이브 보스 통과");

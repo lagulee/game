@@ -43,6 +43,7 @@ const BEFORE_PRESSURE = {
   WAVE_SPAWN_INTERVAL: 0.8, WAVE_SPAWN_BATCH: 1, WAVE_COUNT_MULT: 1,
   ENRAGE_TIME: "Infinity", PLAYER_INVINCIBLE_TIME: 1.0, WAVE_CLEAR_HEAL_RATIO: 0.1,
   ENEMY_HP_GROWTH: 0.12, ENEMY_DMG_GROWTH: 0.05, COIN_PER_SECOND: 1,
+  ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1,
 };   // 게임 폴더를 열어 주는 작은 웹 서버 (상수 바꿔 끼우기용, tools/serve.js)
 const GOLDEN = path.join(__dirname, "golden");
 
@@ -322,7 +323,7 @@ function compare(label, actual, file) {
   const ROLLBACKS = [
     { label: "압박 규칙 되돌리기 (옛 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "old", file: "old-config-before-pressure.txt" },
     { label: "압박 규칙 되돌리기 (새 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "new:base9", file: "new-config-before-pressure.txt" },
-    { label: "증강 추가 되돌리기 (새 설정): 증강 9개·보급 2개만 남기면 증강 추가 전 기록과 상태가 같음", config: "new:base9", overrides: {}, file: "new-config-before-aug14.txt" },
+    { label: "증강 추가 되돌리기 (새 설정): 증강 9개·보급 2개만 남기면 증강 추가 전 기록과 상태가 같음", config: "new:base9", overrides: { ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1 }, file: "new-config-before-aug14.txt" },
     { label: "성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 같음", config: "beforeGrowthD", file: "old-config-before-growth-d.txt" },
     { label: "옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 상태가 같음", config: "legacy", file: "old-config-legacy.txt" },
   ];

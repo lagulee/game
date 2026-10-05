@@ -42,6 +42,7 @@ const TUNING_INFO = {
   // ---- 적 강화 (웨이브마다) ----
   ENEMY_HP_BASE: { group: "적 강화", label: "체력 배율 (1웨이브)" },
   ENEMY_HP_GROWTH: { group: "적 강화", label: "체력 증가 (웨이브당)" },
+  ENEMY_HP_QUAD: { group: "적 강화", label: "체력 제곱 항 (× (웨이브−1)²)" },
   ENEMY_DMG_BASE: { group: "적 강화", label: "접촉 대미지 배율 (1웨이브)" },
   ENEMY_DMG_GROWTH: { group: "적 강화", label: "접촉 대미지 증가 (웨이브당)" },
   ENEMY_SPEED_BASE: { group: "적 강화", label: "속도 배율 (1웨이브)" },
@@ -51,6 +52,7 @@ const TUNING_INFO = {
   WAVE_SPAWN_INTERVAL: { group: "웨이브", label: "적 무리 등장 간격 (초)", min: 0.05 },
   WAVE_SPAWN_BATCH: { group: "웨이브", label: "한 무리 마릿수", int: true, min: 1 },
   WAVE_COUNT_MULT: { group: "웨이브", label: "적 수 배율 (표 × 이 값)" },
+  WAVE_COUNT_MULT_LATE: { group: "웨이브", label: "6웨이브부터 적 수 배율 (한 번 더 곱함)" },
   BOSS_SPAWN_DELAY: { group: "웨이브", label: "보스 등장까지 (초)" },
   BOSS_MINION_INTERVAL: { group: "웨이브", label: "보스 웨이브 졸개 간격 (초)", min: 0.05 },
   ENRAGE_TIME: { group: "웨이브", label: "과열 시작 (웨이브 시작 후 초)" },

@@ -500,7 +500,7 @@ module.exports = [
       player.hp = 50; SUPPLIES.find((s) => s.id === "homeostasis").apply(); const homeo = player.hp;                       // +80
       const near = (a, b) => Math.abs(a - b) < 1e-9;
       const ok = maxSpeed <= ENEMY_SPEED_MAX_MULT && near(waveSpeedMult(1), ENEMY_SPEED_BASE) && near(waveHpMult(1), ENEMY_HP_BASE) &&
-        near(waveHpMult(30), ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * 29)) && near(waveDamageMult(30), ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * 29)) &&
+        near(waveHpMult(30), ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * 29 + ENEMY_HP_QUAD * 29 * 29)) && near(waveDamageMult(30), ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * 29)) &&
         near(e1.maxHp, 60 * ENEMY_HP_BASE) && near(e1.contactDamage, 20 * ENEMY_DMG_BASE) && near(e30.speed, 60 * waveSpeedMult(30)) &&
         near(heal, 50 + 200 * WAVE_CLEAR_HEAL_RATIO) && homeo === 130;
       return { ok: ok, detail: "최대 속도 배율 " + maxSpeed.toFixed(3) + " / 1웨이브 기본 적 체력 " + e1.maxHp + ", 접촉 " + e1.contactDamage +
@@ -1759,5 +1759,19 @@ module.exports = [
       const ok = open && btns.length === 6 && fight && pausedWhileOpen && fight30 && offNo;
       return { ok: ok, detail: "열림 " + open + " / 버튼 " + labels + " / 로비에서 15웨이브 " + fight + " / 전투 중 열면 멈춤 " + pausedWhileOpen + ", 30웨이브 " + fight30 + " / 디버그 꺼짐 " + offNo };
     `),
+  },
+  // ---------------- 4단계 E: 후반 난이도 ----------------
+  {
+    name: "[난이도] 체력 배율 = BASE × (1 + GROWTH(w−1) + QUAD(w−1)²), 6웨이브부터 적 수 × WAVE_COUNT_MULT_LATE (1~5웨이브는 그대로)",
+    run: function () {
+      const f = (w) => ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1) + ENEMY_HP_QUAD * (w - 1) ** 2);
+      const formulaOk = [1, 5, 15, 30].every((w) => Math.abs(waveHpMult(w) - f(w)) < 1e-12);
+      const lin = (w) => ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1));
+      const gain = [5, 15, 30].map((w) => w + "웨이브 +" + ((waveHpMult(w) / lin(w) - 1) * 100).toFixed(0) + "%");
+      // 적 수: 1~5웨이브는 WAVE_COUNT_MULT 만, 6웨이브부터 LATE 도
+      const early = [1, 2, 3, 4, 5].every((w) => scaledCount(10, w) === Math.round(10 * WAVE_COUNT_MULT));
+      const late = scaledCount(10, 7) === Math.round(10 * WAVE_COUNT_MULT * WAVE_COUNT_MULT_LATE);
+      return { ok: formulaOk && early && late, detail: "공식 " + formulaOk + " / 일차식 대비 " + gain.join(", ") + " / 1~5웨이브 적 수 그대로 " + early + ", 6웨이브부터 × " + WAVE_COUNT_MULT_LATE + " " + late };
+    },
   },
 ];
