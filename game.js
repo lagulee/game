@@ -4542,7 +4542,7 @@ function drawSettingsOverlay() {
     drawOutlinedRoundRect(mob.x, mob.y, mob.w, mob.h, 20, hoverColor("settings:mobile", mobileOn ? COLORS.blue : COLORS.gray));
     drawOutlinedText(mobileOn ? "켜짐 (조이스틱)" : "꺼짐", mob.x + mob.w / 2, mob.y + mob.h / 2 + 1, 19);
   });
-  drawFitText("조이스틱 · 일시정지 · 디버그 버튼이 생겨요.", rx, mob.y + mob.h + 16, 13, 218, COLORS.outline, "left");
+  drawFitText("조이스틱 · 일시정지 (디버그는 인증 뒤)", rx, mob.y + mob.h + 16, 13, 218, COLORS.outline, "left");
 
   // 6) 오른쪽 아래: 저장 초기화 (두 번 눌러야 실행)
   drawOutlinedText("저장 데이터", rx, P.y + 278, 18, "left", COLORS.brown);

@@ -1777,13 +1777,14 @@ module.exports = [
   },
   // ---------------- 모바일 모드 ----------------
   {
-    name: "[모바일] 설정 버튼으로 켜고 끄기(저장), 켜야만 터치 버튼이 보이고 조이스틱은 전투 중에만, 조이스틱 세기만큼 이동, ⏸ 일시정지, 디버그 버튼은 비밀번호 후 지급·보스·웨이브",
+    name: "[모바일] 설정 버튼으로 켜고 끄기(저장), 켜야만 터치 버튼이 보이고 조이스틱은 전투 중에만, 조이스틱 세기만큼 이동, ⏸ 일시정지, 디버그 버튼은 설정의 숫자 조절 비밀번호를 인증해야 보이고 지급·보스·웨이브",
     run: new Function(PRESS + FIND_PIN + `
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave(); lockOwner(); debugMode = false;
       const defaultOff = saveData.mobileMode === false;
       const root = document.getElementById("mobile-controls");
-      const shown = (sel) => getComputedStyle(root.querySelector(sel)).display !== "none" && getComputedStyle(root).display !== "none";
+      // 화면에 실제로 그려지는지 (부모가 숨겨져 있어도 false)
+      const shown = (sel) => root.querySelector(sel).getClientRects().length > 0;
       const cr = canvas.getBoundingClientRect();
       const clickRect = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960,
         clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
@@ -1793,8 +1794,15 @@ module.exports = [
       // 설정 창에서 켜기
       goToMenu(); openSettings(); draw(); clickRect(settingsMobileRect());
       const turnedOn = saveData.mobileMode === true && loadSave().mobileMode === true; draw();
-      const lobbyOk = shown(".mobile-debug-toggle") && !shown(".stick-zone") && !shown(".mobile-pause");
-      closeSettings();
+      // 비밀번호 인증 전: 디버그 버튼도 안 보임
+      const lobbyOk = !shown(".mobile-debug-toggle") && !shown(".stick-zone") && !shown(".mobile-pause");
+      // 설정 → 숫자 조절 → 비밀번호 인증 → 디버그 버튼이 나타남
+      clickRect(settingsTuningRect());
+      const asked = !ownerUnlocked && document.querySelector(".pin-input") !== null; draw();
+      const hiddenWhileAsking = !shown(".mobile-debug-toggle");
+      document.querySelector(".pin-input").value = findPin(); document.querySelector(".pin-ok").click();
+      closeTuningPanel(); if (settingsOpen) closeSettings(); draw();
+      const unlockShows = asked && hiddenWhileAsking && ownerUnlocked && shown(".mobile-debug-toggle");
       // 전투: 조이스틱 구역과 ⏸ 가 보임
       // 웨이브가 끝나지 않게 멀리(화면 위 2000px) 적 하나를 세워 둔다
       startGame(); spawnQueue = []; const parked = createEnemy("basic", 480, -2000, 1); parked.speed = 0; enemies = [parked]; draw();
@@ -1815,11 +1823,10 @@ module.exports = [
       const pauseOk = paused && !shown(".stick-zone");
       resumeGame(); resumeTimer = 0; draw();
       // 디버그 버튼: 비밀번호 창 → 맞히면 디버그 모드, 디버그 버튼 목록이 보임
+      // 이미 인증했으니 디버그 버튼은 비밀번호를 다시 묻지 않고 바로 켜진다
       root.querySelector(".mobile-debug-toggle").click();
-      const asked = !debugMode && document.querySelector(".pin-input") !== null;
-      document.querySelector(".pin-input").value = findPin(); document.querySelector(".pin-ok").click();
       resumeTimer = 0; draw();
-      const debugOn = asked && debugMode && shown(".mobile-debug-list");
+      const debugOn = debugMode && document.querySelector(".pin-input") === null && shown(".mobile-debug-list");
       const btn = (label) => [...root.querySelectorAll(".mobile-debug-btn")].find((b) => b.textContent === label);
       const w0 = wave; btn("웨이브 ▶").click(); const waveOk = wave === w0 + 1;
       btn("지급").click(); const giveOk = isDebugGiveOpen(); draw(); const stickHiddenInPanel = !shown(".stick-zone");
@@ -1831,10 +1838,13 @@ module.exports = [
       const debugOff = !debugMode && !shown(".mobile-debug-list");
       goToMenu(); toggleMobileMode(); draw();
       const offOk = saveData.mobileMode === false && loadSave().mobileMode === false && !shown(".mobile-debug-toggle");
-      lockOwner();
-      const ok = defaultOff && hiddenWhenOff && turnedOn && lobbyOk && fightOk && stickOk && pauseOk && debugOn && waveOk && giveOk && stickHiddenInPanel && bossOk && invOk && debugOff && offOk;
-      return { ok: ok, detail: "기본 꺼짐 " + defaultOff + " / 꺼지면 숨김 " + hiddenWhenOff + " / 설정에서 켜기·저장 " + turnedOn + " / 로비: 디버그만 " + lobbyOk + " / 전투: 조이스틱·⏸ " + fightOk +
-        " / 속도 끝까지 " + full.toFixed(0) + ", 절반 " + half.toFixed(0) + " (최고 " + PLAYER_SPEED + "), 떼면 0 " + released + " / ⏸ " + pauseOk + " / 디버그: 비밀번호 후 켜짐 " + debugOn +
+      // 다시 잠그면 디버그 버튼도 사라짐
+      toggleMobileMode(); draw(); const shownAgain = shown(".mobile-debug-toggle");
+      lockOwner(); draw(); const relockHides = shownAgain && !shown(".mobile-debug-toggle");
+      toggleMobileMode();
+      const ok = defaultOff && hiddenWhenOff && turnedOn && lobbyOk && unlockShows && relockHides && fightOk && stickOk && pauseOk && debugOn && waveOk && giveOk && stickHiddenInPanel && bossOk && invOk && debugOff && offOk;
+      return { ok: ok, detail: "기본 꺼짐 " + defaultOff + " / 꺼지면 숨김 " + hiddenWhenOff + " / 설정에서 켜기·저장 " + turnedOn + " / 인증 전 디버그 숨김 " + lobbyOk + " / 숫자 조절 비밀번호 인증 → 디버그 보임 " + unlockShows + " / 다시 잠그면 숨김 " + relockHides + " / 전투: 조이스틱·⏸ " + fightOk +
+        " / 속도 끝까지 " + full.toFixed(0) + ", 절반 " + half.toFixed(0) + " (최고 " + PLAYER_SPEED + "), 떼면 0 " + released + " / ⏸ " + pauseOk + " / 디버그 바로 켜짐 " + debugOn +
         " / 웨이브▶ " + waveOk + " 지급 " + giveOk + " (조이스틱 숨김 " + stickHiddenInPanel + ") 보스 " + bossOk + " 무적 " + invOk + " / 디버그 끄기 " + debugOff + " / 모바일 끄기 " + offOk };
     `),
   },

@@ -6,8 +6,8 @@
 //   - 조이스틱 : 전투 중, 화면 왼쪽 아래 아무 곳이나 누르면 그 자리에 생긴다.
 //                끝까지 밀면 최고 속도, 반만 밀면 절반 속도 (game.js 의 touchStick 에 넣는다)
 //   - ⏸ 버튼  : 전투 중 오른쪽 위. 일시정지 (P 키와 같다)
-//   - 디버그   : 오른쪽 가운데. 누르면 F2 와 같다 (주인 비밀번호를 묻는다)
-//                디버그 모드가 켜지면 웨이브 ◀ ▶, 지급(G), 보스(B), 무적(I), 체력, 코인 버튼이 생긴다
+//   - 디버그   : 오른쪽 가운데. 설정 → 숫자 조절에서 주인 비밀번호를 인증한 뒤에만 보인다.
+//                누르면 F2 와 같다. 디버그 모드가 켜지면 웨이브 ◀ ▶, 지급(G), 보스(B), 무적(I), 체력, 코인 버튼이 생긴다
 // 나머지(카드 고르기, 로비, 결과 화면, 업그레이드)는 원래부터 화면을 눌러서 쓸 수 있다.
 // 손가락·마우스·펜을 모두 같은 방법(포인터 이벤트)으로 받는다 → 데스크탑에서 마우스로 시험해 볼 수도 있다.
 // =============================================================
@@ -137,12 +137,13 @@ function updateMobileControls() {
   const on = saveData.mobileMode === true;
   const fighting = gameState === "playing" && !paused && !isOverlayOpen() && !isDebugGiveOpen() && !isDebugBossOpen();
   const inGame = gameState === "playing" || gameState === "choosing";
-  const key = [on, fighting, debugMode, inGame].join(",");
+  const key = [on, fighting, debugMode, inGame, ownerUnlocked].join(",");
   if (key === mobileShownKey) return;
   mobileShownKey = key;
   mobileRoot.classList.toggle("on", on);
   mobileRoot.classList.toggle("fighting", fighting);
   mobileRoot.classList.toggle("debug-on", debugMode);
+  mobileRoot.classList.toggle("owner", ownerUnlocked);   // 비밀번호를 인증해야 디버그 버튼이 보인다
   debugToggle.textContent = debugMode ? "디버그 끄기" : "디버그";
   // 전투 중에만 쓰는 디버그 버튼은 전투가 아닐 때 흐리게
   debugList.querySelectorAll(".mobile-debug-btn").forEach(function (btn, i) {

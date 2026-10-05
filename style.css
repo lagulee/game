@@ -394,14 +394,15 @@ body {
   display: block;
 }
 
-/* 디버그 버튼 묶음: 오른쪽 가운데 */
+/* 디버그 버튼 묶음: 오른쪽 가운데.
+   만든 사람 비밀번호(설정 → 숫자 조절)를 인증해야만 보인다 (#mobile-controls.owner) */
 .mobile-debug {
+  display: none;
   position: fixed;
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
   z-index: 7;
-  display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
@@ -419,6 +420,10 @@ body {
   display: none;
   flex-direction: column;
   gap: 6px;
+}
+
+#mobile-controls.owner .mobile-debug {
+  display: flex;
 }
 
 #mobile-controls.debug-on .mobile-debug-list {
