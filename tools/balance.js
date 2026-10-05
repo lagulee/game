@@ -20,6 +20,7 @@
 //   압박 규칙 이전 값으로 시험: --preset before-pressure
 //   (게임 파일은 그대로 두고, 측정할 때만 파일 글자를 바꿔 끼운다 → tools/serve.js)
 //   레벨들은 브라우저 탭 여러 개에서 동시에 돌린다 (--parallel 4)
+//   다른 판들로 다시 재기: --seed 1 (운에 따른 차이를 볼 때. 0 이 기본)
 // =============================================================
 
 const { chromium } = require("playwright");
@@ -37,6 +38,8 @@ const LEVELS = (args.levels || "0,3,6,10,15,20,25,30").split(",").map(function (
 });
 const BOT = args.bot || "new";
 const PARALLEL = Number(args.parallel || 4);
+// 씨앗 번호: 0 이면 늘 같은 판들, 다른 번호를 주면 다른 판들 (운에 따른 차이를 볼 때)
+const SEED = Number(args.seed || 0);
 
 // 압박 규칙 이전 값 (tools/regress.js 의 BEFORE_PRESSURE 와 같다)
 const PRESETS = {
@@ -195,7 +198,7 @@ function runLevel(opts) {
   for (let run = 0; run < opts.runs; run++) {
     // 같은 레벨이면 예전과 같은 씨앗 (체력·공격력이 다르면 둘을 섞은 씨앗)
     const seedLevel = opts.v === opts.p ? opts.v : opts.v * 31 + opts.p * 1009;
-    __reseed(1000 + run * 7919 + seedLevel * 104729);
+    __reseed(1000 + run * 7919 + seedLevel * 104729 + opts.seed * 15485863);
     saveData = defaultSave();
     saveData.upgrades = { vitality: opts.v, power: opts.p };
     orbitDir = 1; flipCooldown = 0;
@@ -223,7 +226,7 @@ function runLevel(opts) {
   const browser = await chromium.launch();
   const errors = [];
 
-  console.log("봇: " + BOT + " / 판 수: " + RUNS + " / 바꾼 상수: " + (Object.keys(OVERRIDES).length ? JSON.stringify(OVERRIDES) : "없음"));
+  console.log("봇: " + BOT + " / 판 수: " + RUNS + " / 씨앗: " + SEED + " / 바꾼 상수: " + (Object.keys(OVERRIDES).length ? JSON.stringify(OVERRIDES) : "없음"));
   console.log("레벨(체력,공격력) | 평균 웨이브 | 최소 | 최대 | 클리어 | 평균 생존 시간 | 평균 코인 | 최소 코인 | 40코인 이상 | 5웨이브 보스 통과");
   const rows = new Array(LEVELS.length);
   let next = 0;
@@ -236,7 +239,7 @@ function runLevel(opts) {
     while (next < LEVELS.length) {
       const idx = next++;
       const level = LEVELS[idx];
-      const r = await page.evaluate(runLevel, { v: level.v, p: level.p, runs: RUNS, bot: BOT });
+      const r = await page.evaluate(runLevel, { v: level.v, p: level.p, runs: RUNS, bot: BOT, seed: SEED });
       const waves = r.map((x) => x.wave), coins = r.map((x) => x.coins);
       const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
       rows[idx] = {
