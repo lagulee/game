@@ -51,6 +51,7 @@ const TUNING_INFO = {
   // ---- 웨이브 ----
   WAVE_SPAWN_INTERVAL: { group: "웨이브", label: "적 무리 등장 간격 (초)", min: 0.05 },
   WAVE_SPAWN_BATCH: { group: "웨이브", label: "한 무리 마릿수", int: true, min: 1 },
+  SPAWN_WARN_TIME: { group: "웨이브", label: "적 등장 예고 시간 (초, 0 = 예고 없음)" },
   WAVE_COUNT_MULT: { group: "웨이브", label: "적 수 배율 (표 × 이 값)" },
   WAVE_COUNT_MULT_LATE: { group: "웨이브", label: "6웨이브부터 적 수 배율 (한 번 더 곱함)" },
   BOSS_SPAWN_DELAY: { group: "웨이브", label: "보스 등장까지 (초)" },

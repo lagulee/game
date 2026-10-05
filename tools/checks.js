@@ -1015,7 +1015,8 @@ module.exports = [
       const queued = spawnQueue.length;
       const DT = 1 / 60; let t = 0; const batches = [];
       const sideOf = (e) => e.y < 0 ? "위" : e.y > CANVAS_HEIGHT ? "아래" : e.x < 0 ? "왼쪽" : "오른쪽";
-      while (spawnQueue.length > 0 && t < 60) {
+      // (등장 예고: 마지막 무리는 나오기 0.8초 전에 대기열을 떠나 pendingSpawns 에서 기다린다)
+      while ((spawnQueue.length > 0 || pendingSpawns.length > 0) && t < 60) {
         player.fireTimer = 1e9;
         const before = enemies.length;
         const fresh = [];
@@ -1847,5 +1848,112 @@ module.exports = [
         " / 속도 끝까지 " + full.toFixed(0) + ", 절반 " + half.toFixed(0) + " (최고 " + PLAYER_SPEED + "), 떼면 0 " + released + " / ⏸ " + pauseOk + " / 디버그 바로 켜짐 " + debugOn +
         " / 웨이브▶ " + waveOk + " 지급 " + giveOk + " (조이스틱 숨김 " + stickHiddenInPanel + ") 보스 " + bossOk + " 무적 " + invOk + " / 디버그 끄기 " + debugOff + " / 모바일 끄기 " + offOk };
     `),
+  },
+  // ---------------- 의견 A: 적 등장 예고 ----------------
+  {
+    name: "[등장 예고] 자리는 SPAWN_WARN_TIME 초 먼저 정하고, 나오는 시각·자리는 예고한 그대로 (웨이브 1~12, 보스 포함)",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); debugMode = true; debugInvincible = true;
+      const problems = [];
+      let waves = 0, spawned = 0, warned = 0, bossWarned = 0;
+      const leadOk = (lead, want) => Math.abs(lead - want) <= DT + 1e-6;
+      while (wave <= 12 && waves < 12) {
+        const w = wave, def = WAVES[w - 1], bossWave = waveBosses(def).length > 0;
+        const times = [];                    // 이번 웨이브에서 적이 나온 시각 (웨이브 시작 기준)
+        const seen = new Set();
+        let guard = 0;
+        while (gameState === "playing" && guard++ < 60 * 120) {
+          player.fireTimer = 1e9;            // 쏘지 않는다 (적이 죽지 않게)
+          // 새로 생긴 예고: 남은 시간이 SPAWN_WARN_TIME 이어야 한다
+          for (const p of pendingSpawns) if (!seen.has(p)) {
+            seen.add(p); if (p.boss) bossWarned++; else warned++;
+            if (!leadOk(p.time, SPAWN_WARN_TIME)) problems.push("w" + w + " 예고 " + p.time.toFixed(3) + "초");
+          }
+          const before = enemies.length;
+          const pend = pendingSpawns.slice();
+          update(DT);
+          for (let i = before; i < enemies.length; i++) {
+            const e = enemies[i];
+            // (나온 프레임에 이미 한 번 움직였으니 한 프레임 이동 거리만큼은 봐준다)
+            const m = pend.find((p) => p.type === e.type && Math.hypot(p.x - e.x, p.y - e.y) <= e.speed * DT * 2 + 1e-6);
+            if (!m) problems.push("w" + w + " 예고 없이 " + e.type);
+            times.push(+waveTime.toFixed(3)); spawned++;
+          }
+          // 대기열·예고가 다 비면 남은 적을 치워 웨이브를 끝낸다
+          if (spawnQueue.length === 0 && pendingSpawns.length === 0 && bossQueue.length === 0 && enemies.length > 0) enemies = [];
+        }
+        // 나온 시각이 예전 규칙(타이머)과 같은지: 보통 1초 + 간격 × k, 보스 웨이브는 보스 2초 · 졸개 5초 + 3초 × k
+        const uniq = [...new Set(times)];
+        // 예전 규칙을 따로 흉내 낸다: 프레임마다 타이머 −dt, 0 이하가 되면 등장하고 타이머 = 간격
+        const want = [];
+        { let wt = 0, timer = bossWave ? BOSS_SPAWN_DELAY + BOSS_MINION_INTERVAL : 1.0, bt = bossWave ? BOSS_SPAWN_DELAY : Infinity;
+          for (let f = 0; f < 60 * 120 && want.length < uniq.length; f++) {
+            wt += DT;
+            const at = [];
+            bt -= DT; if (bt <= 0) { at.push(wt); bt = Infinity; }
+            timer -= DT; if (timer <= 0) { at.push(wt); timer = bossWave ? BOSS_MINION_INTERVAL : WAVE_SPAWN_INTERVAL; }
+            if (at.length) want.push(+wt.toFixed(3));
+          } }
+        uniq.forEach((t, i) => { if (Math.abs(t - want[i]) > DT + 1e-6) problems.push("w" + w + " 시각 " + t + " (예전 " + want[i].toFixed(2) + ")"); });
+        waves++;
+        if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
+        else break;
+      }
+      debugMode = false; debugInvincible = false;
+      return { ok: problems.length === 0 && waves >= 12 && bossWarned >= 2, detail: "웨이브 " + waves + "개, 적 " + spawned + "마리 (예고 " + warned + ", 보스 예고 " + bossWarned + ")" +
+        (problems.length ? " / 문제: " + problems.slice(0, 4).join(", ") : " / 모두 예고한 자리 · 예전 시각") };
+    },
+  },
+  {
+    name: "[등장 예고] 표시를 켜든 끄든 (그림까지 그려도) 게임 진행은 한 글자도 같다",
+    run: function () {
+      const pattern = [["KeyD"], ["KeyS"], ["KeyA", "KeyW"], [], ["KeyW"], ["KeyA"]];
+      const runOnce = (on) => {
+        __reseed(4242); saveData.spawnWarn = on; startGame(); debugMode = true; debugInvincible = true;
+        const out = [];
+        for (let f = 0; f < 3600 && gameState !== "gameover"; f++) {
+          for (const k in keys) keys[k] = false; for (const k of pattern[Math.floor(f / 80) % pattern.length]) keys[k] = true;
+          if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
+          update(1 / 60);
+          if (f % 10 === 0) draw();
+          if (f % 30 === 0) out.push([wave, Math.round(player.x * 100), Math.round(player.y * 100), player.hp, enemies.map((e) => Math.round(e.x) + "," + Math.round(e.y) + "," + Math.round(e.hp)).join(";"), pendingSpawns.length].join("|"));
+        }
+        for (const k in keys) keys[k] = false;
+        return out.join("\n");
+      };
+      const a = runOnce(true), b = runOnce(false);
+      saveData.spawnWarn = true; debugMode = false; debugInvincible = false;
+      return { ok: a === b && a.length > 1000, detail: "켬 / 끔 기록 " + (a === b ? "같음" : "다름") + " (" + a.split("\n").length + "줄)" };
+    },
+  },
+  {
+    name: "[등장 예고] 화면 안에서 생기는 적 (분열형 조각 · 돌진 대장 소환) 은 예고 없이 바로",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      const sp = createEnemy("splitter", 480, 270, 1); enemies = [sp];
+      const p0 = pendingSpawns.length;
+      killEnemy(sp, "test");
+      const kids = enemies.filter((e) => e !== sp && !e.dead).length;
+      const p1 = pendingSpawns.length;
+      return { ok: kids >= 2 && p0 === p1, detail: "분열 조각 " + kids + "마리, 예고 목록 " + p0 + " → " + p1 };
+    },
+  },
+  {
+    name: "[등장 예고] 설정 창의 켜기/끄기 버튼 (기본 켜짐, 저장)",
+    run: function () {
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); const def = spawnWarnOn();
+      goToMenu(); openSettings(); draw();
+      clickRect(settingsSpawnWarnRect()); const off = !spawnWarnOn() && loadSave().spawnWarn === false;
+      clickRect(settingsSpawnWarnRect()); const on = spawnWarnOn() && loadSave().spawnWarn === true;
+      closeSettings();
+      return { ok: def && off && on, detail: "기본 " + def + " / 끄기·저장 " + off + " / 켜기·저장 " + on };
+    },
   },
 ];

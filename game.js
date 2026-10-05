@@ -137,6 +137,22 @@ const ENRAGE_RATE = tune("ENRAGE_RATE", 0.03);
 // 과열로 빨라져도 적의 속도는 플레이어 최고 속도의 이 배수를 넘지 않는다
 const ENRAGE_MAX_PLAYER_RATIO = tune("ENRAGE_MAX_PLAYER_RATIO", 1.1);
 
+// ---- 등장 예고: 적이 화면에 나오기 전에 나올 자리를 미리 보여 준다 ----
+// 등장 이 시간(초) 전에 자리를 정해 두고, 화면 안쪽 가장자리에 빨간 세모 느낌표를 깜빡인다.
+//   (등장 시각은 그대로. 0 으로 두면 예전처럼 나오는 순간에 자리를 정한다 → 예고 없음, 기록도 예전과 같다)
+const SPAWN_WARN_TIME = tune("SPAWN_WARN_TIME", 0.8);
+// 예고 표시를 화면 가장자리에서 이만큼 안쪽에 그린다 (px). 보스는 더 안쪽
+const SPAWN_WARN_MARGIN = 28;
+const SPAWN_WARN_BOSS_MARGIN = 58;
+// 세모 크기 (px, 가운데에서 꼭짓점까지). 보스는 더 크게
+const SPAWN_WARN_SIZE = 17;
+const SPAWN_WARN_BOSS_SIZE = 30;
+// 깜빡이는 빠르기 (번/초): 예고를 시작할 때 → 등장 직전
+const SPAWN_WARN_BLINK_START = 3;
+const SPAWN_WARN_BLINK_END = 12;
+// 보스 예고: 등장 자리로 좁혀 드는 원의 처음 반지름 (px)
+const SPAWN_WARN_BOSS_RING = 230;
+
 // ---- 적 탄환 (사수형·보스가 쏘는 총알) ----
 // 기본 속도 (px/초). 플레이어(220)보다 훨씬 느려서 보고 피할 수 있다
 const ENEMY_BULLET_SPEED = 160;
@@ -229,7 +245,9 @@ const LOBBY_TABS = [
 ];
 
 // 설정 창 (가운데 패널) 크기
-const SETTINGS_PANEL = { x: 170, y: 44, w: 620, h: 418 };
+const SETTINGS_PANEL = { x: 170, y: 18, w: 620, h: 504 };
+// 설정 창 오른쪽 칸: 항목(제목 + 버튼 + 설명) 하나의 높이 (px)
+const SETTINGS_ROW = 92;
 
 // 버튼 효과: 마우스를 올리면 밝아지는 정도, 누르면 작아지는 정도와 튕겨 돌아오는 시간 (초)
 const BUTTON_HOVER_LIGHTEN = 0.18;
@@ -813,6 +831,16 @@ let particles = [];
 // 다음 적이 나타날 때까지 남은 시간 (초)
 let spawnTimer = 0;
 
+// 등장 예고: 다음 무리의 자리를 미리 정해 둔 목록 (아직 화면에 없는 적)
+//   { type, x, y, boss, time: 등장까지 남은 초, total: 예고를 시작할 때 남은 초, phase: 깜빡임 박자 }
+//   보통 적은 spawnQueue 에서 꺼내 여기로 옮겨 두고, 시간이 되면 그 자리에 만든다.
+//   보스는 bossQueue 에 그대로 두고 그림용으로만 여기에 적어 둔다 (boss: true)
+let pendingSpawns = [];
+// 이번 무리의 자리를 이미 정해 두었는지
+let batchReserved = false;
+// 보스 자리 예고를 이미 했는지
+let bossWarned = false;
+
 // 이번 웨이브가 시작된 뒤 흐른 전투 시간 (초). 과열(ENRAGE_TIME)을 잴 때 쓴다
 let waveTime = 0;
 
@@ -1029,6 +1057,13 @@ function updatePlayer(dt) {
 // 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 typeId 종류의 적 하나를 만든다
 // side 를 주면 그 변에서 (0 위, 1 아래, 2 왼쪽, 3 오른쪽), 안 주면 무작위 변에서 나온다
 function spawnEnemy(typeId, side) {
+  const p = edgeSpawnPoint(typeId, side);
+  // 적 객체를 만들어(enemies.js 의 createEnemy) 목록에 추가한다
+  enemies.push(createEnemy(typeId, p.x, p.y, wave));
+}
+
+// typeId 종류가 나타날 화면 바로 바깥 자리 { x, y } (난수 쓰는 순서는 예전 spawnEnemy 와 같다)
+function edgeSpawnPoint(typeId, side) {
   const r = ENEMY_TYPES[typeId].radius; // 이 종류의 몸 반지름
 
   // 변을 정하지 않았으면 0, 1, 2, 3 중 하나를 무작위로 뽑는다
@@ -1052,17 +1087,32 @@ function spawnEnemy(typeId, side) {
     x = CANVAS_WIDTH + r;
     y = Math.random() * CANVAS_HEIGHT;
   }
-
-  // 적 객체를 만들어(enemies.js 의 createEnemy) 목록에 추가한다
-  enemies.push(createEnemy(typeId, x, y, wave));
+  return { x: x, y: y };
 }
 
 // 웨이브 동안 대기열의 적을 하나씩 만드는 함수
 function updateSpawning(dt) {
+  // 예고 표시의 남은 시간 · 깜빡임 박자 (그림 전용. 게임 진행에는 쓰지 않는다)
+  for (const w of pendingSpawns) {
+    w.time = Math.max(0, w.time - dt);
+    const t = w.total > 0 ? 1 - w.time / w.total : 1;   // 0 → 1 (등장이 가까울수록 1)
+    w.phase += dt * (SPAWN_WARN_BLINK_START + (SPAWN_WARN_BLINK_END - SPAWN_WARN_BLINK_START) * t);
+  }
+
   // 보스가 기다리고 있으면: 시간이 되면 화면 위쪽에서 한꺼번에 등장
   if (bossQueue.length > 0) {
     bossTimer -= dt;
+    // 등장 SPAWN_WARN_TIME 초 전: 보스 자리 예고 (보스 자리는 정해져 있어 난수를 쓰지 않는다)
+    if (!bossWarned && bossTimer > 0 && bossTimer <= SPAWN_WARN_TIME) {
+      bossWarned = true;
+      for (let i = 0; i < bossQueue.length; i++) {
+        const type = ENEMY_TYPES[bossQueue[i]];
+        pendingSpawns.push({ type: bossQueue[i], x: (CANVAS_WIDTH * (i + 1)) / (bossQueue.length + 1), y: -type.radius,
+          boss: true, time: bossTimer, total: bossTimer, phase: 0 });
+      }
+    }
     if (bossTimer <= 0) {
+      pendingSpawns = pendingSpawns.filter(function (w) { return !w.boss; });
       // 보스가 여러 마리면 화면 폭을 (마릿수 + 1) 칸으로 나눠 나란히 세운다
       for (let i = 0; i < bossQueue.length; i++) {
         const type = ENEMY_TYPES[bossQueue[i]];
@@ -1073,17 +1123,51 @@ function updateSpawning(dt) {
     }
   }
 
-  // 이번 웨이브의 졸개를 이미 다 만들었으면 할 일이 없다
-  if (spawnQueue.length === 0) return;
+  // 이번 웨이브의 졸개를 이미 다 만들었으면 할 일이 없다 (자리를 정해 둔 무리가 남았으면 마저 기다린다)
+  if (spawnQueue.length === 0 && !batchReserved) return;
 
   // 남은 시간을 흐른 시간만큼 줄인다
   spawnTimer -= dt;
 
-  // 시간이 다 됐으면 대기열 맨 앞에서 한 무리를 꺼내(shift) 만든다
+  // 등장 SPAWN_WARN_TIME 초 전: 다음 무리를 대기열에서 꺼내 자리를 정해 둔다 (등장 시각은 그대로)
+  if (!batchReserved && spawnTimer > 0 && spawnTimer <= SPAWN_WARN_TIME && spawnQueue.length > 0) {
+    reserveBatch(currentSpawnBatch, spawnTimer);
+    batchReserved = true;
+  }
+
+  // 시간이 다 됐으면 한 무리를 만든다
   if (spawnTimer <= 0) {
-    spawnBatch(currentSpawnBatch);
+    if (batchReserved) spawnReserved();          // 미리 정해 둔 자리에
+    else spawnBatch(currentSpawnBatch);          // (예고 시간이 0 이면 예전과 똑같이 지금 자리를 정한다)
+    batchReserved = false;
     spawnTimer = currentSpawnInterval; // 타이머를 다시 채운다
   }
+}
+
+// 다음 무리 count 마리의 자리를 미리 정해 둔다 (spawnBatch 와 같은 규칙: 서로 다른 변, 한 마리면 무작위 변)
+function reserveBatch(count, timeLeft) {
+  const add = function (typeId, side) {
+    const p = edgeSpawnPoint(typeId, side);
+    pendingSpawns.push({ type: typeId, x: p.x, y: p.y, boss: false, time: timeLeft, total: timeLeft, phase: 0 });
+  };
+  if (count <= 1) {
+    add(spawnQueue.shift());
+    return;
+  }
+  const sides = shuffle([0, 1, 2, 3]);
+  for (let i = 0; i < count && spawnQueue.length > 0; i++) {
+    add(spawnQueue.shift(), sides[i % sides.length]);
+  }
+}
+
+// 미리 정해 둔 자리에 적을 만든다 (보스 예고는 그대로 둔다)
+function spawnReserved() {
+  const keep = [];
+  for (const w of pendingSpawns) {
+    if (w.boss) keep.push(w);
+    else enemies.push(createEnemy(w.type, w.x, w.y, wave));
+  }
+  pendingSpawns = keep;
 }
 
 // 대기열에서 count 마리를 꺼내 "서로 다른 변"에서 동시에 나오게 한다 (둘러싸는 느낌)
@@ -1135,6 +1219,10 @@ function startWave(n) {
   // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
   const waveDef = WAVES[n - 1];
   spawnQueue = [];
+  // 등장 예고도 처음부터 (디버그로 웨이브를 옮길 때 남은 예고를 지운다)
+  pendingSpawns = [];
+  batchReserved = false;
+  bossWarned = false;
   // 이번 웨이브의 묶음을 하나씩 보는 반복문
   for (const group of waveGroups(waveDef)) {
     // 같은 종류를 count 마리만큼 줄 뒤에 붙이는 반복문
@@ -1526,6 +1614,7 @@ function goToMenu() {
   lobbyToast = "";
   lobbyToastTimer = 0;
   enemies = [];
+  pendingSpawns = [];
   bullets = [];
   enemyBullets = [];
   popups = [];
@@ -1616,21 +1705,18 @@ function settingsCloseRect() {
   const P = SETTINGS_PANEL;
   return { x: P.x + P.w - 54, y: P.y + 10, w: 44, h: 44 };   // 오른쪽 위 X (지름 44)
 }
-function settingsHudRect() {
+// 오른쪽 칸 i 번째 항목의 버튼 (0 상태창, 1 모바일, 2 등장 예고, 3 저장 초기화)
+function settingsRowRect(i) {
   const P = SETTINGS_PANEL;
-  return { x: P.x + 372, y: P.y + 98, w: 218, h: 40 };
+  return { x: P.x + 372, y: P.y + 98 + i * SETTINGS_ROW, w: 218, h: 40 };
 }
-function settingsMobileRect() {
-  const P = SETTINGS_PANEL;
-  return { x: P.x + 372, y: P.y + 196, w: 218, h: 40 };
-}
-function settingsResetRect() {
-  const P = SETTINGS_PANEL;
-  return { x: P.x + 372, y: P.y + 294, w: 218, h: 40 };
-}
+function settingsHudRect() { return settingsRowRect(0); }
+function settingsMobileRect() { return settingsRowRect(1); }
+function settingsSpawnWarnRect() { return settingsRowRect(2); }
+function settingsResetRect() { return settingsRowRect(3); }
 function settingsTuningRect() {
   const P = SETTINGS_PANEL;
-  return { x: P.x + 34, y: P.y + 362, w: 290, h: 40 };      // 왼쪽 아래: 숫자 조절판 열기
+  return { x: P.x + 34, y: P.y + P.h - 56, w: 290, h: 40 };      // 왼쪽 아래: 숫자 조절판 열기
 }
 
 // 지금 화면에서 누를 수 있는 로비 버튼 목록 { id, rect }.
@@ -1642,6 +1728,7 @@ function lobbyButtons() {
       { id: "settings:close", rect: settingsCloseRect() },
       { id: "settings:hud", rect: settingsHudRect() },
       { id: "settings:mobile", rect: settingsMobileRect() },
+      { id: "settings:spawnWarn", rect: settingsSpawnWarnRect() },
       { id: "settings:reset", rect: settingsResetRect() },
       { id: "settings:tuning", rect: settingsTuningRect() },
     ];
@@ -1680,6 +1767,7 @@ function runLobbyButton(id) {
   else if (id === "settings:close") closeSettings();
   else if (id === "settings:hud") toggleHud();
   else if (id === "settings:mobile") toggleMobileMode();
+  else if (id === "settings:spawnWarn") toggleSpawnWarn();
   else if (id === "settings:reset") pressResetSave();
   else if (id === "settings:tuning") { closeSettings(); openTuningPanel(); }
   else if (id.startsWith("tab:")) openTab(id.slice(4));
@@ -1714,7 +1802,7 @@ function showLobbyToast(text, time) {
 // 웨이브가 끝났는지 검사하는 함수
 // 끝나는 조건: 보스·졸개 대기열이 비었고(0), 화면에 남은 적(보스 포함)도 없다(0)
 function checkWaveEnd() {
-  if (bossQueue.length > 0 || spawnQueue.length > 0 || enemies.length > 0) return;
+  if (bossQueue.length > 0 || spawnQueue.length > 0 || pendingSpawns.length > 0 || enemies.length > 0) return;
 
   // 웨이브를 깼다! 체력을 조금 회복
   healPlayer(waveClearHeal());
@@ -3075,6 +3163,12 @@ function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
   drawOutlinedRoundRect(x, y, w, h, h / 2, null, width); // 3) 외곽선만 덮어 그리기
 }
 
+// 적 등장 예고 표시 켜기 / 끄기 (바로 저장. 표시만 바뀌고 게임 진행은 그대로)
+function toggleSpawnWarn() {
+  saveData.spawnWarn = !spawnWarnOn();
+  writeSave();
+}
+
 // 상태창이 접혀 있는지 (저장 데이터에 남겨서 다음 판에도 유지)
 function hudCollapsed() {
   return saveData.hudCollapsed === true;
@@ -3394,6 +3488,52 @@ function drawBossBars() {
     const y = 24 + i * 50;
     drawOutlinedText(enemyType(boss).name, CANVAS_WIDTH / 2, y, 20, "center", COLORS.yellow);
     drawBar(CANVAS_WIDTH / 2 - w / 2, y + 14, w, 18, boss.hp / boss.maxHp, COLORS.red);
+  }
+}
+
+// ---- 적 등장 예고 ----
+// 설정에서 끌 수 있다 (꺼도 자리는 똑같이 미리 정한다 → 켜고 끄기가 게임 진행을 바꾸지 않는다)
+function spawnWarnOn() {
+  return saveData.spawnWarn !== false;
+}
+
+// 나올 자리의 화면 안쪽 가장자리에 빨간 세모 느낌표. 등장이 가까울수록 빨리 깜빡인다.
+// 보스는 더 크게, 그리고 등장 자리로 큰 원이 좁혀 든다
+function drawSpawnWarnings() {
+  if (!spawnWarnOn() || pendingSpawns.length === 0) return;
+  for (const w of pendingSpawns) {
+    const t = w.total > 0 ? 1 - w.time / w.total : 1;          // 0 → 1
+    const margin = w.boss ? SPAWN_WARN_BOSS_MARGIN : SPAWN_WARN_MARGIN;
+    const x = clamp(w.x, margin, CANVAS_WIDTH - margin);
+    const y = clamp(w.y, margin, CANVAS_HEIGHT - margin);
+    // 보스: 등장 자리로 좁혀 드는 점선 원 (처음 반지름 → 보스 몸 크기)
+    if (w.boss) {
+      const r = SPAWN_WARN_BOSS_RING + (ENEMY_TYPES[w.type].radius - SPAWN_WARN_BOSS_RING) * t;
+      ctx.save();
+      ctx.globalAlpha = 0.35 + 0.45 * t;
+      ctx.setLineDash([14, 10]);
+      ctx.lineDashOffset = -w.phase * 40;
+      ctx.strokeStyle = COLORS.red;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(w.x, Math.max(w.y, 0), Math.max(r, 4), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 깜빡임: 한 박자의 앞 60% 동안 보인다 (박자는 등장이 가까울수록 빨라진다)
+    if ((w.phase % 1) > 0.6) continue;
+    const size = w.boss ? SPAWN_WARN_BOSS_SIZE : SPAWN_WARN_SIZE;
+    // 나타날 때 살짝 튀어나오는 크기 (처음 0.1초)
+    const pop = Math.min(1, (w.total - w.time) / 0.1);
+    const k = size * (0.6 + 0.4 * pop);
+    drawOutlinedPolygon([[x, y - k], [x + k * 0.95, y + k * 0.7], [x - k * 0.95, y + k * 0.7]], COLORS.red, w.boss ? OUTLINE_WIDTH : SMALL_OUTLINE_WIDTH * 1.2);
+    // 느낌표
+    ctx.fillStyle = COLORS.white;
+    roundRectPath(x - k * 0.1, y - k * 0.5, k * 0.2, k * 0.62, k * 0.1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y + k * 0.36, k * 0.12, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -4305,7 +4445,7 @@ function drawLobbyToast() {
   ctx.font = size + "px " + FONT_FAMILY;
   const w = ctx.measureText(lobbyToast).width + 40;
   // 설정 창이 열려 있으면 창 아래쪽 빈자리에, 아니면 탭 바 바로 위에
-  const y = settingsOpen ? SETTINGS_PANEL.y + SETTINGS_PANEL.h + 34 : UPGRADE_HELP_Y;
+  const y = settingsOpen ? Math.min(SETTINGS_PANEL.y + SETTINGS_PANEL.h + 34, CANVAS_HEIGHT - 20) : UPGRADE_HELP_Y;
   drawOutlinedRoundRect(CANVAS_WIDTH / 2 - w / 2, y - 18, w, 36, 18, COLORS.dark, SMALL_OUTLINE_WIDTH);
   drawOutlinedText(lobbyToast, CANVAS_WIDTH / 2, y + 1, size, "center", COLORS.yellow);
   ctx.restore();
@@ -4525,7 +4665,8 @@ function drawSettingsOverlay() {
 
   // 5) 오른쪽 위: 상태창 접기 (켜고 끄기 버튼)
   const rx = P.x + 372;
-  drawOutlinedText("전투 중 상태창", rx, P.y + 82, 18, "left", COLORS.brown);
+  const rowTitleY = function (i) { return P.y + 82 + i * SETTINGS_ROW; };
+  drawOutlinedText("전투 중 상태창", rx, rowTitleY(0), 18, "left", COLORS.brown);
   const hud = settingsHudRect();
   const folded = hudCollapsed();
   drawScaled(hud.x + hud.w / 2, hud.y + hud.h / 2, buttonScale("settings:hud"), function () {
@@ -4535,7 +4676,7 @@ function drawSettingsOverlay() {
   drawFitText("전투 중에는 Tab 키 · 화살표로도 바꿔요.", rx, hud.y + hud.h + 16, 13, 218, COLORS.outline, "left");
 
   // 모바일 모드 (조이스틱 · 터치 버튼)
-  drawOutlinedText("모바일 모드", rx, P.y + 180, 18, "left", COLORS.brown);
+  drawOutlinedText("모바일 모드", rx, rowTitleY(1), 18, "left", COLORS.brown);
   const mob = settingsMobileRect();
   const mobileOn = saveData.mobileMode === true;
   drawScaled(mob.x + mob.w / 2, mob.y + mob.h / 2, buttonScale("settings:mobile"), function () {
@@ -4544,8 +4685,18 @@ function drawSettingsOverlay() {
   });
   drawFitText("조이스틱 · 일시정지 (디버그는 인증 뒤)", rx, mob.y + mob.h + 16, 13, 218, COLORS.outline, "left");
 
+  // 적 등장 예고 표시 (기본 켜짐)
+  drawOutlinedText("적 등장 예고 표시", rx, rowTitleY(2), 18, "left", COLORS.brown);
+  const sw = settingsSpawnWarnRect();
+  const warnOn = spawnWarnOn();
+  drawScaled(sw.x + sw.w / 2, sw.y + sw.h / 2, buttonScale("settings:spawnWarn"), function () {
+    drawOutlinedRoundRect(sw.x, sw.y, sw.w, sw.h, 20, hoverColor("settings:spawnWarn", warnOn ? COLORS.red : COLORS.gray));
+    drawOutlinedText(warnOn ? "켜짐 (빨간 느낌표)" : "꺼짐", sw.x + sw.w / 2, sw.y + sw.h / 2 + 1, 19);
+  });
+  drawFitText("적이 나올 자리를 0.8초 먼저 보여 줘요", rx, sw.y + sw.h + 16, 13, 218, COLORS.outline, "left");
+
   // 6) 오른쪽 아래: 저장 초기화 (두 번 눌러야 실행)
-  drawOutlinedText("저장 데이터", rx, P.y + 278, 18, "left", COLORS.brown);
+  drawOutlinedText("저장 데이터", rx, rowTitleY(3), 18, "left", COLORS.brown);
   const reset = settingsResetRect();
   const armed = resetArmTimer > 0;
   drawScaled(reset.x + reset.w / 2, reset.y + reset.h / 2, buttonScale("settings:reset"), function () {
@@ -4632,6 +4783,7 @@ function draw() {
   drawEnemyBullets(); // 적 탄환 (적 위에, 잘 보이게)
   drawPlayer();     // 플레이어
   drawImmuneRing(); // 면역 반응 보호막 고리
+  drawSpawnWarnings(); // 적 등장 예고 (화면 가장자리의 빨간 세모 느낌표)
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
   drawBossBars();   // 보스 체력바
