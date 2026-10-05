@@ -133,10 +133,11 @@ const ENEMY_HP_GROWTH = tune("ENEMY_HP_GROWTH", 0.12);
 //     15웨이브: 일차식만 5.36배 → 이차식 더해서 6.93배  (+29%, 제곱 항 = 2 × 0.004 × 14² = 1.57)
 //     30웨이브: 일차식만 8.96배 → 이차식 더해서 15.69배 (+75%, 제곱 항 = 2 × 0.004 × 29² = 6.73)
 //   → 초반(1~5웨이브)은 거의 그대로, 후반만 크게 어려워진다
-const ENEMY_HP_QUAD = tune("ENEMY_HP_QUAD", 0.004);
-// 접촉 대미지: 1웨이브 1.5배, 한 웨이브마다 +5%  (30웨이브: 1.5 × 2.45 = 3.675배)
+//   지금은 0 (끔): 밸런스 측정에서 적 수 배율(WAVE_COUNT_MULT_LATE)로 맞추는 쪽이 목표에 더 가까웠다
+const ENEMY_HP_QUAD = tune("ENEMY_HP_QUAD", 0);
+// 접촉 대미지: 1웨이브 1.5배, 한 웨이브마다 +1%  (30웨이브: 1.5 × 1.29 = 1.935배)
 const ENEMY_DMG_BASE = tune("ENEMY_DMG_BASE", 1.5);
-const ENEMY_DMG_GROWTH = tune("ENEMY_DMG_GROWTH", 0.05);
+const ENEMY_DMG_GROWTH = tune("ENEMY_DMG_GROWTH", 0.01);
 // 속도: 1웨이브 1.5배, 한 웨이브마다 +2.5%, 단 2.2배를 넘지 않는다
 //   (기본 적 60 × 1.5 = 90. 플레이어 220 보다 느리지만, 무리로 둘러싸면 도망칠 길이 좁아진다)
 const ENEMY_SPEED_BASE = tune("ENEMY_SPEED_BASE", 1.5);

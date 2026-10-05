@@ -107,6 +107,8 @@ const COMPOUND_MAX_N = 10;
 
 // 분산 증폭: 가장 약하게 맞을 때의 배율
 const VARIANCE_MIN_MULT = 0.2;
+// 분산 증폭: 배율의 평균 (1.1 = 평균적으로 10% 더 세게)
+const VARIANCE_MEAN = 1.1;
 
 // 시간 지연: 빛의 속도 역할을 하는 c = 플레이어 최고 속도 × 이 값
 // 0.85 이면 최고 속도의 85%만 내도 v/c = 1 이 되어 효과가 가장 세진다.
@@ -114,6 +116,8 @@ const TIME_C_RATIO = 0.85;
 
 // 시간 지연: 적 속도 배율의 최솟값 (적이 완전히 멈추지는 않게)
 const TIME_MIN_FACTOR = 0.2;
+// 시간 지연: 레벨별 범위 반경 (px)
+const TIME_RADIUS = [90, 115, 140];
 
 // 등차 탄환: 발사 번호 k 가 0 부터 몇까지 올라가는지 (10 이면 0~9 를 반복)
 const ARITH_CYCLE = 10;
@@ -124,11 +128,15 @@ const ARITH_D = [2, 3, 4];
 const SQUARE_EVERY = [3, 2, 2];
 // 제곱 증폭: 레벨별 배율 상한 (D² ÷ 기본 대미지 = D × (D ÷ 기본 대미지) 에서 뒤쪽 배율이 이 값을 넘지 않게)
 const SQUARE_MAX_MULT = [5, 5, 7];
+// 제곱 증폭: 배율의 최솟값 (혼자 가지고 있어도, 즉 D 가 기본 대미지여도 최소 1.5배)
+const SQUARE_MIN_MULT = 1.5;
 
 // 3방향 탄: 레벨별 총알 수 n (360° ÷ n 간격으로 퍼진다)
 const MULTI_SHOT_COUNT = [3, 5, 6];
-// 3방향 탄: 레벨별 총알 하나의 대미지 배율
+// 3방향 탄: 레벨별 추가 총알 하나의 대미지 배율
 const MULTI_SHOT_SCALE = [0.6, 0.5, 0.5];
+// 3방향 탄: true 면 조준한 가운데 총알은 대미지 그대로 (false 면 그 총알도 위 배율)
+const MULTI_SHOT_AIMED_FULL = true;
 
 // 핵분열 연쇄: 레벨별 파편 개수 m (360° ÷ m 간격)
 const FISSION_FRAGMENTS = [2, 3, 3];
@@ -143,8 +151,8 @@ const FISSION_MAX_FRAGMENTS = 40;
 // 핵분열 연쇄: 파편이 날아가는 시간 (초). 0.5초 × 480px/초 ≈ 240px 까지만 날아간다
 const FISSION_FRAGMENT_LIFE = 0.5;
 
-// 촉매: 레벨별 발사 간격 감소율 (0.2 = 20% 감소 → 간격 × 0.8)
-const CATALYST_REDUCTION = [0.2, 0.3, 0.4];
+// 촉매: 레벨별 발사 간격 감소율 (0.15 = 15% 감소 → 간격 × 0.85)
+const CATALYST_REDUCTION = [0.15, 0.25, 0.33];
 
 // 넉백: 레벨별 처음 밀어내는 속도 (px/초)
 const KNOCKBACK_SPEED = [240, 360, 480];
@@ -153,7 +161,7 @@ const KNOCKBACK_SPEED = [240, 360, 480];
 const KNOCKBACK_DECAY = 6;
 
 // 푸리에 탄환: 레벨별 진폭 A (px). 총알이 진행 방향의 옆으로 A·sin(ωt) 만큼 흔들린다
-const FOURIER_AMPLITUDE = [20, 30, 40];
+const FOURIER_AMPLITUDE = [15, 20, 25];
 // 푸리에 탄환: 각속도 ω (rad/초). 한 번 출렁이는 데 2π/ω ≈ 0.52초 (그동안 약 250px 날아간다)
 const FOURIER_OMEGA = 12;
 // 푸리에 탄환: 레벨별 충돌 반지름 증가 (px)
@@ -166,7 +174,7 @@ const FOURIER_PIERCE = [0, 0, 1];
 const FOURIER_RAMP_TIME = 0.25;
 
 // 중력 렌즈: 레벨별 끌어당기는 반경 R (px). 총알에서 R 안에 있는 가장 가까운 적 쪽으로 휜다
-const GRAVITY_RANGE = [80, 110, 140];
+const GRAVITY_RANGE = [110, 140, 170];
 // 중력 렌즈: 당기는 세기 G. 가속도 = G ÷ r² (r = 총알과 적 사이 거리)
 //   r = 100px → 1000 px/초², r = 50px → 4000 px/초² (거리가 절반이면 4배)
 const GRAVITY_STRENGTH = 10000000;
@@ -175,8 +183,8 @@ const GRAVITY_MAX_ACCEL = 6000;
 // 중력 렌즈: 쏜 뒤 이 시간(초)까지만 휜다 (적 둘레를 영원히 빙빙 도는 총알이 생기지 않게)
 const GRAVITY_MAX_AGE = 2;
 
-// 반감기: 레벨별 붕괴율 p (0.04 = 매초 지금 체력의 4% 를 잃는다)
-const HALFLIFE_RATE = [0.04, 0.06, 0.08];
+// 반감기: 레벨별 붕괴율 p (0.06 = 매초 지금 체력의 6% 를 잃는다)
+const HALFLIFE_RATE = [0.06, 0.09, 0.12];
 // 반감기: 한 번 맞으면 붕괴가 이어지는 시간 (초). 다시 맞으면 처음부터 다시 4초
 const HALFLIFE_DURATION = 4;
 // 반감기: 보스는 붕괴율이 이 배율만큼만 (0.5 = 절반)
@@ -234,24 +242,24 @@ const AUGMENTS = [
     id: "variance",
     name: "분산 증폭",
     concept: "통계 · 평균과 분산",
-    formula: "평균 1, 분산 ↑",
+    formula: "평균 1.1, 분산 ↑",
     color: "red",
     levels: [
       {
         maxMult: 2.5,
-        desc: "평균 대미지는 그대로 두고, 한 발마다 0.2배 ~ 2.5배 사이에서 크게 흔들린다.",
+        desc: "한 발마다 0.2배 ~ 2.5배 사이에서 크게 흔들린다. 평균은 1.1배",
       },
       {
         maxMult: 3.0,
-        desc: "더 크게 흔들린다! 최대 배율 2.5배 → 3배 (평균은 여전히 1배)",
+        desc: "더 크게 흔들린다! 최대 배율 2.5배 → 3배 (평균은 여전히 1.1배)",
       },
       {
         maxMult: 3.5,
-        desc: "극한의 분산! 최대 배율 3배 → 3.5배 (그래도 평균은 1배)",
+        desc: "극한의 분산! 최대 배율 3배 → 3.5배 (그래도 평균은 1.1배)",
       },
     ],
 
-    // 대미지 × (무작위 배율). 배율의 평균이 정확히 1 이 되도록 뽑는다.
+    // 대미지 × (무작위 배율). 배율의 평균이 정확히 VARIANCE_MEAN(1.1) 이 되도록 뽑는다.
     modifyDamage: function (damage, stats, info) {
       const low = VARIANCE_MIN_MULT; // 가장 작은 배율 (0.2)
       const high = stats.maxMult;    // 가장 큰 배율 (2.5 또는 3)
@@ -261,14 +269,14 @@ const AUGMENTS = [
       //   큰 쪽 구간   [1, high]  에서 고르게 뽑으면 평균 = (1 + high) / 2
       //   큰 쪽이 나올 확률을 p 라고 하면, 전체 평균은
       //     0.6 × (1 − p) + 큰쪽평균 × p
-      //   이 값이 1 이 되도록 p 를 구하면
-      //     p = (1 − 0.6) / (큰쪽평균 − 0.6)
-      //   high = 2.5 → p = 0.4 / 1.15 ≈ 0.348 (약 35%)
-      //   high = 3.0 → p = 0.4 / 1.4  ≈ 0.286 (약 29%)
-      //   high = 3.5 → p = 0.4 / 1.65 ≈ 0.242 (약 24%)
+      //   이 값이 평균 M(1.1) 이 되도록 p 를 구하면
+      //     p = (M − 0.6) / (큰쪽평균 − 0.6)
+      //   high = 2.5 → p = 0.5 / 1.15 ≈ 0.435 (약 43%)
+      //   high = 3.0 → p = 0.5 / 1.4  ≈ 0.357 (약 36%)
+      //   high = 3.5 → p = 0.5 / 1.65 ≈ 0.303 (약 30%)
       const lowMean = (low + 1) / 2;
       const highMean = (1 + high) / 2;
-      const p = (1 - lowMean) / (highMean - lowMean);
+      const p = (VARIANCE_MEAN - lowMean) / (highMean - lowMean);
 
       let mult;
       if (Math.random() < p) {
@@ -287,16 +295,16 @@ const AUGMENTS = [
     color: "green",
     levels: [
       {
-        radius: 100,
-        desc: "빠르게 움직일수록 반경 100px 안의 적이 느려진다. 속도 배율 = √(1 − (v/c)²), 최소 0.2배",
+        radius: TIME_RADIUS[0],
+        desc: "빠르게 움직일수록 반경 90px 안의 적이 느려진다. 속도 배율 = √(1 − (v/c)²), 최소 0.2배",
       },
       {
-        radius: 130,
-        desc: "시간이 느려지는 범위가 넓어진다! 반경 100px → 130px",
+        radius: TIME_RADIUS[1],
+        desc: "시간이 느려지는 범위가 넓어진다! 반경 90px → 115px",
       },
       {
-        radius: 160,
-        desc: "시간 지연 범위 최대! 반경 130px → 160px",
+        radius: TIME_RADIUS[2],
+        desc: "시간 지연 범위 최대! 반경 115px → 140px",
       },
     ],
 
@@ -387,7 +395,7 @@ const AUGMENTS = [
       {
         every: SQUARE_EVERY[0],
         maxMult: SQUARE_MAX_MULT[0],
-        desc: "3번째 명중마다 대미지 D → D² ÷ 10 (= D × D/10, 최대 5배). D 가 10보다 작으면 오히려 줄어든다!",
+        desc: "3번째 명중마다 대미지 D → D² ÷ 10 (= D × D/10). 배율은 최소 1.5배, 최대 5배",
       },
       {
         every: SQUARE_EVERY[1],
@@ -413,10 +421,10 @@ const AUGMENTS = [
       this.hitCount += 1;
       if (this.hitCount % stats.every !== 0) return damage; // N의 배수 번째가 아니면 그대로
 
-      // D²/10 = D × (D/10). 곱하는 배율 D/10 은 상한까지만
+      // D²/10 = D × (D/10). 곱하는 배율 D/10 은 최솟값 ~ 상한 사이로
       // (거듭제곱의 성질: 1보다 큰 수는 제곱하면 커지고, 1보다 작은 수는 제곱하면 작아진다.
-      //  그래서 D 가 10보다 작으면 배율 D/10 이 1보다 작아 대미지가 줄어든다)
-      const mult = Math.min(damage / player.damage, stats.maxMult); // 기본 대미지(공격력 업그레이드 포함) 기준
+      //  그래서 그냥 두면 D 가 기본 대미지 이하일 때 배율이 1 이하라 쓸모가 없다 → 최소 1.5배)
+      const mult = clamp(damage / player.damage, SQUARE_MIN_MULT, stats.maxMult); // 기본 대미지(공격력 업그레이드 포함) 기준
       return damage * mult;
     },
   },
@@ -430,23 +438,23 @@ const AUGMENTS = [
       {
         n: MULTI_SHOT_COUNT[0],
         scale: MULTI_SHOT_SCALE[0],
-        desc: "한 번에 3발을 360° ÷ 3 = 120° 간격으로 쏜다. 대신 모든 총알 대미지 0.6배",
+        desc: "한 번에 3발을 360° ÷ 3 = 120° 간격으로 쏜다. 조준한 총알은 그대로, 나머지는 대미지 0.6배",
       },
       {
         n: MULTI_SHOT_COUNT[1],
         scale: MULTI_SHOT_SCALE[1],
-        desc: "5발로 늘어난다! 360° ÷ 5 = 72° 간격, 대미지 0.5배",
+        desc: "5발로 늘어난다! 360° ÷ 5 = 72° 간격, 나머지 대미지 0.5배",
       },
       {
         n: MULTI_SHOT_COUNT[2],
         scale: MULTI_SHOT_SCALE[2],
-        desc: "6발! 360° ÷ 6 = 60° 간격 (정육각형 모양), 대미지 0.5배",
+        desc: "6발! 360° ÷ 6 = 60° 간격 (정육각형 모양), 나머지 대미지 0.5배",
       },
     ],
 
-    // 쏠 때: 조준한 총알을 기준으로 (360° ÷ n) 씩 돌린 방향으로 n - 1 발을 더 쏜다
+    // 쏠 때: 조준한 총알(대미지 그대로)을 기준으로 (360° ÷ n) 씩 돌린 방향으로 n - 1 발을 더 쏜다 (약한 총알)
     onFire: function (stats, info) {
-      info.bullet.damageScale = stats.scale; // 조준한 총알도 대미지가 줄어든다
+      if (!MULTI_SHOT_AIMED_FULL) info.bullet.damageScale = stats.scale;
       const step = (Math.PI * 2) / stats.n;  // 360° 를 라디안으로 쓰면 2π
       // 1번째부터 n-1번째 추가 총알을 만드는 반복문
       for (let i = 1; i < stats.n; i++) {
@@ -539,20 +547,20 @@ const AUGMENTS = [
     id: "catalyst",
     name: "촉매",
     concept: "화학 · 반응 속도",
-    formula: "간격 × 0.8",
+    formula: "간격 × 0.85",
     color: "green",
     levels: [
       {
         reduction: CATALYST_REDUCTION[0],
-        desc: "촉매는 반응에 필요한 에너지 언덕을 낮춰 반응을 빠르게 한다. 발사 간격 20% 감소 (0.4초 → 0.32초)",
+        desc: "촉매는 반응에 필요한 에너지 언덕을 낮춰 반응을 빠르게 한다. 발사 간격 15% 감소 (0.4초 → 0.34초)",
       },
       {
         reduction: CATALYST_REDUCTION[1],
-        desc: "더 좋은 촉매! 발사 간격 30% 감소 (0.4초 → 0.28초)",
+        desc: "더 좋은 촉매! 발사 간격 25% 감소 (0.4초 → 0.3초)",
       },
       {
         reduction: CATALYST_REDUCTION[2],
-        desc: "최고의 촉매! 발사 간격 40% 감소 (0.4초 → 0.24초)",
+        desc: "최고의 촉매! 발사 간격 33% 감소 (0.4초 → 0.27초)",
       },
     ],
 
@@ -599,15 +607,15 @@ const AUGMENTS = [
     levels: [
       {
         amplitude: FOURIER_AMPLITUDE[0], radiusBonus: FOURIER_RADIUS_BONUS[0], pierce: FOURIER_PIERCE[0],
-        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다 (멀리 갈수록 크게). 진폭 20px, 충돌 반지름 +3px",
+        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다 (멀리 갈수록 크게). 진폭 15px, 충돌 반지름 +3px",
       },
       {
         amplitude: FOURIER_AMPLITUDE[1], radiusBonus: FOURIER_RADIUS_BONUS[1], pierce: FOURIER_PIERCE[1],
-        desc: "물결이 커진다! 진폭 20 → 30px, 충돌 반지름 +5px",
+        desc: "물결이 커진다! 진폭 15 → 20px, 충돌 반지름 +5px",
       },
       {
         amplitude: FOURIER_AMPLITUDE[2], radiusBonus: FOURIER_RADIUS_BONUS[2], pierce: FOURIER_PIERCE[2],
-        desc: "진폭 40px, 충돌 반지름 +7px, 그리고 적 1마리를 뚫고 지나간다!",
+        desc: "진폭 25px, 충돌 반지름 +7px, 그리고 적 1마리를 뚫고 지나간다!",
       },
     ],
 
@@ -653,15 +661,15 @@ const AUGMENTS = [
     levels: [
       {
         range: GRAVITY_RANGE[0],
-        desc: "총알이 반경 80px 안의 가장 가까운 적 쪽으로 휜다. 휘는 세기는 거리의 제곱에 반비례 (1/r²)",
+        desc: "총알이 반경 110px 안의 가장 가까운 적 쪽으로 휜다. 휘는 세기는 거리의 제곱에 반비례 (1/r²)",
       },
       {
         range: GRAVITY_RANGE[1],
-        desc: "중력이 미치는 범위가 넓어진다! 반경 80px → 110px",
+        desc: "중력이 미치는 범위가 넓어진다! 반경 110px → 140px",
       },
       {
         range: GRAVITY_RANGE[2],
-        desc: "블랙홀급 렌즈! 반경 110px → 140px",
+        desc: "블랙홀급 렌즈! 반경 140px → 170px",
       },
     ],
 
@@ -697,15 +705,15 @@ const AUGMENTS = [
     levels: [
       {
         rate: HALFLIFE_RATE[0],
-        desc: "맞은 적이 4초 동안 붕괴한다. 매초 지금 체력의 4% 를 잃는다 (다시 맞으면 4초 갱신, 보스는 절반)",
+        desc: "맞은 적이 4초 동안 붕괴한다. 매초 지금 체력의 6% 를 잃는다 (다시 맞으면 4초 갱신, 보스는 절반)",
       },
       {
         rate: HALFLIFE_RATE[1],
-        desc: "붕괴가 빨라진다! 매초 4% → 6%",
+        desc: "붕괴가 빨라진다! 매초 6% → 9%",
       },
       {
         rate: HALFLIFE_RATE[2],
-        desc: "강한 방사능! 매초 6% → 8%",
+        desc: "강한 방사능! 매초 9% → 12%",
       },
     ],
 
@@ -724,7 +732,7 @@ const AUGMENTS = [
     //   "현재 체력"에 비례해서 줄어들기 때문에 체력이 적을수록 조금씩만 줄어든다.
     //   그래서 반감기만으로는 체력이 절대 0 이 되지 않는다 (곱하기만 하므로 0 에 다가갈 뿐).
     //   마무리는 총알이 해야 한다!
-    //   (참고: p = 4% 이면 체력이 절반이 되는 데 ln 2 ÷ −ln 0.96 ≈ 17초 = 반감기)
+    //   (참고: p = 6% 이면 체력이 절반이 되는 데 ln 2 ÷ −ln 0.94 ≈ 11초 = 반감기)
     // =========================================================
     onEnemyUpdate: function (enemy, stats, dt) {
       if (!(enemy.decayTime > 0) || enemy.dead) return;

@@ -288,7 +288,7 @@ module.exports = [
     },
   },
   {
-    name: "[증강] 제곱 증폭: N번째 명중마다 D²/10 (상한 5배), 다른 증강보다 나중에 계산",
+    name: "[증강] 제곱 증폭: N번째 명중마다 D²/10 (배율 최소 1.5배·상한 5배), 다른 증강보다 나중에 계산",
     run: function () {
       startGame(); ownedAugments = { square: 1 };
       const seq = []; for (let i = 0; i < 6; i++) seq.push(calcDamage({}, { damageScale: 1 }));
@@ -300,29 +300,30 @@ module.exports = [
       // 상한: D=80 → 배율 8 이지만 5배까지만 → 400
       AUGMENTS.forEach((a) => a.reset && a.reset()); ownedAugments = { square: 2 };
       calcDamage({}, { damageScale: 8 }); const capped = calcDamage({}, { damageScale: 8 });
-      // D < 10 이면 줄어든다: D = 6 → 3.6
+      // 배율은 최소 1.5배: D = 6 → 6 × 1.5 = 9 (예전에는 6 × 0.6 = 3.6 으로 줄었다)
       AUGMENTS.forEach((a) => a.reset && a.reset());
       calcDamage({}, { damageScale: 0.6 }); const small = calcDamage({}, { damageScale: 0.6 });
-      const ok = seq.join(",") === "10,10,10,10,10,10" && Math.abs(afterArith - 78.4) < 1e-9 &&
-        capped === 400 && Math.abs(small - 3.6) < 1e-9;
-      return { ok: ok, detail: "기본 10 은 제곱해도 10 / 등차 후 제곱 " + afterArith.toFixed(1) + " / 상한 " + capped + " / D=6 → " + small.toFixed(1) };
+      const ok = seq.join(",") === "10,10,15,10,10,15" && Math.abs(afterArith - 78.4) < 1e-9 &&
+        capped === 400 && Math.abs(small - 9) < 1e-9;
+      return { ok: ok, detail: "기본 10: 3번째마다 최소 1.5배 " + seq.join(",") + " / 등차 후 제곱 " + afterArith.toFixed(1) + " / 상한 " + capped + " / D=6 → " + small.toFixed(1) };
     },
   },
   {
-    name: "[증강] 3방향 탄: n발이 360°/n 간격, 모두 damageScale, onFire 는 한 번만",
+    name: "[증강] 3방향 탄: n발이 360°/n 간격, 조준한 총알은 1배·나머지는 damageScale, onFire 는 한 번만",
     run: function () {
       startGame(); spawnQueue = [];
       let fires = 0;
       AUGMENTS.push({ id: "count", name: "c", levels: [{}], onFire: function () { fires++; } });
       const angles = (list) => list.map((b) => Math.round(Math.atan2(b.vy, b.vx) * 180 / Math.PI)).sort((x, y) => x - y).join(",");
       ownedAugments = { multiShot: 1, count: 1 };
-      bullets = []; createBullet(1, 0); const lv1 = angles(bullets); const s1 = bullets.map((b) => b.damageScale).join(",");
+      const scales = (list) => list.map((b) => b.damageScale).join(",");   // 첫 칸 = 조준한 총알
+      bullets = []; createBullet(1, 0); const lv1 = angles(bullets); const s1 = scales(bullets);
       ownedAugments = { multiShot: 2, count: 1, arithmetic: 1 };
-      bullets = []; createBullet(0, -1); const lv2 = angles(bullets); const s2 = bullets.map((b) => b.damageScale).join(",");
+      bullets = []; createBullet(0, -1); const lv2 = angles(bullets); const s2 = scales(bullets);
       const ksSame = new Set(bullets.map((b) => b.arithK)).size === 1;
-      const ok = lv1 === "-120,0,120" && s1 === "0.6,0.6,0.6" && lv2 === "-162,-90,-18,54,126" &&
-        s2 === "0.5,0.5,0.5,0.5,0.5" && fires === 2 && ksSame;
-      return { ok: ok, detail: "Lv1 각도 " + lv1 + " / Lv2 각도 " + lv2 + " / onFire " + fires + "회 / 같은 k=" + ksSame };
+      const ok = lv1 === "-120,0,120" && s1 === "1,0.6,0.6" && lv2 === "-162,-90,-18,54,126" &&
+        s2 === "1,0.5,0.5,0.5,0.5" && fires === 2 && ksSame;
+      return { ok: ok, detail: "Lv1 각도 " + lv1 + " 배율 " + s1 + " / Lv2 각도 " + lv2 + " 배율 " + s2 + " / onFire " + fires + "회 / 같은 k=" + ksSame };
     },
   },
   {
@@ -356,7 +357,7 @@ module.exports = [
     },
   },
   {
-    name: "[증강] 촉매: 발사 간격 × 0.8 (Lv.1), × 0.7 (Lv.2), 실제 발사 수도 늘어남",
+    name: "[증강] 촉매: 발사 간격 × 0.85 (Lv.1), × 0.75 (Lv.2), 실제 발사 수도 늘어남",
     run: function () {
       startGame();
       ownedAugments = {}; const base = fireInterval();
@@ -369,7 +370,7 @@ module.exports = [
         for (let f = 0; f < 600; f++) { const before = bullets.length; update(1 / 60); if (bullets.length > before) n++; }
         return n; };
       const n0 = shots({}), n1 = shots({ catalyst: 1 });
-      const ok = Math.abs(base - 0.4) < 1e-12 && Math.abs(lv1 - 0.32) < 1e-12 && Math.abs(lv2 - 0.28) < 1e-12 && n1 > n0;
+      const ok = Math.abs(base - 0.4) < 1e-12 && Math.abs(lv1 - 0.34) < 1e-12 && Math.abs(lv2 - 0.3) < 1e-12 && n1 > n0;
       return { ok: ok, detail: "간격 " + base + " → " + lv1.toFixed(2) + " → " + lv2.toFixed(2) + " / 10초 발사 " + n0 + "발 → " + n1 + "발" };
     },
   },
@@ -447,15 +448,15 @@ module.exports = [
     run: function () {
       const L3 = {}; for (const a of AUGMENTS) L3[a.id] = a.levels[2];
       const allThree = AUGMENTS.every((a) => a.levels.length === 3);
-      const ok = allThree && L3.compound.r === 0.25 && L3.variance.maxMult === 3.5 && L3.timeDilation.radius === 160 &&
+      const ok = allThree && L3.compound.r === 0.25 && L3.variance.maxMult === 3.5 && L3.timeDilation.radius === 140 &&
         L3.arithmetic.d === 4 && L3.square.every === 2 && L3.square.maxMult === 7 &&
         L3.multiShot.n === 6 && L3.multiShot.scale === 0.5 && L3.fission.fragments === 3 && L3.fission.energy === 0.3 &&
-        L3.catalyst.reduction === 0.4 && L3.knockback.speed === 480;
-      // 분산 Lv.3 평균이 1배인지 (20만 발)
+        L3.catalyst.reduction === 0.33 && L3.knockback.speed === 480;
+      // 분산 Lv.3 평균이 1.1배인지 (20만 발)
       ownedAugments = { variance: 3 }; let sum = 0, max = 0;
       for (let i = 0; i < 200000; i++) { const d = calcDamage({}, { damageScale: 1 }); sum += d; max = Math.max(max, d); }
       const mean = sum / 200000;
-      return { ok: ok && Math.abs(mean - 10) < 0.05 && max <= 35, detail: "3레벨=" + allThree + ", 분산 Lv3 평균 " + mean.toFixed(3) + " 최대 " + max.toFixed(1) };
+      return { ok: ok && Math.abs(mean - 11) < 0.05 && max <= 35, detail: "3레벨=" + allThree + ", 분산 Lv3 평균 " + mean.toFixed(3) + " 최대 " + max.toFixed(1) };
     },
   },
   // ---------------- 보급 카드 ----------------
@@ -1176,7 +1177,7 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 20/30/40, 처음 0.25초는 0→A), 앞으로는 그대로, 늘 같은 거리의 적도 맞음, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
+    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 15/20/25, 처음 0.25초는 0→A), 앞으로는 그대로, 늘 같은 거리의 적도 맞음, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
     run: function () {
       const aug = AUGMENTS.find((a) => a.id === "fourier");
       const res = [];
@@ -1209,13 +1210,13 @@ module.exports = [
         for (let i = 0; i < 30 && !shot.dead; i++) updateBullets(1 / 60);
         near.push(g.hp < 1000 ? 1 : 0);
       }
-      const ok = res.every((r, i) => Math.abs(r.maxDev - [20, 30, 40][i]) < 1.5 && r.worst < 3 && Math.abs(r.forward - BULLET_SPEED) < 2 &&
+      const ok = res.every((r, i) => Math.abs(r.maxDev - FOURIER_AMPLITUDE[i]) < 1.5 && r.worst < 3 && Math.abs(r.forward - BULLET_SPEED) < 2 &&
         r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === [0, 0, 1][i]) && hits === "110" && near.join("") === "111";
       return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits + " / 70·90·110px 작은 적 맞음 " + near.join("") };
     },
   },
   {
-    name: "[증강+] 중력 렌즈: 반경 R(80/110/140) 안의 가장 가까운 적 쪽으로 휨, 가속도 ∝ 1/r²(상한), 빠르기 그대로, 빗나갈 총알이 맞음",
+    name: "[증강+] 중력 렌즈: 반경 R(110/140/170) 안의 가장 가까운 적 쪽으로 휨, 가속도 ∝ 1/r²(상한), 빠르기 그대로, 빗나갈 총알이 맞음",
     run: function () {
       const inv = gravityAccel(50) / gravityAccel(100);            // 거리 절반 → 4배
       const capped = gravityAccel(5) === GRAVITY_MAX_ACCEL;
@@ -1229,7 +1230,7 @@ module.exports = [
         return { hit: e.hp < 1000, speedOk };
       };
       const none = shoot({}, 45), lens = shoot({ gravityLens: 1 }, 45);
-      // 반경: 적 중심에서 120px 떨어진 총알은 Lv.1(80) 에서 안 휘고, Lv.3(140) 에서 휜다
+      // 반경: 적 중심에서 120px 떨어진 총알은 Lv.1(110) 에서 안 휘고, Lv.3(170) 에서 휜다
       const bend = (lv) => {
         startGame(); spawnQueue = []; ownedAugments = { gravityLens: lv };
         const e = createEnemy("basic", 400, 270, 1); enemies = [e];
@@ -1238,13 +1239,13 @@ module.exports = [
       };
       const lv1 = bend(1), lv3 = bend(3);
       const ok = Math.abs(inv - 4) < 1e-9 && capped && !none.hit && lens.hit && lens.speedOk && lv1 === 0 && lv3 > 0 &&
-        AUGMENTS.find((a) => a.id === "gravityLens").levels.map((l) => l.range).join(",") === "80,110,140";
+        AUGMENTS.find((a) => a.id === "gravityLens").levels.map((l) => l.range).join(",") === "110,140,170";
       return { ok: ok, detail: "a(50)/a(100) = " + inv + ", 가까우면 상한 " + capped + " / 45px 옆: 렌즈 없음 맞음=" + none.hit + ", 렌즈 맞음=" + lens.hit +
         " (빠르기 그대로 " + lens.speedOk + ") / 120px 떨어진 적: Lv1 vy " + lv1.toFixed(1) + ", Lv3 vy " + lv3.toFixed(1) };
     },
   },
   {
-    name: "[증강+] 반감기: 맞은 적이 4초 동안 매초 지금 체력의 p%(4/6/8) 잃음, 다시 맞으면 갱신, 보스는 절반, 절대 0 이 되지 않음",
+    name: "[증강+] 반감기: 맞은 적이 4초 동안 매초 지금 체력의 p%(6/9/12) 잃음, 다시 맞으면 갱신, 보스는 절반, 절대 0 이 되지 않음",
     run: function () {
       const hitOnce = (e) => { const b = createBullet(1, 0, { x: e.x - 40, y: e.y, fromAugment: true }); for (let i = 0; i < 10 && !b.dead; i++) updateBullets(1 / 60); };
       const res = [];
@@ -1270,7 +1271,7 @@ module.exports = [
       const boss = createEnemy("splitterKing", 300, 270, 1); boss.speed = 0; enemies = [boss]; hitOnce(boss);
       const bossRate = boss.decayRate;
       draw();   // 점선 고리 그리기 오류 없음
-      const ok = res.every((r, i) => Math.abs(r - [0.04, 0.06, 0.08][i]) < 1e-6) && refreshed && stopped && neverZero && Math.abs(bossRate - 0.02) < 1e-12;
+      const ok = res.every((r, i) => Math.abs(r - HALFLIFE_RATE[i]) < 1e-6) && refreshed && stopped && neverZero && Math.abs(bossRate - HALFLIFE_RATE[0] * HALFLIFE_BOSS_MULT) < 1e-12;
       return { ok: ok, detail: "1초 동안 잃은 비율 " + res.map((r) => (r * 100).toFixed(2) + "%").join(", ") + " / 다시 맞으면 4초 갱신 " + refreshed +
         " / 4초 뒤 멈춤 " + stopped + " / 0 이 안 됨 " + neverZero + " (1000초 뒤 체력 " + e.hp.toExponential(1) + ") / 보스 붕괴율 " + bossRate };
     },
@@ -1335,8 +1336,8 @@ module.exports = [
       draw();
       spawnQueue = []; enemies = []; checkWaveEnd();                              // 그 웨이브를 깨면 끝
       const after = fireInterval();
-      const ok = Math.abs(during - base * 0.7) < 1e-12 && Math.abs(withCat - base * 0.8 * 0.7) < 1e-12 && icons === "bolt" &&
-        Math.abs(after - base * 0.8) < 1e-12 && player.tempEffects.length === 0;
+      const ok = Math.abs(during - base * 0.7) < 1e-12 && Math.abs(withCat - base * (1 - CATALYST_REDUCTION[0]) * 0.7) < 1e-12 && icons === "bolt" &&
+        Math.abs(after - base * (1 - CATALYST_REDUCTION[0])) < 1e-12 && player.tempEffects.length === 0;
       return { ok: ok, detail: "간격 " + base + " → " + during.toFixed(3) + " (촉매와 함께 " + withCat.toFixed(3) + ") / 아이콘 " + icons + " / 웨이브 뒤 " + after.toFixed(3) };
     },
   },
@@ -1703,7 +1704,7 @@ module.exports = [
     },
   },
   {
-    name: "[새 보스] 반감기는 새 보스 3종에게도 절반만 (4% → 2%)",
+    name: "[새 보스] 반감기는 새 보스 3종에게도 절반만 (6% → 3%)",
     run: function () {
       const rates = [];
       for (const id of ["waveLord", "turret", "blackHole", "chargerKing"]) {
@@ -1712,7 +1713,7 @@ module.exports = [
         const q = createBullet(1, 0, { x: 400, y: 270, fromAugment: true }); for (let i = 0; i < 20 && !q.dead; i++) updateBullets(1 / 60);
         rates.push(id + " " + b.decayRate);
       }
-      return { ok: rates.every((r) => r.endsWith(" 0.02")), detail: rates.join(" / ") };
+      return { ok: rates.every((r) => r.endsWith(" " + HALFLIFE_RATE[0] * HALFLIFE_BOSS_MULT)), detail: rates.join(" / ") };
     },
   },
   // ---------------- 4단계 D: 웨이브 재구성 ----------------

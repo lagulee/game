@@ -30,7 +30,7 @@ const WAVE_SPAWN_BATCH = tune("WAVE_SPAWN_BATCH", 3);
 // 표에 적힌 졸개 수에 곱하는 배율 (반올림). 보스 웨이브의 졸개에도 적용, 보스 수는 그대로
 const WAVE_COUNT_MULT = tune("WAVE_COUNT_MULT", 1.6);
 // 6웨이브부터 적 수에 한 번 더 곱하는 배율 (1~5웨이브는 초반 난이도의 기준이라 건드리지 않는다)
-const WAVE_COUNT_MULT_LATE = tune("WAVE_COUNT_MULT_LATE", 1);
+const WAVE_COUNT_MULT_LATE = tune("WAVE_COUNT_MULT_LATE", 0.65);
 // 이 웨이브부터 WAVE_COUNT_MULT_LATE 를 곱한다
 const LATE_WAVE_FROM = 6;
 

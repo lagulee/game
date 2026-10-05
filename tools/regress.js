@@ -36,6 +36,15 @@ const { startServer } = require("./serve.js");
 const ROOT = path.resolve(__dirname, "..");
 let server = null;
 
+// 증강 균형 조정 이전 값 (촉매·시간 지연·3방향 탄·제곱 증폭·푸리에·분산·중력 렌즈·반감기)
+const BEFORE_AUG_TUNE = {
+  CATALYST_REDUCTION: "[0.2, 0.3, 0.4]", TIME_RADIUS: "[100, 130, 160]", MULTI_SHOT_AIMED_FULL: false,
+  SQUARE_MIN_MULT: 0, FOURIER_AMPLITUDE: "[20, 30, 40]", VARIANCE_MEAN: 1,
+  GRAVITY_RANGE: "[80, 110, 140]", HALFLIFE_RATE: "[0.04, 0.06, 0.08]",
+};
+// 4단계 난이도 조정 이전 값 (시작값) + 증강 조정 이전 값
+const BEFORE_STAGE4_TUNE = Object.assign({ ENEMY_HP_QUAD: 0.004, ENEMY_DMG_GROWTH: 0.05, WAVE_COUNT_MULT_LATE: 1 }, BEFORE_AUG_TUNE);
+
 // "압박 규칙" 이전 값. 이 상수들을 옛 값으로 바꿔 끼우면 압박 규칙 전과 기록이 똑같아야 한다.
 // (속도 배율, 무리 등장, 적 수 배율, 과열, 무적 시간, 웨이브 회복, 성장률, 코인)
 const BEFORE_PRESSURE = {
@@ -44,6 +53,7 @@ const BEFORE_PRESSURE = {
   ENRAGE_TIME: "Infinity", PLAYER_INVINCIBLE_TIME: 1.0, WAVE_CLEAR_HEAL_RATIO: 0.1,
   ENEMY_HP_GROWTH: 0.12, ENEMY_DMG_GROWTH: 0.05, COIN_PER_SECOND: 1,
   ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1,
+  ...BEFORE_AUG_TUNE,
 };   // 게임 폴더를 열어 주는 작은 웹 서버 (상수 바꿔 끼우기용, tools/serve.js)
 const GOLDEN = path.join(__dirname, "golden");
 
@@ -323,7 +333,9 @@ function compare(label, actual, file) {
   const ROLLBACKS = [
     { label: "압박 규칙 되돌리기 (옛 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "old", file: "old-config-before-pressure.txt" },
     { label: "압박 규칙 되돌리기 (새 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "new:base9", file: "new-config-before-pressure.txt" },
-    { label: "증강 추가 되돌리기 (새 설정): 증강 9개·보급 2개만 남기면 증강 추가 전 기록과 상태가 같음", config: "new:base9", overrides: { ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1 }, file: "new-config-before-aug14.txt" },
+    { label: "증강 추가 되돌리기 (새 설정): 증강 9개·보급 2개만 남기면 증강 추가 전 기록과 상태가 같음", config: "new:base9", overrides: { ENEMY_HP_QUAD: 0, WAVE_COUNT_MULT_LATE: 1, ENEMY_DMG_GROWTH: 0.05, ...BEFORE_AUG_TUNE }, file: "new-config-before-aug14.txt" },
+    { label: "4단계 조정 되돌리기 (옛 설정): 난이도·증강 상수를 조정 전 값으로 바꾸면 조정 전 기록과 상태가 같음", config: "old", overrides: BEFORE_STAGE4_TUNE, file: "old-config-before-tune.txt" },
+    { label: "4단계 조정 되돌리기 (새 설정): 난이도·증강 상수를 조정 전 값으로 바꾸면 조정 전 기록과 상태가 같음", config: "new", overrides: BEFORE_STAGE4_TUNE, file: "new-config-before-tune.txt" },
     { label: "성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 같음", config: "beforeGrowthD", file: "old-config-before-growth-d.txt" },
     { label: "옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 상태가 같음", config: "legacy", file: "old-config-legacy.txt" },
   ];
