@@ -94,6 +94,19 @@ const WAVES_PER_CHAPTER = 5;
 // 일시정지에서 "계속하기"를 누른 뒤 게임이 다시 움직이기까지 기다리는 시간 (초)
 const RESUME_DELAY = 0.5;
 
+// ---- 상태창(HUD) ----
+// 펼친 상태창의 폭과 높이
+const HUD_WIDTH = 290;
+const HUD_HEIGHT = 132;
+// 접은 상태창의 높이 (체력바와 웨이브 번호만 한 줄로)
+const HUD_COLLAPSED_HEIGHT = 40;
+// 체력바 길이: 최대 체력 100 일 때의 길이. 최대 체력에 비례해서 늘어나고, 상태창 폭에서 멈춘다
+const HP_BAR_BASE_WIDTH = 140;
+// 최대 체력이 늘었을 때 체력바가 번쩍이는 시간 (초)
+const HP_FLASH_TIME = 1.0;
+// 글자 팝업(최대 체력 +20, +N 회복)이 떠 있는 시간 (초)
+const TEXT_POPUP_LIFE = 1.6;
+
 // ---- 코인 (영구 업그레이드를 사는 돈) ----
 // 전투 중 1초마다 버는 코인 = COIN_PER_SECOND × (1 + COIN_WAVE_BONUS × (웨이브 − 1))
 //   1웨이브 1개/초, 5웨이브 1.6개/초, 30웨이브 5.35개/초
@@ -230,6 +243,13 @@ window.addEventListener("keydown", function (event) {
   // 디버그 모드 키 (F2 로 켜고 끈다). 처리한 키면 여기서 끝낸다
   if (handleDebugKey(event)) {
     event.preventDefault();
+    return;
+  }
+
+  // Tab: 상태창 접기/펼치기 (전투·카드 선택 화면). Tab 이 다른 곳으로 초점을 옮기지 않게 막는다
+  if (event.code === "Tab") {
+    event.preventDefault();
+    if ((gameState === "playing" && !paused) || gameState === "choosing") toggleHud();
     return;
   }
 
@@ -441,8 +461,11 @@ canvas.addEventListener("click", function (event) {
       if (button === "resume") resumeGame();
       else if (button === "restart") { commitRunProgress(); resetGame(); }
       else if (button === "lobby") { commitRunProgress(); goToMenu(); }
+    } else if (insideRect(pos.x, pos.y, hudArrowRect())) {
+      // 상태창 오른쪽 위 화살표 = 접기 / 펼치기
+      toggleHud();
     } else if (insideRect(pos.x, pos.y, hudPanelRect())) {
-      // 왼쪽 위 상태창을 누르면 일시정지
+      // 상태창의 나머지 부분 = 일시정지
       pauseGame();
     }
     return;
@@ -455,8 +478,9 @@ canvas.addEventListener("click", function (event) {
     return;
   }
 
-  // 증강 선택 화면: 클릭한 카드 고르기
+  // 증강 선택 화면: 클릭한 카드 고르기 (상태창 화살표는 여기서도 접기/펼치기)
   if (gameState === "choosing") {
+    if (insideRect(pos.x, pos.y, hudArrowRect())) { toggleHud(); return; }
     const index = cardIndexAt(pos.x, pos.y);
     if (index >= 0) chooseAugment(index);
     return;
@@ -537,6 +561,9 @@ let menuTime = 0;
 // 메뉴 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "준비 중이에요!")
 let menuToast = "";
 let menuToastTimer = 0;
+
+// 체력바가 번쩍이는 남은 시간 (초)
+let hpFlashTimer = 0;
 
 // 이번 판의 코인을 이미 저장했는지 (두 번 저장하지 않으려고)
 let runCommitted = false;
@@ -944,7 +971,17 @@ function chooseAugment(index) {
 
   // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
   if (aug.isSupply) {
+    // 효과 전후의 체력을 비교해서, 얼마나 바뀌었는지 플레이어 위에 글자로 띄운다
+    const beforeMax = player.maxHp, beforeHp = player.hp;
     aug.apply();
+    const gainMax = player.maxHp - beforeMax;
+    const healed = player.hp - beforeHp;
+    if (gainMax > 0) {
+      spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "최대 체력 +" + Math.round(gainMax), COLORS.green);
+      hpFlashTimer = HP_FLASH_TIME;       // 체력바가 잠깐 번쩍인다
+    } else if (healed > 0) {
+      spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "+" + Math.round(healed) + " 회복", COLORS.green);
+    }
     startWave(wave + 1);
     bannerSubText = aug.name + ": " + aug.formula;
     return;
@@ -1202,7 +1239,8 @@ function resetGame() {
   lastHitEnemy = null;
   hitStreak = 0;
 
-  // 일시정지 풀기, 이번 판 코인은 아직 저장 전
+  // 일시정지 풀기, 이번 판 코인은 아직 저장 전, 번쩍임 없음
+  hpFlashTimer = 0;
   paused = false;
   resumeTimer = 0;
   runCommitted = false;
@@ -1439,6 +1477,11 @@ function spawnPopup(x, y, damage) {
   });
 }
 
+// 글자 팝업 하나를 만드는 함수 (예: "최대 체력 +20", "+40 회복")
+function spawnTextPopup(x, y, text, color) {
+  popups.push({ x: x, y: y, value: 0, text: text, color: color, age: 0, life: TEXT_POPUP_LIFE });
+}
+
 // 팝업을 위로 떠오르게 하고, 수명이 다하면 지우는 함수
 function updatePopups(dt) {
   // 팝업 목록을 하나씩 처리하는 반복문
@@ -1450,7 +1493,7 @@ function updatePopups(dt) {
     }
   }
   // 수명이 남은 것만 남긴다
-  popups = popups.filter(function (p) { return p.age < POPUP_LIFE; });
+  popups = popups.filter(function (p) { return p.age < (p.life || POPUP_LIFE); });
 }
 
 // (x, y) 위치에서 파티클 여러 개를 사방으로 터뜨리는 함수
@@ -1620,8 +1663,9 @@ function update(dt) {
     updateParticles(dt);
   }
 
-  // 안내 띠 남은 시간 줄이기 (어느 상태에서든)
+  // 안내 띠, 체력바 번쩍임 남은 시간 줄이기 (어느 상태에서든)
   bannerTimer = Math.max(0, bannerTimer - dt);
+  hpFlashTimer = Math.max(0, hpFlashTimer - dt);
   debugMessageTimer = Math.max(0, debugMessageTimer - dt);
   // "gameover", "clear" 상태에서는 아무것도 움직이지 않는다 (R 키를 기다림)
 }
@@ -2135,13 +2179,14 @@ function drawPopups() {
   for (const popup of popups) {
     // 큰 대미지일수록 큰 글씨. 제곱근(√)을 써서 너무 거대해지지 않게 한다.
     // 대미지 10 → 약 25px, 40 → 약 35px, 100 → 약 46px
-    const size = POPUP_BASE_SIZE + Math.sqrt(popup.value) * 3;
+    // (글자 팝업은 크기가 일정)
+    const size = popup.text ? 22 : POPUP_BASE_SIZE + Math.sqrt(popup.value) * 3;
 
     // 1) 바운스: 처음 0.25초 동안 크게 튀어나왔다가 원래 크기로
     const scale = popupScale(popup.age);
 
     // 2) 사라지기: 마지막 40% 동안 점점 투명해진다
-    const lifeT = popup.age / POPUP_LIFE;              // 0 → 1
+    const lifeT = popup.age / (popup.life || POPUP_LIFE); // 0 → 1
     const alpha = lifeT < 0.6 ? 1 : 1 - (lifeT - 0.6) / 0.4;
 
     ctx.save();
@@ -2149,8 +2194,12 @@ function drawPopups() {
     ctx.translate(popup.x, popup.y);
     ctx.scale(scale, scale);                           // 크기 배율 적용
     // 기본 대미지의 2배 이상인 "큰 한 방"은 노란 글씨로 강조
-    const fill = popup.value >= player.damage * 2 ? COLORS.yellow : COLORS.white;
-    drawOutlinedText(String(popup.value), 0, 0, size, "center", fill);
+    if (popup.text) {
+      drawOutlinedText(popup.text, 0, 0, size, "center", popup.color || COLORS.white);
+    } else {
+      const fill = popup.value >= player.damage * 2 ? COLORS.yellow : COLORS.white;
+      drawOutlinedText(String(popup.value), 0, 0, size, "center", fill);
+    }
     ctx.restore();
   }
 }
@@ -2170,31 +2219,114 @@ function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
   drawOutlinedRoundRect(x, y, w, h, h / 2, null, width); // 3) 외곽선만 덮어 그리기
 }
 
+// 상태창이 접혀 있는지 (저장 데이터에 남겨서 다음 판에도 유지)
+function hudCollapsed() {
+  return saveData.hudCollapsed === true;
+}
+
+// 상태창 접기 / 펼치기 (바로 저장)
+function toggleHud() {
+  saveData.hudCollapsed = !hudCollapsed();
+  writeSave();
+}
+
+// 체력바 길이: 최대 체력 100 = HP_BAR_BASE_WIDTH, 최대 체력에 비례, maxWidth 에서 멈춤
+function hpBarWidth(maxWidth) {
+  return Math.min(maxWidth, HP_BAR_BASE_WIDTH * player.maxHp / PLAYER_MAX_HP);
+}
+
+// 체력 글자 (예: "70 / 120"). 체력이 소수여도 살아 있으면 1 이상으로 보이게 올림
+function hpText() {
+  return Math.ceil(player.hp) + " / " + Math.round(player.maxHp);
+}
+
 // 왼쪽 위 상태창의 사각형 (누르면 일시정지)
 function hudPanelRect() {
-  return { x: 12, y: 12, w: 250, h: 132 };
+  if (hudCollapsed()) {
+    // 웨이브 번호 칸(86) + 체력바 + 화살표 칸(44)
+    return { x: 12, y: 12, w: 86 + hpBarWidth(HUD_WIDTH - 110) + 44, h: HUD_COLLAPSED_HEIGHT };
+  }
+  return { x: 12, y: 12, w: HUD_WIDTH, h: HUD_HEIGHT };
+}
+
+// 상태창 오른쪽 위의 접기 화살표 버튼 사각형
+function hudArrowRect() {
+  const p = hudPanelRect();
+  return { x: p.x + p.w - 34, y: p.y + 6, w: 28, h: 28 };
+}
+
+// 체력바 + 가운데 숫자 + (최대 체력이 늘었을 때) 번쩍임
+function drawHpBar(x, y, w, h) {
+  const ratio = player.hp / player.maxHp;
+  drawBar(x, y, w, h, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
+  // 번쩍임: 하얀 빛이 깜빡이며 사라지고, 바깥에 노란 테두리
+  if (hpFlashTimer > 0) {
+    const t = hpFlashTimer / HP_FLASH_TIME;                 // 1 → 0
+    ctx.save();
+    ctx.globalAlpha = 0.6 * t * (0.5 + 0.5 * Math.sin(hpFlashTimer * 30));
+    roundRectPath(x, y, w, h, h / 2);
+    ctx.fillStyle = COLORS.white;
+    ctx.fill();
+    ctx.globalAlpha = t;
+    roundRectPath(x - 4, y - 4, w + 8, h + 8, h / 2 + 4);
+    ctx.strokeStyle = COLORS.yellow;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+  }
+  // 숫자 (체력바 가운데)
+  drawOutlinedText(hpText(), x + w / 2, y + h / 2 + 1, Math.min(16, h - 2));
+}
+
+// 접기 화살표 버튼 (펼친 상태: ▲ = 접기, 접힌 상태: ▼ = 펼치기)
+function drawHudArrow() {
+  const r = hudArrowRect();
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  drawOutlinedCircle(cx, cy, 12, COLORS.white, SMALL_OUTLINE_WIDTH);
+  const up = !hudCollapsed();
+  const d = up ? -1 : 1;                                  // 위쪽(-1) 또는 아래쪽(+1)을 가리킨다
+  ctx.beginPath();
+  ctx.moveTo(cx - 5, cy - 2.5 * d);
+  ctx.lineTo(cx + 5, cy - 2.5 * d);
+  ctx.lineTo(cx, cy + 3.5 * d);
+  ctx.closePath();
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
 }
 
 // ---- 화면 위 정보 (HUD) ----
-// 왼쪽 위: 웨이브 번호, 체력바, 점수 / 오른쪽 위: 가진 증강 목록
+// 왼쪽 위: 웨이브 번호, 체력바(숫자), 점수, 코인 / 오른쪽 위: 가진 증강 목록
+// 접으면: 웨이브 번호 + 체력바만 한 줄로 얇게, 증강 목록도 작은 표시만
 function drawHud() {
-  // ---- 왼쪽 위 패널 ----
-  drawOutlinedRoundRect(12, 12, 250, 132, 14, COLORS.brown);
+  const p = hudPanelRect();
 
-  // 챕터와 웨이브 번호 (예: "챕터 2 · 웨이브 7 / 30"). 길면 패널 폭에 맞게 글자를 줄인다
+  if (hudCollapsed()) {
+    drawOutlinedRoundRect(p.x, p.y, p.w, p.h, 14, COLORS.brown);
+    const label = wave + " / " + WAVES.length;
+    drawOutlinedText(label, p.x + 12, p.y + p.h / 2 + 1, fitTextSize(label, 18, 70), "left");
+    drawHpBar(p.x + 86, p.y + 10, hpBarWidth(HUD_WIDTH - 110), 20);
+    drawHudArrow();
+    drawAugmentList();
+    return;
+  }
+
+  // ---- 펼친 상태창 ----
+  drawOutlinedRoundRect(p.x, p.y, p.w, p.h, 14, COLORS.brown);
+
+  // 챕터와 웨이브 번호 (예: "챕터 2 · 웨이브 7 / 30"). 화살표 자리를 남기고, 길면 글자를 줄인다
   const waveText = "챕터 " + chapterOf(wave) + " · 웨이브 " + wave + " / " + WAVES.length;
-  drawOutlinedText(waveText, 28, 34, fitTextSize(waveText, 22, 218), "left");
+  drawOutlinedText(waveText, p.x + 16, p.y + 22, fitTextSize(waveText, 22, p.w - 66), "left");
+  drawHudArrow();
 
-  // 플레이어 체력바: 체력이 30% 이하이면 빨강, 아니면 초록
-  const ratio = player.hp / player.maxHp;
-  drawBar(28, 54, 218, 18, ratio, ratio <= 0.3 ? COLORS.red : COLORS.green);
+  // 체력바: 최대 체력에 비례하는 길이, 가운데에 "체력 / 최대 체력"
+  drawHpBar(p.x + 16, p.y + 40, hpBarWidth(p.w - 32), 22);
 
   // 점수 (노란 글씨)
-  drawOutlinedText("점수 " + score, 28, 94, 22, "left", COLORS.yellow);
+  drawOutlinedText("점수 " + score, p.x + 16, p.y + 84, 22, "left", COLORS.yellow);
 
   // 이번 판에 번 코인 (동전 아이콘 + 내림한 정수)
-  drawCoinIcon(38, 124, 10);
-  drawOutlinedText(String(Math.floor(runCoins)), 56, 124, 20, "left");
+  drawCoinIcon(p.x + 26, p.y + 112, 10);
+  drawOutlinedText(String(Math.floor(runCoins)), p.x + 44, p.y + 112, 20, "left");
 
   // ---- 오른쪽 위: 가진 증강 목록 ----
   drawAugmentList();
@@ -2207,6 +2339,15 @@ function drawAugmentList() {
     return getAugmentLevel(aug.id) > 0;
   });
   if (owned.length === 0) return;
+
+  // 상태창을 접었으면 증강 목록도 접어서 "증강 N개" 작은 표시만
+  if (hudCollapsed()) {
+    const label = "증강 " + owned.length + "개";
+    const w = 110;
+    drawOutlinedRoundRect(CANVAS_WIDTH - 12 - w, 12, w, HUD_COLLAPSED_HEIGHT, 14, COLORS.brown);
+    drawOutlinedText(label, CANVAS_WIDTH - 12 - w / 2, 12 + HUD_COLLAPSED_HEIGHT / 2 + 1, 17);
+    return;
+  }
 
   // 증강이 많으면 두 줄(2열)로 작게 그려서 화면을 덜 가린다
   if (owned.length > AUGMENT_LIST_COMPACT_FROM - 1) {
@@ -2298,7 +2439,10 @@ function drawBanner() {
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.translate(CANVAS_WIDTH / 2, -40 + 110 * slide); // y: -40 → 70 으로 내려온다
+  // 상태창 바로 아래까지 내려온다 (상태창을 가리지 않게. 접으면 더 위쪽에 멈춘다)
+  const hud = hudPanelRect();
+  const restY = hud.y + hud.h + 42;
+  ctx.translate(CANVAS_WIDTH / 2, -40 + (restY + 40) * slide); // y: -40 → restY 로 내려온다
   ctx.rotate(0.02);
   const h = bannerSubText ? 84 : 56;                  // 부제가 있으면 더 높게
   // 띠 폭: 기본 340px, 글자가 길면 글자 폭에 맞춰 넓힌다

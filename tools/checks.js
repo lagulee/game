@@ -789,4 +789,64 @@ module.exports = [
         " / 로비로 코인 저장 " + toLobby + " (" + earned + ")" };
     `),
   },
+  {
+    name: "[체력] 세포 분열 2번 → 최대 체력 +40, 팝업·번쩍임, 체력바 길이·숫자, 다음 웨이브와 결과 화면까지 유지 / 항상성 '+N 회복'",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      runMenuAction(0); spawnQueue = []; enemies = [];
+      const cell = SUPPLIES.find((s) => s.id === "cellDivision"), homeo = SUPPLIES.find((s) => s.id === "homeostasis");
+      const base = player.maxHp, barBase = hpBarWidth(1000);
+      const pick = (card) => { gameState = "choosing"; choices = [card]; choosingTime = 1; chooseAugment(0); };
+      pick(cell);
+      const popup1 = popups.some((p) => p.text === "최대 체력 +20"), flash = hpFlashTimer > 0;
+      spawnQueue = []; enemies = []; checkWaveEnd();            // 웨이브 클리어 → 카드 화면
+      pick(cell);
+      const afterTwo = player.maxHp, waveNow = wave;
+      for (let i = 0; i < 120; i++) update(1 / 60);              // 다음 웨이브 진행
+      const keptInWave = player.maxHp === base + 40;
+      const bar = hpBarWidth(1000);
+      player.hp = 70; const text = hpText();
+      endGame("gameover");
+      const keptInResult = player.maxHp === base + 40 && hpText() === "70 / " + (base + 40);
+      // 항상성
+      runMenuAction(0); player.hp = 30; pick(homeo);
+      const homeoPopup = popups.some((p) => p.text === "+40 회복");
+      // 체력바 길이 상한: 최대 체력이 아주 커도 상태창 폭에서 멈춤
+      player.maxHp = 1000; const capped = hpBarWidth(HUD_WIDTH - 32);
+      const ok = popup1 && flash && afterTwo === base + 40 && keptInWave && waveNow >= 3 &&
+        Math.abs(bar - barBase * (base + 40) / base) < 1e-9 && text === "70 / " + (base + 40) && keptInResult &&
+        homeoPopup && capped === HUD_WIDTH - 32;
+      return { ok: ok, detail: "최대 체력 " + base + " → " + afterTwo + " / 팝업 " + popup1 + ", 번쩍임 " + flash +
+        " / 다음 웨이브 유지 " + keptInWave + " / 체력바 " + barBase + "px → " + bar.toFixed(0) + "px / 글자 '" + text + "' / 결과 화면 유지 " + keptInResult +
+        " / 항상성 팝업 " + homeoPopup + " / 길이 상한 " + capped + "px" };
+    },
+  },
+  {
+    name: "[상태창] Tab·화살표로 접기/펼치기, 접은 상태 저장·다음 판 유지, 화살표 말고 나머지를 누르면 일시정지",
+    run: new Function(PRESS + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      runMenuAction(0);
+      const tall = hudPanelRect().h;
+      press("Tab"); const collapsed = hudCollapsed() && hudPanelRect().h === HUD_COLLAPSED_HEIGHT;
+      const saved = loadSave().hudCollapsed === true;
+      resetGame(); const keptNextRun = hudCollapsed();
+      saveData = loadSave(); const keptReload = hudCollapsed();
+      // 화살표 클릭 → 펼치기 (일시정지 안 됨)
+      const r = canvas.getBoundingClientRect();
+      const click = (gx, gy) => canvas.dispatchEvent(new MouseEvent("click", { clientX: r.left + canvas.clientLeft + gx * canvas.clientWidth / 960,
+        clientY: r.top + canvas.clientTop + gy * canvas.clientHeight / 540 }));
+      const ar = hudArrowRect(); click(ar.x + ar.w / 2, ar.y + ar.h / 2);
+      const expanded = !hudCollapsed() && !paused && hudPanelRect().h === tall;
+      // 나머지 부분 클릭 → 일시정지
+      const p = hudPanelRect(); click(p.x + 40, p.y + p.h - 20);
+      const pausedByPanel = paused && !hudCollapsed();
+      draw(); // 펼친·접은 상태 모두 그리기 오류 없음
+      resumeGame(); press("Tab"); draw(); press("Tab");
+      const ok = collapsed && saved && keptNextRun && keptReload && expanded && pausedByPanel;
+      return { ok: ok, detail: "Tab 접기 " + collapsed + " (높이 " + tall + " → " + HUD_COLLAPSED_HEIGHT + ") / 저장 " + saved + " / 다음 판 유지 " + keptNextRun +
+        " / 다시 읽어도 유지 " + keptReload + " / 화살표로 펼치기(일시정지 아님) " + expanded + " / 나머지 클릭 일시정지 " + pausedByPanel };
+    `),
+  },
 ];
