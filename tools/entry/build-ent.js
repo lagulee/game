@@ -74,8 +74,8 @@ const GLOBALS = ["배너글", "배너시간", "조준거리", "상태", "웨이�
   ...AUG_VARS];
 const LOCALS = {
   적: ["복제본", "종류", "적체력", "적최대", "속도", "타이머", "단계", "돌진x", "돌진y", "거리", "느림", "깜빡"],
-  총알: ["복제본", "vx", "vy", "몇번째", "각"],
-  보조총알: ["복제본", "vx", "vy", "각"],
+  총알: ["복제본", "vx", "vy", "나이"],
+  보조총알: ["복제본", "vx", "vy", "각", "나이"],
   적탄: ["복제본", "각", "vx", "vy"],
   카드: ["복제본", "칸", "내카드"],
 };
@@ -97,14 +97,14 @@ function design(png) {
         B.ifElse(B.cmp(B.v("배너시간"), ">", 0), [B.write(B.v("배너글")), B.show(), B.change("배너시간", -1)], [B.hide()]),
       ])]),
     ] },
-    { name: "상태창", type: "textBox", text: "", x: -120, y: 122, width: 230, height: 22, font: "15px NanumSquareRound", textAlign: 0, scripts: (B) => [
+    { name: "상태창", type: "textBox", text: "", x: -98, y: 122, width: 230, height: 22, font: "15px NanumSquareRound", textAlign: 0, scripts: (B) => [
       B.when.run([B.forever([
         B.write(B.join("웨이브 ", B.join(B.v("웨이브"), B.join(" / " + WAVE_COUNT + "    체력 ", B.join(B.mathOp("round", B.v("체력")),
           B.join(" / ", B.join(B.v("최대체력"), B.join("    점수 ", B.v("점수"))))))))),
         B.wait(0.1),
       ])]),
     ] },
-    { name: "증강목록", type: "textBox", text: "", x: -120, y: 104, width: 230, height: 20, font: "13px NanumSquareRound", colour: "#8A63B8", textAlign: 0, scripts: (B) => [
+    { name: "증강목록", type: "textBox", text: "", x: -98, y: 104, width: 230, height: 20, font: "13px NanumSquareRound", colour: "#8A63B8", textAlign: 0, scripts: (B) => [
       B.when.run([B.forever([
         // 가지고 있는 증강만 "이름 Lv" 로 이어 붙인다
         B.set("증강글", ""),
@@ -113,7 +113,7 @@ function design(png) {
         B.wait(0.2),
       ])]),
     ] },
-    { name: "보스체력글", type: "textBox", text: "", x: 120, y: 122, width: 220, height: 22, font: "bold 15px NanumSquareRound", colour: "#D9482B", textAlign: 2, scripts: (B) => [
+    { name: "보스체력글", type: "textBox", text: "", x: 150, y: 122, width: 220, height: 22, font: "bold 15px NanumSquareRound", colour: "#D9482B", textAlign: 2, scripts: (B) => [
       B.when.run([B.forever([
         B.ifElse(B.cmp(B.v("보스체력"), ">", 0),
           [B.write(B.join("보스 체력 ", B.join(B.mathOp("ceil", B.v("보스체력")), B.join(" / ", B.v("보스최대")))))],
@@ -129,7 +129,7 @@ function design(png) {
     ] },
 
     // ---------------- 카드 (원본은 숨기고, 복제본 3장을 보여 준다) ----------------
-    { name: "카드", pictures: CARDS.map((c, i) => ({ name: c.name, png: png["card" + i], width: 240, height: 320 })), scale: 0.5, visible: false, scripts: (B) => [
+    { name: "카드", pictures: CARDS.map((c, i) => ({ name: c.name, png: png["card" + i], width: 240, height: 320 })), scale: 0.62, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0)]),
       // 카드 3장 고르기: 이미 뽑은 카드, 최대 레벨 증강은 다시 뽑는다 (보급 2장은 늘 가능하니 끝난다)
       B.when.msg("카드보이기", [B.iff(B.cmp(B.v("복제본"), "=", 0), [
@@ -148,7 +148,7 @@ function design(png) {
       ])]),
       B.when.clone([
         B.set("복제본", 1),
-        B.goXY(B.add(-150, B.mul(B.sub(B.v("칸"), 1), 150)), 0),
+        B.goXY(B.add(-155, B.mul(B.sub(B.v("칸"), 1), 155)), 2),
         { type: "change_to_some_shape", params: [B.v("내카드"), null] },
         B.show(), B.front(),
       ]),
@@ -280,10 +280,13 @@ function design(png) {
       B.when.msg("발사", [B.iff(B.cmp(B.v("복제본"), "=", 0), [B.set("vx", B.v("쏠vx")), B.set("vy", B.v("쏠vy")), B.clone("self")])]),
       B.when.clone([
         B.set("복제본", 1), B.goTo("플레이어"), B.show(),
+        B.set("나이", 0),
         B.forever([
           // 움직이기 "전에" 닿았는지 본다 → 같은 프레임에 적도 이 총알을 볼 수 있다
-          B.iff(B.touching("적"), [B.deleteClone()]),
+          // 태어난 프레임에는 보지 않는다 (적이 플레이어에 붙어 있으면 적이 보기도 전에 지워지므로)
+          B.iff(B.and(B.cmp(B.v("나이"), ">", 0), B.touching("적")), [B.deleteClone()]),
           B.iff(fighting(B), [B.moveX(B.v("vx")), B.moveY(B.v("vy"))]),
+          B.change("나이", 1),
           B.iff(outside(B), [B.deleteClone()]),
         ]),
       ]),
@@ -304,9 +307,11 @@ function design(png) {
       ])]),
       B.when.clone([
         B.set("복제본", 1), B.goTo("플레이어"), B.show(),
+        B.set("나이", 0),
         B.forever([
-          B.iff(B.touching("적"), [B.deleteClone()]),
+          B.iff(B.and(B.cmp(B.v("나이"), ">", 0), B.touching("적")), [B.deleteClone()]),
           B.iff(fighting(B), [B.moveX(B.v("vx")), B.moveY(B.v("vy"))]),
+          B.change("나이", 1),
           B.iff(outside(B), [B.deleteClone()]),
         ]),
       ]),
