@@ -37,7 +37,7 @@ module.exports = [
       AUGMENTS.push({ id: "t", name: "t", levels: [{}],
         modifyDamage: function (d, s, info) { if (info.bullet) dmgInfoHasBullet = true; return d; },
         onHit: function (s, info) { calls.push({ hpAfter: info.enemy.hp, dmg: info.damage, killed: info.killed, hasBullet: !!info.bullet, dead: info.enemy.dead }); } });
-      runMenuAction(0); spawnQueue = []; ownedAugments = { t: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { t: 1 };
       enemies.push(createEnemy("basic", player.x + 120, player.y, 1));
       enemies[0].speed = 0;
       for (let f = 0; f < 600 && enemies.length; f++) update(1 / 60);
@@ -58,7 +58,7 @@ module.exports = [
           createBullet(info.dirY, -info.dirX, { damageScale: 0.6, fromAugment: true, generation: 1 });
           createBullet(-info.dirY, info.dirX); // fromAugment 를 깜빡해도 무한 반복되면 안 된다
         } });
-      runMenuAction(0); spawnQueue = []; ownedAugments = { t: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { t: 1 };
       const b = createBullet(1, 0, {});
       const extra = bullets.filter((x) => x !== b);
       const opts = extra[0].damageScale === 0.6 && extra[0].fromAugment && extra[0].generation === 1;
@@ -74,7 +74,7 @@ module.exports = [
   {
     name: "[A] 디버그 모드: 꺼져 있으면 영향 없음, 켜면 [ ] Shift+숫자 I 동작",
     run: new Function(PRESS + `
-      runMenuAction(0);
+      startGame();
       const hash = () => { draw(); return canvas.toDataURL(); };
       // 1) 꺼진 상태: 키를 눌러도 아무 변화 없음
       const before = JSON.stringify([wave, ownedAugments, hash()]);
@@ -103,7 +103,7 @@ module.exports = [
   {
     name: "[B] 돌격형: 접근→예고 0.6→돌진 0.5→쉬기 1.0, 예고 시작 때 방향 고정, 돌진 3배 속도",
     run: function () {
-      runMenuAction(0); spawnQueue = []; bannerTimer = 0;
+      startGame(); spawnQueue = []; bannerTimer = 0;
       player.x = 100; player.y = 270;
       const e = createEnemy("charger", 900, 270, 1); enemies = [e];
       const DT = 1 / 60;
@@ -132,7 +132,7 @@ module.exports = [
     name: "[B] 돌격형: 시간 지연 배율 0.5 를 받으면 예고·돌진·쉬기 시간이 모두 2배",
     run: function () {
       AUGMENTS.push({ id: "slow", name: "s", levels: [{}], modifyEnemySpeed: function (f) { return f * 0.5; } });
-      runMenuAction(0); spawnQueue = []; ownedAugments = { slow: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { slow: 1 };
       player.x = 100; player.y = 270;
       const e = createEnemy("charger", 260, 270, 1); enemies = [e]; // 가까워서 바로 예고 시작
       const DT = 1 / 60; let last = e.state, t = 0; const times = [];
@@ -148,7 +148,7 @@ module.exports = [
   {
     name: "[B] 사인파형: 옆 흔들림 폭 2A = 80px, 주기 2π/ω ≈ 2.51초, 위상은 적마다 다름",
     run: function () {
-      runMenuAction(0); spawnQueue = [];
+      startGame(); spawnQueue = [];
       player.x = 480; player.y = 1e6; // 아주 아래쪽 → 진행 방향은 아래, 옆 방향은 x
       const e = createEnemy("sine", 480, 100, 1); e.speed = 0; enemies = [e]; // 앞으로는 안 가고 흔들림만
       const DT = 1 / 600; let minX = 1e9, maxX = -1e9; const peaks = []; let prev = e.x, prevV = 0;
@@ -174,7 +174,7 @@ module.exports = [
   {
     name: "[B] 분열형: 2→4마리로 갈라지고 손자는 안 갈라짐, 모두 죽어야 웨이브 끝, 점수 150/60/30",
     run: function () {
-      runMenuAction(0);
+      startGame();
       WAVES.splice(0, WAVES.length, [{ type: "splitter", count: 1 }], [{ type: "basic", count: 1 }]);
       startWave(1); spawnQueue = [];
       enemies = [createEnemy("splitter", 480, 270, 1)];
@@ -203,7 +203,7 @@ module.exports = [
   {
     name: "[30D] 30웨이브 구성이 표와 같음, 1웨이브만 순서대로, 5웨이브마다 보스",
     run: function () {
-      runMenuAction(0);
+      startGame();
       const want = ["B5", "B4 C2", "S4 B3", "P2 C2 B2", "[돌진 대장] B4", "B4 S3 C2", "C4 P2", "S5 P2", "B4 C3 S3", "[분열의 왕] S4",
         "B5 C3 P2", "S6 C3", "P4 B4", "C5 S4 P2", "[돌진 대장] C2 S4", "B6 S4 P2", "C6 P3", "S7 B4", "P4 C4 S3", "[분열의 왕] C4 S4",
         "B6 C4 S4", "P5 S5", "C7 B5", "P4 C4 S4 B2", "[돌진 대장] P2 C4", "S8 P4", "C6 P4 B4", "B6 S6 C2", "P5 C5 S4", "[돌진 대장 & 분열의 왕]"];
@@ -225,7 +225,7 @@ module.exports = [
   {
     name: "[30D] 안내 띠: 2·3·4웨이브 새 적, 5·10웨이브 보스(빨강), 30웨이브 최종 보스",
     run: function () {
-      runMenuAction(0);
+      startGame();
       const t = {};
       for (const n of [1, 2, 3, 4, 5, 6, 10, 30]) { startWave(n); t[n] = bannerText + (bannerIsBoss ? " (빨강)" : ""); }
       const ok = t[1] === "웨이브 1" && t[2] === "웨이브 2 · 새 적: 돌격형!" && t[3] === "웨이브 3 · 새 적: 사인파형!" &&
@@ -238,7 +238,7 @@ module.exports = [
     name: "[30D] 무적 + 업그레이드 최대로 1 → 30웨이브 자동 진행 후 클리어, 보스 7마리 처치, 결과 화면",
     run: function () {
       saveData.upgrades = { vitality: 30, power: 30 }; // 업그레이드를 다 산 상태로
-      runMenuAction(0); debugMode = true; debugInvincible = true;
+      startGame(); debugMode = true; debugInvincible = true;
       const DT = 1 / 60; const seen = []; let f = 0; const waveTime = {}; let t = 0;
       for (; f < 60 * 60 * 40 && gameState !== "clear"; f++) {
         if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
@@ -258,7 +258,7 @@ module.exports = [
   {
     name: "[증강] 등차 탄환: k = 0~9 반복, 대미지 = 10 + d·k, 복리보다 먼저 계산",
     run: function () {
-      runMenuAction(0); spawnQueue = []; ownedAugments = { arithmetic: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { arithmetic: 1 };
       const aug = AUGMENTS.find((a) => a.id === "arithmetic");
       const ks = []; const dmg = [];
       for (let i = 0; i < 12; i++) {
@@ -277,7 +277,7 @@ module.exports = [
   {
     name: "[증강] 제곱 증폭: N번째 명중마다 D²/10 (상한 5배), 다른 증강보다 나중에 계산",
     run: function () {
-      runMenuAction(0); ownedAugments = { square: 1 };
+      startGame(); ownedAugments = { square: 1 };
       const seq = []; for (let i = 0; i < 6; i++) seq.push(calcDamage({}, { damageScale: 1 }));
       // 등차(+d·k)가 먼저 적용된 뒤 제곱: k=9, d=2 → D=28 → 28 × 2.8 = 78.4
       AUGMENTS.forEach((a) => a.reset && a.reset());
@@ -298,7 +298,7 @@ module.exports = [
   {
     name: "[증강] 3방향 탄: n발이 360°/n 간격, 모두 damageScale, onFire 는 한 번만",
     run: function () {
-      runMenuAction(0); spawnQueue = [];
+      startGame(); spawnQueue = [];
       let fires = 0;
       AUGMENTS.push({ id: "count", name: "c", levels: [{}], onFire: function () { fires++; } });
       const angles = (list) => list.map((b) => Math.round(Math.atan2(b.vy, b.vx) * 180 / Math.PI)).sort((x, y) => x - y).join(",");
@@ -315,7 +315,7 @@ module.exports = [
   {
     name: "[증강] 핵분열 연쇄: 파편 m개(360°/m), 대미지 = 최대 체력×에너지, 감쇠 60%, 2세대까지, 40개 제한",
     run: function () {
-      runMenuAction(0); spawnQueue = []; ownedAugments = { fission: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { fission: 1 };
       const killWith = (bullet, e) => { const aug = AUGMENTS.find((a) => a.id === "fission");
         aug.onKill(aug.levels[getAugmentLevel("fission") - 1], { enemy: e, x: e.x, y: e.y, bullet: bullet }); };
       const e = createEnemy("basic", 400, 300, 1);
@@ -345,12 +345,12 @@ module.exports = [
   {
     name: "[증강] 촉매: 발사 간격 × 0.8 (Lv.1), × 0.7 (Lv.2), 실제 발사 수도 늘어남",
     run: function () {
-      runMenuAction(0);
+      startGame();
       ownedAugments = {}; const base = fireInterval();
       ownedAugments = { catalyst: 1 }; const lv1 = fireInterval();
       ownedAugments = { catalyst: 2 }; const lv2 = fireInterval();
       // 10초 동안 쏜 횟수 비교 (멈춰 있는 과녁 하나)
-      const shots = (own) => { runMenuAction(0); spawnQueue = []; ownedAugments = own; player.hp = 1e9;
+      const shots = (own) => { startGame(); spawnQueue = []; ownedAugments = own; player.hp = 1e9;
         enemies = [createEnemy("basic", player.x + 150, player.y, 1)]; enemies[0].hp = enemies[0].maxHp = 1e9; enemies[0].speed = 0;
         let n = 0; const orig = createBullet;
         for (let f = 0; f < 600; f++) { const before = bullets.length; update(1 / 60); if (bullets.length > before) n++; }
@@ -363,7 +363,7 @@ module.exports = [
   {
     name: "[증강] 넉백: 총알 방향으로 약 v₀/6 px 밀림, knockResist, 돌격형은 돌진 중 안 밀림",
     run: function () {
-      runMenuAction(0); spawnQueue = []; player.x = 100; player.y = 100; player.fireTimer = 1e9;
+      startGame(); spawnQueue = []; player.x = 100; player.y = 100; player.fireTimer = 1e9;
       const slide = (type, level, setup) => {
         ownedAugments = { knockback: level };
         const e = createEnemy(type, 600, 400, 1); e.speed = 0; if (setup) setup(e); enemies = [e];
@@ -410,7 +410,7 @@ module.exports = [
   {
     name: "[디버그] Shift+1~9 로 증강 9개를 순서대로 지급",
     run: new Function(PRESS + `
-      runMenuAction(0);
+      startGame();
       press("F2");
       const got = [];
       for (let i = 1; i <= 9; i++) { press("Digit" + i, true); }
@@ -439,7 +439,7 @@ module.exports = [
   {
     name: "[보급] 빈자리 채우기, 체력 40% 미만이면 보급 1장 보장, 효과와 maxHp",
     run: function () {
-      runMenuAction(0);
+      startGame();
       // 증강 후보가 1장뿐 → 1장 + 보급 2장
       ownedAugments = {}; for (const a of AUGMENTS) ownedAugments[a.id] = a.levels.length;
       delete ownedAugments.catalyst;
@@ -473,7 +473,7 @@ module.exports = [
       let maxSpeed = 0;
       for (let w = 1; w <= 30; w++) maxSpeed = Math.max(maxSpeed, waveSpeedMult(w));
       const e30 = createEnemy("basic", 0, 0, 30), e1 = createEnemy("basic", 0, 0, 1);
-      runMenuAction(0); player.maxHp = 200; player.hp = 50; spawnQueue = []; enemies = []; checkWaveEnd(); const heal = player.hp; // +20
+      startGame(); player.maxHp = 200; player.hp = 50; spawnQueue = []; enemies = []; checkWaveEnd(); const heal = player.hp; // +20
       player.hp = 50; SUPPLIES.find((s) => s.id === "homeostasis").apply(); const homeo = player.hp;                       // +80
       const ok = maxSpeed <= 1.8 && Math.abs(waveSpeedMult(1) - 1.15) < 1e-12 && Math.abs(waveHpMult(1) - 2) < 1e-12 &&
         Math.abs(waveHpMult(30) - 8.96) < 1e-9 && Math.abs(waveDamageMult(30) - 3.675) < 1e-9 &&
@@ -488,7 +488,7 @@ module.exports = [
   {
     name: "[30B] 웨이브 클리어 +10 (최대까지), 보스 처치 최대 체력 50% 회복, 챕터 번호, Shift+0",
     run: new Function(PRESS + `
-      runMenuAction(0);
+      startGame();
       // 웨이브 클리어 회복
       spawnQueue = []; enemies = []; player.hp = 50; checkWaveEnd(); const h1 = player.hp;
       gameState = "playing"; spawnQueue = []; enemies = []; player.hp = 95; checkWaveEnd(); const h2 = player.hp;
@@ -511,7 +511,7 @@ module.exports = [
   {
     name: "[30C] 돌진 대장: 예고 0.8 → 3연속 돌진(재조준 0.35) → 쉬기 2, 체력 50% 아래면 4연속 + 돌격형 2마리 소환",
     run: function () {
-      runMenuAction(0); spawnQueue = []; bannerTimer = 0;
+      startGame(); spawnQueue = []; bannerTimer = 0;
       player.x = 480; player.y = 400;
       const boss = createEnemy("chargerKing", 480, -34, 1); enemies = [boss];
       const DT = 1 / 60; let t = 0; const log = []; let last = boss.state; let dashes = 0; const cycles = []; const summons = [];
@@ -541,7 +541,7 @@ module.exports = [
   {
     name: "[30C] 분열의 왕: 66%·33% 에서 자식 3마리(120°)·반지름 40→32→24·속도 ×1.3, 죽으면 분열형 2마리",
     run: function () {
-      runMenuAction(0); spawnQueue = [];
+      startGame(); spawnQueue = [];
       const boss = createEnemy("splitterKing", 480, 270, 1); enemies = [boss];
       const s0 = boss.speed;
       boss.hp = boss.maxHp * 0.70; enemyType(boss).onHurt(boss); const a = [enemies.length - 1, boss.radius];
@@ -565,7 +565,7 @@ module.exports = [
     name: "[30C] 보스는 시간 지연을 받아도 0.6배 아래로 안 느려짐 (보통 적은 0.2배)",
     run: function () {
       AUGMENTS.push({ id: "slow", name: "s", levels: [{}], modifyEnemySpeed: function (f) { return f * 0.2; } });
-      runMenuAction(0); spawnQueue = []; ownedAugments = { slow: 1 };
+      startGame(); spawnQueue = []; ownedAugments = { slow: 1 };
       const boss = createEnemy("splitterKing", 480, 100, 1), e = createEnemy("basic", 200, 100, 1);
       enemies = [boss, e]; player.fireTimer = 1e9; updateEnemies(1 / 60);
       return { ok: boss.slowFactor === 0.6 && Math.abs(e.slowFactor - 0.2) < 1e-12, detail: "보스 " + boss.slowFactor + "배, 기본 적 " + e.slowFactor + "배" };
@@ -574,7 +574,7 @@ module.exports = [
   {
     name: "[30C] 보스 웨이브: 2초 뒤 보스 등장, 졸개 3초 간격, 빨간 띠, 보스와 졸개가 모두 죽어야 끝",
     run: function () {
-      runMenuAction(0);
+      startGame();
       WAVES.splice(0, WAVES.length, { boss: "chargerKing", groups: [{ type: "basic", count: 2 }] }, [{ type: "basic", count: 1 }]);
       startWave(1);
       const banner = bannerText, red = bannerIsBoss;
@@ -626,7 +626,7 @@ module.exports = [
     run: function () {
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave();
-      runMenuAction(0); spawnQueue = []; debugMode = true; debugInvincible = true;
+      startGame(); spawnQueue = []; debugMode = true; debugInvincible = true;
       const far = () => { const e = createEnemy("basic", 940, 520, 1); e.hp = e.maxHp = 1e9; e.speed = 0; return e; };
       enemies = [far()];
       const step = (sec) => { for (let i = 0; i < Math.round(sec * 60); i++) { player.fireTimer = 1e9; update(1 / 60); } };
@@ -667,7 +667,7 @@ module.exports = [
       const savedNow = loadSave();
       saveData.upgrades.power = 30; const r4 = buyUpgrade(pw);
       saveData.upgrades.power = 5;
-      runMenuAction(0);                                 // 판 시작 → 업그레이드 적용
+      startGame();                                 // 판 시작 → 업그레이드 적용
       const applied = player.maxHp === 120 && player.hp === 120 && player.damage === 15;
       const dmg = calcDamage({}, { damageScale: 1 });
       const want = [40, 46, 53, 61, 70];
@@ -681,7 +681,7 @@ module.exports = [
   {
     name: "[성장C] player.damage 사용: 제곱 증폭은 D²/player.damage, 핵분열 파편 대미지는 최대 체력×에너지 그대로",
     run: function () {
-      runMenuAction(0); player.damage = 20; ownedAugments = { square: 2 };
+      startGame(); player.damage = 20; ownedAugments = { square: 2 };
       AUGMENTS.forEach((a) => a.reset && a.reset());
       calcDamage({}, { damageScale: 1 }); const sq = calcDamage({}, { damageScale: 2 });   // D=40 → 40 × 40/20 = 80
       ownedAugments = { fission: 1 }; bullets = [];
@@ -696,14 +696,14 @@ module.exports = [
     run: new Function(PRESS + `
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave(); saveData.coins = 200;
-      goToMenu(); runMenuAction(MENU_ITEMS.findIndex((m) => m.action === "upgrades"));
+      goToMenu(); openTab("upgrades");
       const opened = gameState === "upgrades";
       press("Digit1"); press("Digit2"); press("Digit2");
       const lv = upgradeLevel(UPGRADES[0]) + "," + upgradeLevel(UPGRADES[1]);   // 40, 40, 46 → 1,2 (남은 74)
       saveData.coins = 0; press("Digit1"); const shook = upgradeShake[0] > 0;
       press("Escape"); const back = gameState === "menu";
       // 결과 화면에서 U
-      runMenuAction(0); endGame("gameover"); press("KeyU"); const fromResult = gameState === "upgrades";
+      startGame(); endGame("gameover"); press("KeyU"); const fromResult = gameState === "upgrades";
       // 저장 초기화: 한 번 누르면 대기, 3초 지나면 취소, 3초 안에 두 번이면 실행
       saveData.coins = 500; pressResetSave(); const armed = resetArmTimer > 0;
       for (let i = 0; i < 200; i++) update(1 / 60);          // 3.3초
@@ -745,7 +745,7 @@ module.exports = [
     run: new Function(PRESS + `
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave();
-      runMenuAction(0);
+      startGame();
       for (let i = 0; i < 150; i++) update(1 / 60);              // 적과 총알이 생기도록 2.5초 진행
       const snap = () => JSON.stringify([runTime, runCoins, waveCoinTime, spawnTimer, bannerTimer, player.x, player.y,
         enemies.map((e) => [e.x, e.y, e.hp]), bullets.map((b) => [b.x, b.y]), popups.length]);
@@ -794,7 +794,7 @@ module.exports = [
     run: function () {
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave();
-      runMenuAction(0); spawnQueue = []; enemies = [];
+      startGame(); spawnQueue = []; enemies = [];
       const cell = SUPPLIES.find((s) => s.id === "cellDivision"), homeo = SUPPLIES.find((s) => s.id === "homeostasis");
       const base = player.maxHp, barBase = hpBarWidth(1000);
       const pick = (card) => { gameState = "choosing"; choices = [card]; choosingTime = 1; chooseAugment(0); };
@@ -810,7 +810,7 @@ module.exports = [
       endGame("gameover");
       const keptInResult = player.maxHp === base + 40 && hpText() === "70 / " + (base + 40);
       // 항상성
-      runMenuAction(0); player.hp = 30; pick(homeo);
+      startGame(); player.hp = 30; pick(homeo);
       const homeoPopup = popups.some((p) => p.text === "+40 회복");
       // 체력바 길이 상한: 최대 체력이 아주 커도 상태창 폭에서 멈춤
       player.maxHp = 1000; const capped = hpBarWidth(HUD_WIDTH - 32);
@@ -827,7 +827,7 @@ module.exports = [
     run: new Function(PRESS + `
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       saveData = loadSave();
-      runMenuAction(0);
+      startGame();
       const tall = hudPanelRect().h;
       press("Tab"); const collapsed = hudCollapsed() && hudPanelRect().h === HUD_COLLAPSED_HEIGHT;
       const saved = loadSave().hudCollapsed === true;
@@ -847,6 +847,134 @@ module.exports = [
       const ok = collapsed && saved && keptNextRun && keptReload && expanded && pausedByPanel;
       return { ok: ok, detail: "Tab 접기 " + collapsed + " (높이 " + tall + " → " + HUD_COLLAPSED_HEIGHT + ") / 저장 " + saved + " / 다음 판 유지 " + keptNextRun +
         " / 다시 읽어도 유지 " + keptReload + " / 화살표로 펼치기(일시정지 아님) " + expanded + " / 나머지 클릭 일시정지 " + pausedByPanel };
+    `),
+  },
+  // ---------------- 로비 ----------------
+  {
+    name: "[로비] 탭 3개: 클릭·←→ 로 도감/전투/업그레이드 화면이 열림, 잠긴 탭은 무시, 빨간 점, Enter 는 전투 탭에서만 시작, 결과 화면 M·U",
+    run: new Function(PRESS + `
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      const tabIndex = (id) => LOBBY_TABS.findIndex((t) => t.id === id);
+      // 캔버스의 게임 좌표 (gx, gy) 픽셀 색이 탭 바 바탕색(외곽선 색)인지
+      const isBarColor = (gx, gy) => { const d = ctx.getImageData(Math.floor(gx * renderScale), Math.floor(gy * renderScale), 1, 1).data;
+        return d[0] === 0x2B && d[1] === 0x21 && d[2] === 0x18; };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      goToMenu();
+      const startTab = gameState === "menu" && currentTabId() === "battle";
+      // 탭 클릭: 각 탭이 맞는 화면을 연다 (그릴 때 탭 바가 같이 그려지는지도 본다)
+      const opened = {};
+      for (const id of ["collection", "upgrades", "battle"]) {
+        clickRect(tabRect(tabIndex(id)));
+        draw();
+        opened[id] = gameState + (isBarColor(3, CANVAS_HEIGHT - 3) ? "+탭바" : "");
+      }
+      const clickOk = opened.collection === "collection+탭바" && opened.upgrades === "upgrades+탭바" && opened.battle === "menu+탭바";
+      // ←→ 키 (끝에서는 멈춤)
+      const seq = [];
+      for (const k of ["ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowRight", "ArrowRight"]) { press(k); seq.push(currentTabId()); }
+      const arrowOk = seq.join(",") === "collection,collection,battle,upgrades,upgrades";
+      // Esc = 전투 탭으로, 도감에서 Enter 는 시작 안 함
+      press("Escape"); const escBack = gameState === "menu";
+      openTab("collection"); press("Enter"); press("Space"); const noStartInCollection = gameState === "collection";
+      // 잠긴 탭: 자물쇠, 클릭·키로 안 열림
+      LOBBY_TABS.push({ id: "secret", label: "비밀", icon: "star", color: "red", locked: true }); goToMenu();
+      clickRect(tabRect(LOBBY_TABS.length - 1)); press("ArrowRight"); press("ArrowRight"); openTab("secret");
+      const lockedIgnored = gameState === "upgrades"; draw();
+      LOBBY_TABS.pop(); goToMenu();
+      // 빨간 점: 살 수 있는 업그레이드가 있을 때만
+      saveData.coins = 0; const dotOff = !anyUpgradeAffordable();
+      saveData.coins = 1000; const dotOn = anyUpgradeAffordable(); draw();
+      saveData.coins = 0;
+      // 전투 탭에서 Enter → 게임 시작, 결과 화면 M → 전투 탭, U → 업그레이드 탭
+      press("Enter"); const started = gameState === "playing";
+      endGame("gameover"); press("KeyM"); const resultM = gameState === "menu";
+      clickRect(START_BUTTON); const startByClick = gameState === "playing";
+      endGame("gameover"); press("KeyU"); const resultU = gameState === "upgrades" && enemies.length === 0;
+      goToMenu();
+      const ok = startTab && clickOk && arrowOk && escBack && noStartInCollection && lockedIgnored && dotOff && dotOn && started && resultM && startByClick && resultU;
+      return { ok: ok, detail: "처음 " + startTab + " / 클릭 " + JSON.stringify(opened) + " / ←→ " + seq.join(",") + " / Esc " + escBack +
+        " / 도감에서 Enter 무시 " + noStartInCollection + " / 잠긴 탭 무시 " + lockedIgnored + " / 빨간 점 " + dotOff + "," + dotOn +
+        " / Enter 시작 " + started + " / 시작 버튼 " + startByClick + " / 결과 M " + resultM + ", U " + resultU };
+    `),
+  },
+  {
+    name: "[로비] 설정 창: 톱니로 열기, X·Esc 로 닫기, 열려 있는 동안 뒤 화면은 안 눌림, 상태창 접기·저장 초기화(두 번) 동작",
+    run: new Function(PRESS + `
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      const tabIndex = (id) => LOBBY_TABS.findIndex((t) => t.id === id);
+      // 캔버스의 게임 좌표 (gx, gy) 픽셀 색이 탭 바 바탕색(외곽선 색)인지
+      const isBarColor = (gx, gy) => { const d = ctx.getImageData(Math.floor(gx * renderScale), Math.floor(gy * renderScale), 1, 1).data;
+        return d[0] === 0x2B && d[1] === 0x21 && d[2] === 0x18; };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.coins = 300; writeSave();
+      goToMenu();
+      const G = GEAR_BUTTON;
+      click(G.x, G.y); const openByGear = settingsOpen; draw();
+      // 열려 있는 동안: 탭 위치 클릭, Enter, ←→ 는 무시
+      clickRect(tabRect(tabIndex("upgrades"))); press("Enter"); press("ArrowRight");
+      const blocked = settingsOpen && gameState === "menu";
+      press("Escape"); const closedByEsc = !settingsOpen && gameState === "menu";
+      // 업그레이드 탭에서도 열림, X 버튼으로 닫기
+      openTab("upgrades"); click(G.x, G.y); const openInUpgrades = settingsOpen; draw();
+      clickRect(settingsCloseRect()); const closedByX = !settingsOpen && gameState === "upgrades";
+      // 상태창 접기 버튼
+      click(G.x, G.y);
+      const hud0 = hudCollapsed(); clickRect(settingsHudRect()); const hudToggled = hudCollapsed() === !hud0 && loadSave().hudCollapsed === !hud0;
+      clickRect(settingsHudRect());
+      // 저장 초기화: 한 번 = 대기, 두 번 = 초기화. 닫으면 대기 취소
+      clickRect(settingsResetRect()); const armed = resetArmTimer > 0 && saveData.coins === 300; draw();
+      press("Escape"); const disarmed = resetArmTimer === 0 && saveData.coins === 300;
+      click(G.x, G.y); clickRect(settingsResetRect()); clickRect(settingsResetRect());
+      const cleared = saveData.coins === 0 && loadSave().coins === 0 && settingsOpen; draw();
+      press("Escape");
+      // 설정 창이 닫힌 전투 탭에서 Esc 는 아무 일도 없음
+      openTab("battle"); press("Escape"); const escIdle = gameState === "menu" && !settingsOpen;
+      const ok = openByGear && blocked && closedByEsc && openInUpgrades && closedByX && hudToggled && armed && disarmed && cleared && escIdle;
+      return { ok: ok, detail: "톱니로 열림 " + openByGear + " / 뒤 화면 막힘 " + blocked + " / Esc 닫기 " + closedByEsc + " / 업그레이드 탭에서 열림 " + openInUpgrades +
+        ", X 닫기 " + closedByX + " / 상태창 접기 " + hudToggled + " / 초기화 대기 " + armed + ", 닫으면 취소 " + disarmed + ", 두 번이면 초기화 " + cleared + " / 전투 탭 Esc 무시 " + escIdle };
+    `),
+  },
+  {
+    name: "[로비] 게임 중(전투·카드 선택)에는 탭 바·톱니가 없음: 그 자리를 눌러도 아무 일 없음",
+    run: new Function(PRESS + `
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      const tabIndex = (id) => LOBBY_TABS.findIndex((t) => t.id === id);
+      // 캔버스의 게임 좌표 (gx, gy) 픽셀 색이 탭 바 바탕색(외곽선 색)인지
+      const isBarColor = (gx, gy) => { const d = ctx.getImageData(Math.floor(gx * renderScale), Math.floor(gy * renderScale), 1, 1).data;
+        return d[0] === 0x2B && d[1] === 0x21 && d[2] === 0x18; };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      startGame();
+      for (let i = 0; i < 60; i++) update(1 / 60);
+      const snap = () => JSON.stringify([gameState, paused, settingsOpen, wave, runTime, player.x, player.y, hudCollapsed(), enemies.length, saveData]);
+      const before = snap();
+      for (let i = 0; i < LOBBY_TABS.length; i++) clickRect(tabRect(i));
+      click(GEAR_BUTTON.x, GEAR_BUTTON.y); press("ArrowLeft"); press("ArrowRight");
+      const playingSame = snap() === before && gameState === "playing";
+      draw(); const noBarPlaying = !isBarColor(3, CANVAS_HEIGHT - 3);
+      // 카드 선택 화면
+      openChoiceScreen(); const ch = snap();
+      for (let i = 0; i < LOBBY_TABS.length; i++) clickRect(tabRect(i));
+      click(GEAR_BUTTON.x, GEAR_BUTTON.y);
+      const choosingSame = snap() === ch && gameState === "choosing";
+      draw(); const noBarChoosing = !isBarColor(3, CANVAS_HEIGHT - 3);
+      goToMenu(); draw(); const barInLobby = isBarColor(3, CANVAS_HEIGHT - 3);
+      const ok = playingSame && noBarPlaying && choosingSame && noBarChoosing && barInLobby;
+      return { ok: ok, detail: "전투 중 클릭 무시 " + playingSame + ", 탭 바 안 그림 " + noBarPlaying + " / 카드 화면 클릭 무시 " + choosingSame +
+        ", 탭 바 안 그림 " + noBarChoosing + " / 로비에서는 탭 바 그림 " + barInLobby };
     `),
   },
 ];

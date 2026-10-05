@@ -5,7 +5,8 @@
 // waves.js 에서 { type: "새이름", count: 5 } 처럼 불러 쓸 수 있다.
 //
 // 적 종류 객체에 들어가는 항목
-//   name          : 적 이름 (안내 띠, 나중에 도감에서 보여 줄 이름)
+//   name          : 적 이름 (안내 띠, 도감에서 보여 줄 이름)
+//   desc          : 도감에 보여 줄 짧은 설명 (한 줄)
 //   hp            : 최대 체력
 //   speed         : 1웨이브 기준 이동 속도 (px/초)
 //   radius        : 몸 반지름 (px). 충돌 판정과 그림 크기에 쓰인다
@@ -133,6 +134,7 @@ const ENEMY_TYPES = {
   // ---- 기본 적: 플레이어를 향해 똑바로 다가온다 ----
   basic: {
     name: "기본 적",
+    desc: "똑바로 다가온다",
     // 체력: 기본 대미지 10 × 6방 = 60
     // (5~8방 사이로 잡아서, 같은 적을 여러 번 맞히는 "복리 탄환"이 의미 있게 함)
     hp: 60,
@@ -159,6 +161,7 @@ const ENEMY_TYPES = {
   // 행동 순환: 접근 → 예고 → 돌진 → 쉬기 → 다시 접근 ...
   charger: {
     name: "돌격형",
+    desc: "멈춰서 조준 → 돌진",
     hp: 40,
     speed: 70,          // 평소에는 기본 적(60)과 비슷하게 걷는다
     radius: 16,
@@ -227,6 +230,7 @@ const ENEMY_TYPES = {
   // 진행 방향에 수직인 방향으로 위치가 y = A·sin(ωt + φ) 처럼 흔들린다.
   sine: {
     name: "사인파형",
+    desc: "곡선을 그리며 흔들흔들",
     hp: 50,
     speed: 60,
     radius: 15,
@@ -276,6 +280,7 @@ const ENEMY_TYPES = {
   // ---- 분열형: 죽으면 작은 분열형 2마리로 갈라진다 ----
   splitter: {
     name: "분열형",
+    desc: "죽으면 둘로 갈라짐",
     hp: 60,
     speed: SPLITTER_SPEED,
     radius: 20,
@@ -350,6 +355,7 @@ const ENEMY_TYPES = {
   // 체력 50% 아래: 4연속 돌진, 쉬기 시작할 때 돌격형 2마리 소환
   chargerKing: {
     name: "돌진 대장",
+    desc: "보스 · 연속 돌진",
     isBoss: true,
     hp: 600,
     speed: 70,
@@ -425,6 +431,7 @@ const ENEMY_TYPES = {
   // 죽으면 splitter 2마리로 갈라진다
   splitterKing: {
     name: "분열의 왕",
+    desc: "보스 · 계속 갈라짐",
     isBoss: true,
     hp: 800,
     speed: 40,

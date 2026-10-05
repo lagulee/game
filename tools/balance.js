@@ -96,7 +96,7 @@ function runLevel(opts) {
     __reseed(1000 + run * 7919 + opts.level * 104729);
     saveData = defaultSave();
     saveData.upgrades = { vitality: opts.level, power: opts.level };
-    runMenuAction(0);
+    startGame();
     let frames = 0;
     const MAX_FRAMES = 60 * 60 * 60; // 게임 시간 1시간이면 멈춤 (안전장치)
     while (gameState !== "gameover" && gameState !== "clear" && frames < MAX_FRAMES) {

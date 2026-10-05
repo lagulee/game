@@ -126,7 +126,7 @@ function scenarioRunner(config) {
     for (let i = 0; i < 20; i++) update(DT);
     draw();
     log.push(name + " menuDraw " + hash(canvas.toDataURL()));
-    runMenuAction(0);
+    startGame();
     setup();
     let choosingFrames = 0;
     for (let f = 0; f < frames; f++) {

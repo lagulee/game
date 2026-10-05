@@ -33,6 +33,8 @@ const COLORS = {
   purple: "#8A63B8",     // 보라 (사인파형)
   orange: "#E8913A",     // 주황 (분열형)
   gray: "#A39D92",       // 회색 (코인이 모자라 살 수 없는 버튼)
+  dark: "#4A3B2E",       // 어두운 갈색 (고르지 않은 탭)
+  dim: "#8C8173",        // 흐린 회갈색 (고르지 않은 탭의 아이콘·글자)
 };
 
 // 도형 외곽선 두께 (px). 이 숫자 하나로 모든 도형의 외곽선이 바뀐다.
@@ -165,17 +167,48 @@ const BOSS_BAR_WIDTH = 300;
 // 점수: 클리어했을 때 남은 체력 1 당 보너스 점수
 const SCORE_PER_HP_LEFT = 10;
 
-// 메뉴 화면 버튼 목록.
-// 새 메뉴를 만들 때 여기에 한 줄 추가하고, ready 를 true 로 바꾸면 된다.
-//   label : 버튼 글자
-//   action: 눌렀을 때 할 일의 이름 (runMenuAction 함수에서 처리)
-//   ready : 지금 쓸 수 있는지 (false 면 "준비 중" 표시)
-const MENU_ITEMS = [
-  { label: "게임 시작", action: "start", ready: true },
-  { label: "업그레이드", action: "upgrades", ready: true },
-  { label: "도감", action: "collection", ready: false },
-  { label: "설정", action: "settings", ready: false },
+// ---- 로비(메뉴) 화면 배치 ----
+// 버튼 위치와 크기는 여기 한 곳에만 적는다. 그리기와 클릭 판정이 모두 이 값을 쓴다.
+
+// 위쪽 줄(코인·최고 웨이브·톱니 버튼)의 세로 가운데
+const LOBBY_TOP_BAR_Y = 34;
+// 오른쪽 위 설정 톱니 버튼 (가운데 x, y 와 반지름. 지름 44px)
+const GEAR_BUTTON = { x: 922, y: LOBBY_TOP_BAR_Y, r: 22 };
+// 가운데 큰 "게임 시작" 버튼 (로비에서 가장 큰 버튼)
+const START_BUTTON = { x: 330, y: 248, w: 300, h: 90 };
+// 시작 버튼이 숨 쉬듯 커졌다 작아지는 정도 (0.03 = 3%) 와 한 번 왕복하는 시간 (초)
+const START_PULSE_AMOUNT = 0.03;
+const START_PULSE_PERIOD = 1.5;
+
+// 아래쪽 탭 바: 높이, 위쪽 끝 y, 고른 탭이 떠오르는 높이 (px)
+const TAB_BAR_HEIGHT = 84;
+const TAB_BAR_Y = CANVAS_HEIGHT - TAB_BAR_HEIGHT;
+const TAB_ACTIVE_LIFT = 10;
+// 탭 화면의 내용은 이 높이 위에서 끝나야 한다 (고른 탭이 떠오른 만큼 여유를 둔다)
+const LOBBY_CONTENT_BOTTOM = TAB_BAR_Y - TAB_ACTIVE_LIFT - 4;
+
+// 탭 목록. 탭을 늘리려면 여기에 한 줄 추가한다 (칸 폭은 자동으로 나눠진다).
+//   id    : 탭 이름표 ("battle" = 로비, "upgrades" = 업그레이드 화면, "collection" = 도감)
+//   label : 아이콘 아래 작은 글자
+//   icon  : 코드로 그리는 아이콘 모양 ("book", "star", "arrow")
+//   color : 골랐을 때의 밝은 색 (COLORS 이름)
+//   locked: true 면 자물쇠가 그려지고 눌러도 열리지 않는다 (생략하면 열림)
+const LOBBY_TABS = [
+  { id: "collection", label: "도감", icon: "book", color: "purple" },
+  { id: "battle", label: "전투", icon: "star", color: "yellow" },
+  { id: "upgrades", label: "업그레이드", icon: "arrow", color: "green" },
 ];
+
+// 설정 창 (가운데 패널) 크기
+const SETTINGS_PANEL = { x: 170, y: 44, w: 620, h: 418 };
+
+// 버튼 효과: 마우스를 올리면 밝아지는 정도, 누르면 작아지는 정도와 튕겨 돌아오는 시간 (초)
+const BUTTON_HOVER_LIGHTEN = 0.18;
+const BUTTON_PRESS_SHRINK = 0.08;
+const BUTTON_PRESS_TIME = 0.25;
+
+// 로비 화면 안내 글자가 잠깐 떠 있는 시간 (초)
+const LOBBY_TOAST_TIME = 1.5;
 
 
 // =============================================================
@@ -261,36 +294,23 @@ window.addEventListener("keydown", function (event) {
     return;
   }
 
-  // 메뉴 화면: ↑↓(또는 W/S)로 버튼 고르기, Enter 나 Space 로 누르기
-  if (gameState === "menu") {
-    if (event.code === "ArrowUp" || event.code === "KeyW") {
-      // 맨 위에서 더 올라가면 맨 아래로 (나머지 연산 % 으로 빙글빙글 돌기)
-      menuIndex = (menuIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
-    } else if (event.code === "ArrowDown" || event.code === "KeyS") {
-      menuIndex = (menuIndex + 1) % MENU_ITEMS.length;
-    } else if (event.code === "Enter" || event.code === "Space") {
-      runMenuAction(menuIndex);
+  // 로비 화면들 (전투 탭·도감·업그레이드, 설정 창): 처리한 키면 여기서 끝낸다
+  if (isLobbyState()) {
+    if (handleLobbyKey(event.code)) {
+      event.preventDefault();
+      return;
     }
   }
 
-  // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 메뉴로, U 키 = 업그레이드
+  // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 로비(전투 탭)로, U 키 = 업그레이드 탭
   if (gameState === "gameover" || gameState === "clear") {
     if (event.code === "KeyR") {
       resetGame();
     } else if (event.code === "KeyM") {
       goToMenu();
     } else if (event.code === "KeyU") {
-      openUpgrades();
-    }
-  }
-
-  // 업그레이드 화면: 1, 2 키 = 구매, Esc 나 M = 메뉴로
-  if (gameState === "upgrades") {
-    const keyToIndex = { Digit1: 0, Digit2: 1, Numpad1: 0, Numpad2: 1 };
-    if (event.code in keyToIndex) {
-      tryBuyUpgrade(keyToIndex[event.code]);
-    } else if (event.code === "Escape" || event.code === "KeyM") {
       goToMenu();
+      openTab("upgrades");
     }
   }
 
@@ -432,21 +452,27 @@ canvas.addEventListener("mousemove", function (event) {
   const pos = getMousePos(event);
   hoverIndex = gameState === "choosing" ? cardIndexAt(pos.x, pos.y) : -1;
 
-  // 메뉴 화면에서는 마우스가 올라간 버튼을 선택 상태로
-  let menuHover = -1;
-  if (gameState === "menu") {
-    menuHover = menuButtonAt(pos.x, pos.y);
-    if (menuHover >= 0) menuIndex = menuHover;
-  }
+  // 로비 화면들에서는 마우스가 올라간 버튼을 기억한다 (살짝 밝게 그리려고)
+  hoverButton = isLobbyState() ? lobbyButtonAt(pos.x, pos.y) : null;
 
   // 업그레이드 화면·결과 화면·일시정지 버튼, 전투 중 상태창
   let otherHover = false;
   if (gameState === "playing") otherHover = paused ? pauseButtonAt(pos.x, pos.y) !== null : insideRect(pos.x, pos.y, hudPanelRect());
-  if (gameState === "upgrades") otherHover = upgradeButtonAt(pos.x, pos.y) !== null;
   if (gameState === "gameover" || gameState === "clear") otherHover = resultButtonAt(pos.x, pos.y) !== null;
 
   // 카드나 버튼 위에서는 마우스 모양을 손가락으로
-  canvas.style.cursor = (hoverIndex >= 0 || menuHover >= 0 || otherHover) ? "pointer" : "default";
+  canvas.style.cursor = (hoverIndex >= 0 || hoverButton !== null || otherHover) ? "pointer" : "default";
+});
+
+// 마우스 버튼을 누르는 순간: 로비 버튼이면 "꾹" 작아지는 효과를 시작한다 (실행은 click 에서)
+canvas.addEventListener("mousedown", function (event) {
+  if (!isLobbyState()) return;
+  const pos = getMousePos(event);
+  const id = lobbyButtonAt(pos.x, pos.y);
+  if (id !== null) {
+    pressedButton = id;
+    pressTimer = BUTTON_PRESS_TIME;
+  }
 });
 
 // 마우스를 클릭하면: 클릭한 위치의 카드를 고른다
@@ -471,10 +497,10 @@ canvas.addEventListener("click", function (event) {
     return;
   }
 
-  // 메뉴 화면: 클릭한 버튼 실행
-  if (gameState === "menu") {
-    const index = menuButtonAt(pos.x, pos.y);
-    if (index >= 0) runMenuAction(index);
+  // 로비 화면들 (전투 탭·도감·업그레이드, 설정 창): 클릭한 버튼 실행
+  if (isLobbyState()) {
+    const id = lobbyButtonAt(pos.x, pos.y);
+    if (id !== null) runLobbyButton(id);
     return;
   }
 
@@ -486,21 +512,11 @@ canvas.addEventListener("click", function (event) {
     return;
   }
 
-  // 업그레이드 화면: 구매 버튼, 메뉴 버튼, 저장 초기화 버튼
-  if (gameState === "upgrades") {
-    const button = upgradeButtonAt(pos.x, pos.y);
-    if (button === null) return;
-    if (button.kind === "buy") tryBuyUpgrade(button.index);
-    else if (button.kind === "back") goToMenu();
-    else if (button.kind === "reset") pressResetSave();
-    return;
-  }
-
   // 결과 화면: 다시 시작 / 업그레이드 / 메뉴 버튼
   if (gameState === "gameover" || gameState === "clear") {
     const button = resultButtonAt(pos.x, pos.y);
     if (button === "retry") resetGame();
-    else if (button === "upgrades") openUpgrades();
+    else if (button === "upgrades") { goToMenu(); openTab("upgrades"); }
     else if (button === "menu") goToMenu();
   }
 });
@@ -544,23 +560,32 @@ let particles = [];
 let spawnTimer = 0;
 
 // 게임 상태: 지금 어떤 화면인지 기억하는 변수
-//   "menu"      : 처음 메뉴 화면
-//   "upgrades"  : 영구 업그레이드 화면
+//   "menu"      : 로비의 전투 탭 (처음 화면)
+//   "upgrades"  : 로비의 업그레이드 탭 (영구 업그레이드)
+//   "collection": 로비의 도감 탭
 //   "playing"   : 전투 중
 //   "choosing"  : 웨이브 사이, 증강 카드를 고르는 중
 //   "gameover"  : 체력이 0이 되어 게임 오버
 //   "clear"     : 마지막 웨이브까지 모두 통과
 let gameState = "menu";
 
-// 메뉴에서 지금 선택된 버튼 번호 (0 = 맨 위)
-let menuIndex = 0;
-
-// 메뉴 화면이 열린 뒤 흐른 시간 (초). 장식 캐릭터가 둥실거리는 애니메이션에 사용
+// 로비 화면이 열린 뒤 흐른 시간 (초). 장식 캐릭터가 둥실거리고 시작 버튼이 숨 쉬는 애니메이션에 사용
 let menuTime = 0;
 
-// 메뉴 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "준비 중이에요!")
-let menuToast = "";
-let menuToastTimer = 0;
+// 설정 창이 열려 있는지 (로비 화면 위에 겹쳐 뜬다. 탭이 아니다)
+let settingsOpen = false;
+
+// 마우스가 올라가 있는 로비 버튼 이름표 (없으면 null), 눌린 버튼과 눌림 효과 남은 시간 (초)
+let hoverButton = null;
+let pressedButton = null;
+let pressTimer = 0;
+
+// 탭마다 지금 떠오른 높이 (px). 고른 탭 쪽으로 부드럽게 따라간다 (그림 전용 값)
+let tabLift = LOBBY_TABS.map(function () { return 0; });
+
+// 로비 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "코인이 모자라요!")
+let lobbyToast = "";
+let lobbyToastTimer = 0;
 
 // 체력바가 번쩍이는 남은 시간 (초)
 let hpFlashTimer = 0;
@@ -1110,65 +1135,189 @@ function formatTime(seconds) {
   return m + ":" + (s < 10 ? "0" : "") + s; // 10초 미만이면 앞에 0 을 붙인다
 }
 
-// ---- 메뉴 ----
+// ---- 로비 (메뉴) ----
 
-// 메뉴 화면으로 가는 함수 (처음 켰을 때, 결과 화면에서 M 키)
+// 지금이 로비 화면들(전투 탭·도감·업그레이드) 중 하나인지
+function isLobbyState() {
+  return gameState === "menu" || gameState === "upgrades" || gameState === "collection";
+}
+
+// 지금 화면에 맞는 탭 이름표 (전투 탭 = "menu" 상태)
+function currentTabId() {
+  return gameState === "menu" ? "battle" : gameState;
+}
+
+// 로비(전투 탭)로 가는 함수 (처음 켰을 때, 결과 화면의 M, 일시정지 창의 "로비로")
+// 판에서 쓰던 적·총알 등을 깨끗이 치운다
 function goToMenu() {
-  gameState = "menu";
   paused = false;
   resumeTimer = 0;
-  menuIndex = 0;
   menuTime = 0;
-  menuToast = "";
+  settingsOpen = false;
+  resetArmTimer = 0;
+  lobbyToast = "";
+  lobbyToastTimer = 0;
   enemies = [];
   bullets = [];
   popups = [];
   particles = [];
+  openTab("battle");
+  // 탭 높이는 바로 제자리로 (판에서 돌아올 때는 떠오르는 애니메이션 없이)
+  tabLift = LOBBY_TABS.map(function (t) { return t.id === "battle" ? TAB_ACTIVE_LIFT : 0; });
 }
 
-// index 번째 메뉴 버튼을 눌렀을 때 할 일
-function runMenuAction(index) {
-  const item = MENU_ITEMS[index];
+// 탭 하나를 연다 (탭 클릭, ←→ 키, 결과 화면의 U)
+// 잠긴 탭이나 없는 탭이면 아무것도 하지 않는다
+function openTab(id) {
+  const tab = LOBBY_TABS.find(function (t) { return t.id === id; });
+  if (!tab || tab.locked) return;
+  if (id === "battle") gameState = "menu";
+  else if (id === "upgrades") openUpgrades();
+  else if (id === "collection") gameState = "collection";
+}
 
-  // 아직 만들지 않은 메뉴는 알림만 띄운다
-  if (!item.ready) {
-    menuToast = item.label + "은(는) 곧 추가될 예정이에요!";
-    menuToastTimer = 1.6;
-    return;
-  }
-
-  // action 이름에 따라 할 일을 나눈다 (새 메뉴를 만들면 여기에 추가)
-  if (item.action === "start") {
-    canvas.style.cursor = "default";
-    resetGame();
-  } else if (item.action === "upgrades") {
-    openUpgrades();
+// 지금 탭에서 왼쪽(-1) / 오른쪽(+1) 으로 옮긴다. 잠긴 탭은 건너뛴다
+function moveTab(step) {
+  const n = LOBBY_TABS.length;
+  let i = LOBBY_TABS.findIndex(function (t) { return t.id === currentTabId(); });
+  // 한 칸씩 옮기다가 열린 탭을 만나면 멈추는 반복문 (끝에서는 멈춘다)
+  for (let k = 0; k < n; k++) {
+    i += step;
+    if (i < 0 || i >= n) return;
+    if (!LOBBY_TABS[i].locked) { openTab(LOBBY_TABS[i].id); return; }
   }
 }
 
-// 메뉴 버튼 i 의 위치와 크기
-const MENU_BUTTON_WIDTH = 260;
-const MENU_BUTTON_HEIGHT = 48;
-const MENU_BUTTON_GAP = 12;
-function menuButtonRect(i) {
-  return {
-    x: CANVAS_WIDTH / 2 - MENU_BUTTON_WIDTH / 2,
-    y: 214 + i * (MENU_BUTTON_HEIGHT + MENU_BUTTON_GAP),
-    w: MENU_BUTTON_WIDTH,
-    h: MENU_BUTTON_HEIGHT,
-  };
+// 로비에서 "게임 시작" (시작 버튼, Enter / Space)
+function startGame() {
+  canvas.style.cursor = "default";
+  settingsOpen = false;
+  resetGame();
 }
 
-// 캔버스 좌표 (x, y) 가 몇 번째 메뉴 버튼 위에 있는지 (없으면 -1)
-function menuButtonAt(x, y) {
-  // 버튼을 하나씩 보며 사각형 안에 점이 있는지 검사하는 반복문
-  for (let i = 0; i < MENU_ITEMS.length; i++) {
-    const r = menuButtonRect(i);
-    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
-      return i;
-    }
+// 설정 창 열기 / 닫기
+function openSettings() {
+  settingsOpen = true;
+  resetArmTimer = 0;
+}
+function closeSettings() {
+  settingsOpen = false;
+  resetArmTimer = 0;     // 닫으면 "한 번 더 누르면 초기화" 대기도 취소
+}
+
+// 로비에서 키를 눌렀을 때. 처리한 키면 true 를 돌려준다
+function handleLobbyKey(code) {
+  // 설정 창이 열려 있으면 Esc 로 닫기만 한다 (뒤의 화면은 키를 받지 않는다)
+  if (settingsOpen) {
+    if (code === "Escape") closeSettings();
+    return true;
   }
-  return -1;
+  if (code === "ArrowLeft") { moveTab(-1); return true; }
+  if (code === "ArrowRight") { moveTab(1); return true; }
+
+  if (gameState === "menu") {
+    // 전투 탭에서만 Enter / Space 로 게임 시작
+    if (code === "Enter" || code === "Space") { startGame(); return true; }
+    return false;
+  }
+
+  // 업그레이드 탭: 1, 2 키 = 구매
+  if (gameState === "upgrades") {
+    const keyToIndex = { Digit1: 0, Digit2: 1, Numpad1: 0, Numpad2: 1 };
+    if (code in keyToIndex) { tryBuyUpgrade(keyToIndex[code]); return true; }
+  }
+  // 도감·업그레이드 탭: Esc (또는 M) = 전투 탭으로
+  if (code === "Escape" || code === "KeyM") { openTab("battle"); return true; }
+  return false;
+}
+
+// 탭 i 칸의 사각형 (탭 바를 똑같은 폭으로 나눈다)
+function tabRect(i) {
+  const w = CANVAS_WIDTH / LOBBY_TABS.length;
+  return { x: i * w, y: TAB_BAR_Y, w: w, h: TAB_BAR_HEIGHT };
+}
+
+// 설정 창 안의 버튼 사각형들
+function settingsCloseRect() {
+  const P = SETTINGS_PANEL;
+  return { x: P.x + P.w - 54, y: P.y + 10, w: 44, h: 44 };   // 오른쪽 위 X (지름 44)
+}
+function settingsHudRect() {
+  const P = SETTINGS_PANEL;
+  return { x: P.x + 372, y: P.y + 122, w: 218, h: 46 };
+}
+function settingsResetRect() {
+  const P = SETTINGS_PANEL;
+  return { x: P.x + 372, y: P.y + 274, w: 218, h: 46 };
+}
+
+// 지금 화면에서 누를 수 있는 로비 버튼 목록 { id, rect }.
+// 그리기와 클릭 판정이 모두 이 목록의 사각형을 쓴다.
+function lobbyButtons() {
+  // 설정 창이 열려 있으면 설정 창 버튼만 눌린다
+  if (settingsOpen) {
+    return [
+      { id: "settings:close", rect: settingsCloseRect() },
+      { id: "settings:hud", rect: settingsHudRect() },
+      { id: "settings:reset", rect: settingsResetRect() },
+    ];
+  }
+  const G = GEAR_BUTTON;
+  const list = [{ id: "gear", rect: { x: G.x - G.r, y: G.y - G.r, w: G.r * 2, h: G.r * 2 } }];
+  // 탭 칸을 하나씩 버튼으로 넣는 반복문 (잠긴 탭은 눌러도 반응하지 않으니 빼 둔다)
+  for (let i = 0; i < LOBBY_TABS.length; i++) {
+    if (!LOBBY_TABS[i].locked) list.push({ id: "tab:" + LOBBY_TABS[i].id, rect: tabRect(i) });
+  }
+  if (gameState === "menu") list.push({ id: "start", rect: START_BUTTON });
+  if (gameState === "upgrades") {
+    // 업그레이드 카드 전체가 구매 버튼
+    for (let i = 0; i < UPGRADES.length; i++) list.push({ id: "buy:" + i, rect: upgradeCardRect(i) });
+  }
+  return list;
+}
+
+// 로비에서 (x, y) 에 있는 버튼 이름표 (없으면 null)
+function lobbyButtonAt(x, y) {
+  const list = lobbyButtons();
+  for (let i = 0; i < list.length; i++) {
+    if (insideRect(x, y, list[i].rect)) return list[i].id;
+  }
+  return null;
+}
+
+// 로비 버튼 id 를 눌렀을 때 할 일
+function runLobbyButton(id) {
+  if (id === "start") startGame();
+  else if (id === "gear") openSettings();
+  else if (id === "settings:close") closeSettings();
+  else if (id === "settings:hud") toggleHud();
+  else if (id === "settings:reset") pressResetSave();
+  else if (id.startsWith("tab:")) openTab(id.slice(4));
+  else if (id.startsWith("buy:")) tryBuyUpgrade(Number(id.slice(4)));
+}
+
+// 로비 화면들의 시간 흐름 (장식 애니메이션, 알림, 초기화 대기, 버튼 효과, 탭 떠오르기)
+function updateLobby(dt) {
+  menuTime += dt;
+  // 카드마다 흔들림 시간을 줄이는 반복문
+  for (let i = 0; i < upgradeShake.length; i++) {
+    upgradeShake[i] = Math.max(0, upgradeShake[i] - dt);
+  }
+  lobbyToastTimer = Math.max(0, lobbyToastTimer - dt);
+  resetArmTimer = Math.max(0, resetArmTimer - dt);
+  pressTimer = Math.max(0, pressTimer - dt);
+  // 탭마다 목표 높이(고른 탭 = TAB_ACTIVE_LIFT, 나머지 = 0) 쪽으로 조금씩 다가간다
+  const k = Math.min(1, dt * 14);
+  for (let i = 0; i < LOBBY_TABS.length; i++) {
+    const target = LOBBY_TABS[i].id === currentTabId() ? TAB_ACTIVE_LIFT : 0;
+    tabLift[i] += (target - tabLift[i]) * k;
+  }
+}
+
+// 로비 아래쪽 알림을 띄운다
+function showLobbyToast(text, time) {
+  lobbyToast = text;
+  lobbyToastTimer = time || LOBBY_TOAST_TIME;
 }
 
 // 웨이브가 끝났는지 검사하는 함수
@@ -1650,12 +1799,9 @@ function update(dt) {
     if (gameState === "playing") {
       checkWaveEnd();
     }
-  } else if (gameState === "menu") {
-    // 메뉴: 장식 캐릭터 애니메이션용 시간만 흐른다
-    menuTime += dt;
-    menuToastTimer = Math.max(0, menuToastTimer - dt);
-  } else if (gameState === "upgrades") {
-    updateUpgradeScreen(dt);
+  } else if (isLobbyState()) {
+    // 로비 화면들: 장식 애니메이션, 알림, 버튼 효과 시간만 흐른다
+    updateLobby(dt);
   } else if (gameState === "choosing") {
     // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
     choosingTime += dt;
@@ -2874,26 +3020,24 @@ function resultButtonAt(x, y) {
 
 // 업그레이드 화면 상태
 let upgradeShake = [];        // 카드마다 흔들림이 남은 시간 (코인이 모자랄 때)
-let upgradeToast = "";        // 아래쪽에 잠깐 뜨는 알림
-let upgradeToastTimer = 0;
-let resetArmTimer = 0;        // "한 번 더 누르면 초기화" 가 남은 시간 (0 이면 평소 상태)
+let resetArmTimer = 0;        // 설정 창 "한 번 더 누르면 초기화" 가 남은 시간 (0 이면 평소 상태)
 
-// 업그레이드 카드 크기와 위치
+// 업그레이드 카드 크기와 위치 (카드 아래 끝이 탭 바 위에서 끝나야 한다)
 const UPGRADE_CARD_WIDTH = 300;
 const UPGRADE_CARD_HEIGHT = 290;
 const UPGRADE_CARD_GAP = 40;
-const UPGRADE_CARD_TOP = 150;
+const UPGRADE_CARD_TOP = 92;
+// 업그레이드 화면 아래쪽 안내 글자의 높이 (카드와 탭 바 사이)
+const UPGRADE_HELP_Y = 418;
 // 저장 초기화: 두 번째 누름을 기다리는 시간 (초)
 const RESET_CONFIRM_TIME = 3;
 
-// 업그레이드 화면을 여는 함수 (메뉴, 결과 화면에서)
+// 업그레이드 탭을 여는 함수 (openTab 이 부른다)
 function openUpgrades() {
   gameState = "upgrades";
   upgradeShake = UPGRADES.map(function () { return 0; });
-  upgradeToast = "";
-  upgradeToastTimer = 0;
-  resetArmTimer = 0;
-  canvas.style.cursor = "default";
+  lobbyToast = "";
+  lobbyToastTimer = 0;
 }
 
 // i 번째 업그레이드 카드의 왼쪽 위 위치
@@ -2903,17 +3047,16 @@ function upgradeCardPos(i) {
   return { x: (CANVAS_WIDTH - total) / 2 + i * (UPGRADE_CARD_WIDTH + UPGRADE_CARD_GAP), y: UPGRADE_CARD_TOP };
 }
 
+// i 번째 카드 전체의 사각형 (카드 어디를 눌러도 구매)
+function upgradeCardRect(i) {
+  const p = upgradeCardPos(i);
+  return { x: p.x, y: p.y, w: UPGRADE_CARD_WIDTH, h: UPGRADE_CARD_HEIGHT };
+}
+
 // i 번째 카드의 구매 버튼 사각형
 function upgradeBuyRect(i) {
   const p = upgradeCardPos(i);
   return { x: p.x + 40, y: p.y + UPGRADE_CARD_HEIGHT - 66, w: UPGRADE_CARD_WIDTH - 80, h: 48 };
-}
-
-// 메뉴로 돌아가는 버튼, 저장 초기화 버튼의 사각형
-const UPGRADE_BACK_RECT = { x: 20, y: 20, w: 120, h: 44 };
-function resetButtonRect() {
-  const w = resetArmTimer > 0 ? 230 : 130;             // 확인 상태에서는 글자가 길어져 넓게
-  return { x: CANVAS_WIDTH - 20 - w, y: CANVAS_HEIGHT - 58, w: w, h: 40 };
 }
 
 // 점 (x, y) 가 사각형 r 안에 있는지
@@ -2921,16 +3064,11 @@ function insideRect(x, y, r) {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
 
-// 업그레이드 화면에서 (x, y) 에 있는 버튼 (없으면 null)
-function upgradeButtonAt(x, y) {
-  // 카드(구매 버튼 포함 카드 전체)를 누르면 구매
-  for (let i = 0; i < UPGRADES.length; i++) {
-    const p = upgradeCardPos(i);
-    if (insideRect(x, y, { x: p.x, y: p.y, w: UPGRADE_CARD_WIDTH, h: UPGRADE_CARD_HEIGHT })) return { kind: "buy", index: i };
-  }
-  if (insideRect(x, y, UPGRADE_BACK_RECT)) return { kind: "back" };
-  if (insideRect(x, y, resetButtonRect())) return { kind: "reset" };
-  return null;
+// 지금 살 수 있는 업그레이드가 하나라도 있는지 (업그레이드 탭의 빨간 점)
+function anyUpgradeAffordable() {
+  return UPGRADES.some(function (up) {
+    return upgradeLevel(up) < up.maxLevel && saveData.coins >= upgradeCost(up);
+  });
 }
 
 // i 번째 업그레이드 사기를 시도한다 (결과에 따라 알림 또는 흔들림)
@@ -2939,38 +3077,24 @@ function tryBuyUpgrade(i) {
   if (!up) return;
   const result = buyUpgrade(up);
   if (result === "ok") {
-    upgradeToast = up.name + " Lv." + upgradeLevel(up) + "!  " + up.label(up.valueAt(upgradeLevel(up)));
-    upgradeToastTimer = 1.5;
+    showLobbyToast(up.name + " Lv." + upgradeLevel(up) + "!  " + up.label(up.valueAt(upgradeLevel(up))));
   } else if (result === "poor") {
     upgradeShake[i] = 0.35;                 // 카드가 살짝 흔들린다
-    upgradeToast = "코인이 모자라요! (" + upgradeCost(up) + " 필요)";
-    upgradeToastTimer = 1.5;
+    showLobbyToast("코인이 모자라요! (" + upgradeCost(up) + " 필요)");
   } else {
-    upgradeToast = up.name + "은(는) 이미 최대 레벨이에요";
-    upgradeToastTimer = 1.5;
+    showLobbyToast(up.name + "은(는) 이미 최대 레벨이에요");
   }
 }
 
-// 저장 초기화 버튼: 첫 번째 누름은 "확인 대기", 3초 안에 한 번 더 누르면 실행
+// 저장 초기화 버튼 (설정 창): 첫 번째 누름은 "확인 대기", 3초 안에 한 번 더 누르면 실행
 function pressResetSave() {
   if (resetArmTimer > 0) {
     resetSave();
     resetArmTimer = 0;
-    upgradeToast = "저장을 초기화했어요 (코인 0, 레벨 0)";
-    upgradeToastTimer = 2;
+    showLobbyToast("저장을 초기화했어요 (코인 0, 레벨 0)", 2);
   } else {
     resetArmTimer = RESET_CONFIRM_TIME;
   }
-}
-
-// 업그레이드 화면의 시간 흐름 (흔들림, 알림, 초기화 대기 시간)
-function updateUpgradeScreen(dt) {
-  // 카드마다 흔들림 시간을 줄이는 반복문
-  for (let i = 0; i < upgradeShake.length; i++) {
-    upgradeShake[i] = Math.max(0, upgradeShake[i] - dt);
-  }
-  upgradeToastTimer = Math.max(0, upgradeToastTimer - dt);
-  resetArmTimer = Math.max(0, resetArmTimer - dt);
 }
 
 // 업그레이드 아이콘 그리기 ("heart" = 하트, "bullet" = 총알)
@@ -3015,6 +3139,11 @@ function drawUpgradeCard(up, i) {
   // 코인이 모자란데 누르면 좌우로 살짝 흔들린다 (사인 곡선으로 빠르게 왕복)
   const shake = upgradeShake[i] > 0 ? Math.sin(upgradeShake[i] * 60) * 7 * (upgradeShake[i] / 0.35) : 0;
   ctx.translate(p.x + shake, p.y);
+  // 누르면 카드 가운데를 중심으로 작아졌다 튕겨 돌아온다
+  const press = buttonScale("buy:" + i);
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(press, press);
+  ctx.translate(-w / 2, -h / 2);
 
   // 그림자 + 몸통
   roundRectPath(7, 7, w, h, 22);
@@ -3061,69 +3190,277 @@ function drawUpgradeCard(up, i) {
   const b = upgradeBuyRect(i);
   const bx = b.x - p.x, by = b.y - p.y;
   const buttonColor = isMax ? COLORS.yellow : (canBuy ? COLORS.green : COLORS.gray);
-  drawOutlinedRoundRect(bx, by, b.w, b.h, 22, buttonColor);
+  drawOutlinedRoundRect(bx, by, b.w, b.h, 22, hoverColor("buy:" + i, buttonColor));
   drawOutlinedText(isMax ? "MAX" : "구매", bx + b.w / 2, by + b.h / 2 + 1, 24);
 
   ctx.restore();
 }
 
-// 업그레이드 화면 전체
+// 업그레이드 화면 전체 (위쪽 줄과 탭 바는 drawLobby 가 그린다)
 function drawUpgradeScreen() {
-  // 제목 스티커
-  ctx.save();
-  ctx.translate(CANVAS_WIDTH / 2, 58);
-  ctx.rotate(-0.03);
-  roundRectPath(-150 + 6, -32 + 6, 300, 64, 22);
-  ctx.fillStyle = COLORS.outline;
-  ctx.fill();
-  drawOutlinedRoundRect(-150, -32, 300, 64, 22, COLORS.yellow);
-  drawOutlinedText("업그레이드", 0, 2, 38);
-  ctx.restore();
-
-  // 보유 코인
-  const coinText = "보유 코인 " + saveData.coins;
-  ctx.font = "24px " + FONT_FAMILY;
-  const cw = ctx.measureText(coinText).width;
-  drawCoinIcon(CANVAS_WIDTH / 2 - cw / 2 - 18, 118, 12);
-  drawOutlinedText(coinText, CANVAS_WIDTH / 2 + 6, 118, 24, "center", COLORS.yellow);
-
   // 업그레이드 카드들
   for (let i = 0; i < UPGRADES.length; i++) {
     drawUpgradeCard(UPGRADES[i], i);
   }
-
-  // 메뉴로 버튼 (왼쪽 위)
-  const back = UPGRADE_BACK_RECT;
-  drawOutlinedRoundRect(back.x, back.y, back.w, back.h, 20, COLORS.brown);
-  drawOutlinedText("← 메뉴", back.x + back.w / 2, back.y + back.h / 2 + 1, 20);
-
-  // 조작 안내 / 알림
-  if (upgradeToastTimer > 0) {
-    ctx.save();
-    ctx.globalAlpha = Math.min(1, upgradeToastTimer / 0.3);
-    drawOutlinedText(upgradeToast, CANVAS_WIDTH / 2, 470, 20, "center", COLORS.yellow);
-    ctx.restore();
-  } else {
-    drawOutlinedText("클릭 또는 1 · 2 키로 구매 · Esc / M 메뉴로 · 최고 웨이브 " + saveData.bestWave,
-      CANVAS_WIDTH / 2, 470, 17);
+  // 아래쪽 안내 (알림이 떠 있으면 drawLobbyToast 가 같은 자리에 대신 그린다)
+  if (lobbyToastTimer <= 0) {
+    drawOutlinedText("카드를 클릭하거나 1 · 2 키로 구매 · ←→ 탭 이동 · Esc 전투 탭", CANVAS_WIDTH / 2, UPGRADE_HELP_Y, 17);
   }
-
-  // 저장 초기화 버튼 (오른쪽 아래 구석, 두 번 눌러야 실행)
-  const r = resetButtonRect();
-  const armed = resetArmTimer > 0;
-  drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 18, armed ? COLORS.red : COLORS.gray, SMALL_OUTLINE_WIDTH);
-  drawOutlinedText(armed ? "한 번 더 누르면 초기화 (" + Math.ceil(resetArmTimer) + ")" : "저장 초기화",
-    r.x + r.w / 2, r.y + r.h / 2 + 1, 15);
 }
 
-// ---- 메뉴 화면 ----
+// =============================================================
+// 로비 그리기 (위쪽 줄, 탭 바, 전투 탭, 도감, 설정 창)
+// =============================================================
+
+// 색을 하양 쪽으로 amount 만큼 섞어 밝게 만든다 ("#RRGGBB" → "rgb(...)")
+function lightenColor(hex, amount) {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = function (c) { return Math.round(c + (255 - c) * amount); };
+  return "rgb(" + mix((n >> 16) & 255) + "," + mix((n >> 8) & 255) + "," + mix(n & 255) + ")";
+}
+
+// 마우스가 올라간 버튼이면 밝은 색, 아니면 원래 색
+function hoverColor(id, color) {
+  return hoverButton === id ? lightenColor(color, BUTTON_HOVER_LIGHTEN) : color;
+}
+
+// 눌린 버튼의 크기 배율: 누르는 순간 작아졌다가, 살짝 커지며 튕긴 뒤 1 로 돌아온다
+function buttonScale(id) {
+  if (pressedButton !== id || pressTimer <= 0) return 1;
+  const t = 1 - pressTimer / BUTTON_PRESS_TIME;               // 0 → 1 로 흐르는 진행도
+  return 1 - BUTTON_PRESS_SHRINK * Math.cos(t * Math.PI * 1.5) * (1 - t);
+}
+
+// (cx, cy) 를 가운데로 scale 배 키워서 work() 안의 그림을 그린다
+function drawScaled(cx, cy, scale, work) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.translate(-cx, -cy);
+  work();
+  ctx.restore();
+}
+
+// 그림자가 있는 스티커 둥근 사각형 (그림자는 오른쪽 아래로 depth 만큼)
+function drawStickerRect(x, y, w, h, r, fill, depth) {
+  roundRectPath(x + depth, y + depth, w, h, r);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(x, y, w, h, r, fill);
+}
+
+// ---- 아이콘 (모두 코드로 그린다. s = 아이콘 크기의 기준) ----
+
+// 탭 아이콘: "book" = 펼친 책, "star" = 별, "arrow" = 위 화살표
+function drawTabIcon(shape, x, y, s, fill) {
+  if (shape === "book") {
+    // 왼쪽 장, 오른쪽 장을 따로 그려서 가운데 접힌 선이 보이게 한다
+    for (const side of [-1, 1]) {
+      drawOutlinedPolygon([
+        [x, y - s * 0.62],
+        [x + side * s * 0.95, y - s * 0.8],
+        [x + side * s * 0.95, y + s * 0.62],
+        [x, y + s * 0.8],
+      ], fill, SMALL_OUTLINE_WIDTH);
+    }
+    // 책 안의 글줄 두 개씩
+    setOutline(SMALL_OUTLINE_WIDTH * 0.6);
+    for (const side of [-1, 1]) {
+      for (const k of [0, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(x + side * s * 0.22, y - s * 0.3 + k * s * 0.38);
+        ctx.lineTo(x + side * s * 0.72, y - s * 0.4 + k * s * 0.38);
+        ctx.stroke();
+      }
+    }
+  } else if (shape === "star") {
+    // 별: 바깥 꼭짓점 5개와 안쪽 꼭짓점 5개를 번갈아 잇는다
+    const points = [];
+    for (let k = 0; k < 10; k++) {
+      const a = -Math.PI / 2 + k * Math.PI / 5;
+      const r = k % 2 === 0 ? s : s * 0.45;
+      points.push([x + Math.cos(a) * r, y + Math.sin(a) * r]);
+    }
+    drawOutlinedPolygon(points, fill, SMALL_OUTLINE_WIDTH);
+    drawHighlight(x - s * 0.15, y - s * 0.1, s * 0.5);
+  } else {
+    // 위 화살표: 삼각형 머리 + 네모 몸통
+    drawOutlinedPolygon([
+      [x, y - s],
+      [x + s * 0.85, y - s * 0.05],
+      [x + s * 0.38, y - s * 0.05],
+      [x + s * 0.38, y + s * 0.9],
+      [x - s * 0.38, y + s * 0.9],
+      [x - s * 0.38, y - s * 0.05],
+      [x - s * 0.85, y - s * 0.05],
+    ], fill, SMALL_OUTLINE_WIDTH);
+  }
+}
+
+// 자물쇠 (잠긴 탭 위에 그린다)
+function drawPadlock(x, y, s) {
+  setOutline(SMALL_OUTLINE_WIDTH * 2.2);                        // 고리: 외곽선 → 회색 순서로 겹쳐 그린다
+  ctx.beginPath();
+  ctx.arc(x, y - s * 0.2, s * 0.42, Math.PI, 0);
+  ctx.stroke();
+  ctx.strokeStyle = COLORS.gray;
+  ctx.lineWidth = SMALL_OUTLINE_WIDTH * 0.8;
+  ctx.stroke();
+  drawOutlinedRoundRect(x - s * 0.62, y - s * 0.2, s * 1.24, s * 0.95, s * 0.2, COLORS.yellow, SMALL_OUTLINE_WIDTH);
+  drawOutlinedCircle(x, y + s * 0.22, s * 0.13, COLORS.outline, 0.1);
+}
+
+// 톱니바퀴 아이콘: 이빨 8개 + 가운데 구멍
+function drawGearIcon(x, y, s, fill, holeColor) {
+  const teeth = 8;
+  const points = [];
+  // 이빨 하나마다 바깥 두 점 + 안쪽 두 점을 넣는 반복문
+  for (let k = 0; k < teeth; k++) {
+    const a = k * Math.PI * 2 / teeth;
+    const half = Math.PI / teeth;
+    points.push([x + Math.cos(a - half * 0.95) * s * 0.7, y + Math.sin(a - half * 0.95) * s * 0.7]);
+    points.push([x + Math.cos(a - half * 0.45) * s, y + Math.sin(a - half * 0.45) * s]);
+    points.push([x + Math.cos(a + half * 0.45) * s, y + Math.sin(a + half * 0.45) * s]);
+    points.push([x + Math.cos(a + half * 0.95) * s * 0.7, y + Math.sin(a + half * 0.95) * s * 0.7]);
+  }
+  drawOutlinedPolygon(points, fill, SMALL_OUTLINE_WIDTH);
+  drawOutlinedCircle(x, y, s * 0.32, holeColor, SMALL_OUTLINE_WIDTH);
+}
+
+// 깃발 아이콘 (최고 웨이브 표시)
+function drawFlagIcon(x, y, s) {
+  setOutline(SMALL_OUTLINE_WIDTH);
+  ctx.beginPath();
+  ctx.moveTo(x - s * 0.5, y + s);
+  ctx.lineTo(x - s * 0.5, y - s);
+  ctx.stroke();
+  drawOutlinedPolygon([
+    [x - s * 0.5, y - s],
+    [x + s * 0.8, y - s * 0.55],
+    [x - s * 0.5, y - s * 0.1],
+  ], COLORS.red, SMALL_OUTLINE_WIDTH);
+}
+
+// 동그라미 X 버튼 (설정 창 닫기)
+function drawCloseButton(r, id) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  drawScaled(cx, cy, buttonScale(id), function () {
+    drawOutlinedCircle(cx, cy, r.w / 2, hoverColor(id, COLORS.red));
+    setOutline(SMALL_OUTLINE_WIDTH * 2.4);
+    ctx.lineCap = "round";
+    const d = r.w * 0.18;
+    ctx.beginPath();
+    ctx.moveTo(cx - d, cy - d); ctx.lineTo(cx + d, cy + d);
+    ctx.moveTo(cx + d, cy - d); ctx.lineTo(cx - d, cy + d);
+    ctx.stroke();
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = SMALL_OUTLINE_WIDTH * 0.9;
+    ctx.stroke();
+  });
+}
+
+// ---- 위쪽 줄: 왼쪽 코인·최고 웨이브, 가운데 화면 제목(전투 탭 말고), 오른쪽 톱니 ----
+function drawLobbyTopBar() {
+  const y = LOBBY_TOP_BAR_Y;
+
+  // 코인 칸 (글자 길이에 맞춰 폭이 늘어난다)
+  const coinText = String(saveData.coins);
+  ctx.font = "22px " + FONT_FAMILY;
+  const coinW = Math.max(110, ctx.measureText(coinText).width + 62);
+  drawStickerRect(16, y - 20, coinW, 40, 20, COLORS.dark, 4);
+  drawCoinIcon(38, y, 13);
+  drawOutlinedText(coinText, 60, y + 1, 22, "left", COLORS.yellow);
+
+  // 최고 웨이브 칸
+  const waveText = "최고 웨이브 " + saveData.bestWave;
+  ctx.font = "18px " + FONT_FAMILY;
+  const waveX = 16 + coinW + 12;
+  const waveW = ctx.measureText(waveText).width + 52;
+  drawStickerRect(waveX, y - 20, waveW, 40, 20, COLORS.dark, 4);
+  drawFlagIcon(waveX + 22, y, 11);
+  drawOutlinedText(waveText, waveX + 38, y + 1, 18, "left", COLORS.white);
+
+  // 가운데 제목 스티커 (도감·업그레이드 화면)
+  const tab = LOBBY_TABS.find(function (t) { return t.id === currentTabId(); });
+  if (tab && tab.id !== "battle") {
+    ctx.save();
+    ctx.translate(CANVAS_WIDTH / 2, y + 2);
+    ctx.rotate(-0.03);
+    drawStickerRect(-100, -24, 200, 48, 18, COLORS[tab.color], 5);
+    drawOutlinedText(tab.label, 0, 2, 28);
+    ctx.restore();
+  }
+
+  // 톱니 버튼 (지름 44)
+  const G = GEAR_BUTTON;
+  drawScaled(G.x, G.y, buttonScale("gear"), function () {
+    drawOutlinedCircle(G.x + 3, G.y + 3, G.r, COLORS.outline, 0.1);   // 그림자
+    drawOutlinedCircle(G.x, G.y, G.r, hoverColor("gear", COLORS.brown));
+    drawGearIcon(G.x, G.y, G.r * 0.66, COLORS.white, hoverColor("gear", COLORS.brown));
+  });
+}
+
+// ---- 아래쪽 탭 바 (전투·도감·업그레이드 화면이 모두 이 함수 하나를 쓴다) ----
+function drawTabBar() {
+  // 바탕 띠
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, TAB_BAR_Y, CANVAS_WIDTH, TAB_BAR_HEIGHT);
+
+  // 탭 칸을 하나씩 그리는 반복문
+  for (let i = 0; i < LOBBY_TABS.length; i++) {
+    const tab = LOBBY_TABS[i];
+    const r = tabRect(i);
+    const active = tab.id === currentTabId();
+    const lift = tabLift[i];
+    const id = "tab:" + tab.id;
+    const cx = r.x + r.w / 2;
+
+    drawScaled(cx, r.y + r.h / 2, buttonScale(id), function () {
+      // 칸 타일: 고른 탭은 밝은 색 + 떠오름, 나머지는 어두운 색
+      const tx = r.x + 10, ty = r.y + 10 - lift, tw = r.w - 20, th = r.h - 10 + lift;
+      const fill = active ? COLORS[tab.color] : COLORS.dark;
+      drawOutlinedRoundRect(tx, ty, tw, th + 12, 20, hoverColor(id, fill));
+
+      // 아이콘 (고른 탭은 조금 더 크게) + 아래 작은 글자
+      const iconSize = active ? 17 : 14;
+      const iconY = ty + 26;
+      drawTabIcon(tab.icon, cx, iconY, iconSize, active ? COLORS.white : COLORS.dim);
+      drawOutlinedText(tab.label, cx, ty + 56, active ? 17 : 15, "center", active ? COLORS.white : COLORS.dim);
+
+      // 잠긴 탭: 자물쇠
+      if (tab.locked) drawPadlock(cx + 22, iconY + 6, 14);
+
+      // 업그레이드 탭: 살 수 있는 업그레이드가 있으면 아이콘 오른쪽 위에 빨간 점
+      if (tab.id === "upgrades" && anyUpgradeAffordable()) {
+        drawOutlinedCircle(cx + iconSize + 6, iconY - iconSize + 2, 7, COLORS.red, SMALL_OUTLINE_WIDTH);
+      }
+    });
+  }
+}
+
+// ---- 로비 아래쪽 알림 (구매 결과, 저장 초기화 등) ----
+function drawLobbyToast() {
+  if (lobbyToastTimer <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, lobbyToastTimer / 0.3);   // 끝날 때 흐려짐
+  const size = fitTextSize(lobbyToast, 20, CANVAS_WIDTH - 120);
+  ctx.font = size + "px " + FONT_FAMILY;
+  const w = ctx.measureText(lobbyToast).width + 40;
+  // 설정 창이 열려 있으면 창 아래쪽 빈자리에, 아니면 탭 바 바로 위에
+  const y = settingsOpen ? SETTINGS_PANEL.y + SETTINGS_PANEL.h + 34 : UPGRADE_HELP_Y;
+  drawOutlinedRoundRect(CANVAS_WIDTH / 2 - w / 2, y - 18, w, 36, 18, COLORS.dark, SMALL_OUTLINE_WIDTH);
+  drawOutlinedText(lobbyToast, CANVAS_WIDTH / 2, y + 1, size, "center", COLORS.yellow);
+  ctx.restore();
+}
+
+// ---- 전투 탭 (로비 가운데) ----
 function drawMenu() {
-  // 1) 장식: 왼쪽에 플레이어, 오른쪽에 웨이브 1~3 적들이 둥실둥실
+  // 1) 장식: 왼쪽에 플레이어, 오른쪽에 웨이브 1~3 적들이 둥실둥실 (탭 바 위에서만)
   //    sin(시간) 은 -1 ~ 1 을 부드럽게 오가므로 위아래로 흔들리는 움직임이 된다
   const decoEnemies = [
-    { x: 740, y: 250, wave: 1 },
-    { x: 840, y: 340, wave: 2 },
-    { x: 750, y: 440, wave: 3 },
+    { x: 790, y: 236, wave: 1 },
+    { x: 870, y: 318, wave: 2 },
+    { x: 780, y: 384, wave: 3 },
   ];
   // 장식용 적을 하나씩 그리는 반복문
   for (let i = 0; i < decoEnemies.length; i++) {
@@ -3140,74 +3477,188 @@ function drawMenu() {
   }
 
   // 플레이어는 가운데 적을 조준하며 둥실둥실
-  player.x = 200;
-  player.y = 360 + Math.sin(menuTime * 2.4) * 10;
+  player.x = 170;
+  player.y = 320 + Math.sin(menuTime * 2.4) * 10;
   player.invincibleTimer = 0;
-  player.facing = Math.atan2(340 - player.y, 840 - player.x);
+  player.facing = Math.atan2(318 - player.y, 870 - player.x);
   drawPlayer();
 
-  // 2) 제목 스티커
+  // 2) 제목 스티커 (위쪽)
   ctx.save();
-  ctx.translate(CANVAS_WIDTH / 2, 118);
+  ctx.translate(CANVAS_WIDTH / 2, 148);
   ctx.rotate(-0.04 + Math.sin(menuTime * 1.5) * 0.01); // 아주 살짝 흔들흔들
-  roundRectPath(-250 + 8, -70 + 8, 500, 140, 30);
-  ctx.fillStyle = COLORS.outline;
-  ctx.fill();
-  drawOutlinedRoundRect(-250, -70, 500, 140, 30, COLORS.yellow);
-  drawOutlinedText("증강 슈터", 0, -12, 64);
-  drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 42, 22, "center", COLORS.white);
+  drawStickerRect(-240, -64, 480, 128, 30, COLORS.yellow, 8);
+  drawOutlinedText("증강 슈터", 0, -10, 62);
+  drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 38, 21, "center", COLORS.white);
   ctx.restore();
 
-  // 3) 버튼들
-  // 메뉴 항목을 하나씩 버튼으로 그리는 반복문
-  for (let i = 0; i < MENU_ITEMS.length; i++) {
-    const item = MENU_ITEMS[i];
-    const r = menuButtonRect(i);
-    const selected = i === menuIndex;
-    const lift = selected ? 4 : 0;           // 선택된 버튼은 살짝 떠오른다
+  // 3) 큰 "게임 시작" 버튼: 1.5초마다 3% 커졌다 작아지며 숨 쉰다
+  const B = START_BUTTON;
+  const pulse = 1 + START_PULSE_AMOUNT * Math.sin(menuTime * Math.PI * 2 / START_PULSE_PERIOD);
+  drawScaled(B.x + B.w / 2, B.y + B.h / 2, pulse * buttonScale("start"), function () {
+    drawStickerRect(B.x, B.y, B.w, B.h, 30, hoverColor("start", COLORS.yellow), 8);
+    drawTabIcon("star", B.x + 46, B.y + B.h / 2 + 1, 21, COLORS.white);
+    drawOutlinedText("게임 시작", B.x + B.w / 2 + 24, B.y + B.h / 2 + 2, 44);
+  });
 
-    // 그림자
-    roundRectPath(r.x + 6, r.y + 6, r.w, r.h, 18);
-    ctx.fillStyle = COLORS.outline;
+  // 4) 시작 버튼 아래: 최고 기록과 조작 안내
+  drawOutlinedText("최고 기록: 웨이브 " + saveData.bestWave, CANVAS_WIDTH / 2, B.y + B.h + 30, 20, "center", COLORS.yellow);
+  drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 62, 15);
+}
+
+// ---- 도감 탭: 왼쪽 적, 오른쪽 증강 ----
+
+// 도감에 보여 줄 적 종류 (조각·알갱이는 분열형에 포함)
+const COLLECTION_ENEMIES = ["basic", "charger", "sine", "splitter", "chargerKing", "splitterKing"];
+// 도감 두 칸(패널)의 위치
+const COLLECTION_ENEMY_PANEL = { x: 24, y: 78, w: 420, h: 352 };
+const COLLECTION_AUGMENT_PANEL = { x: 460, y: 78, w: 476, h: 352 };
+
+// 글 한 줄을 폭 maxWidth 안에 들어가게 (크기를 줄여서) 쓴다
+function drawFitText(text, x, y, size, maxWidth, color, align) {
+  const fitted = fitTextSize(text, size, maxWidth);
+  ctx.font = fitted + "px " + FONT_FAMILY;
+  ctx.textAlign = align || "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function drawCollectionScreen() {
+  // 1) 적 패널: 3칸 × 2줄
+  const E = COLLECTION_ENEMY_PANEL;
+  drawStickerRect(E.x, E.y, E.w, E.h, 22, COLORS.white, 6);
+  drawOutlinedText("적 " + COLLECTION_ENEMIES.length + "종", E.x + 20, E.y + 24, 20, "left", COLORS.red);
+  const cellW = (E.w - 28) / 3, cellH = (E.h - 56) / 2;
+  // 눈이 아래쪽을 보게 플레이어 위치를 화면 아래로 (그림 전용)
+  player.x = CANVAS_WIDTH / 2;
+  player.y = CANVAS_HEIGHT + 200;
+  // 적 종류를 하나씩 칸에 그리는 반복문
+  for (let i = 0; i < COLLECTION_ENEMIES.length; i++) {
+    const id = COLLECTION_ENEMIES[i];
+    const type = ENEMY_TYPES[id];
+    const cx = E.x + 14 + cellW * (i % 3) + cellW / 2;
+    const top = E.y + 46 + cellH * Math.floor(i / 3);
+    roundRectPath(cx - cellW / 2 + 4, top + 4, cellW - 8, cellH - 8, 14);
+    ctx.fillStyle = COLORS.background;
     ctx.fill();
-
-    // 버튼 색: 쓸 수 있으면 초록(선택되면 노랑), 준비 중이면 갈색
-    let fill = COLORS.brown;
-    if (item.ready) fill = selected ? COLORS.yellow : COLORS.green;
-    drawOutlinedRoundRect(r.x, r.y - lift, r.w, r.h, 18, fill);
-    drawOutlinedText(item.label, r.x + r.w / 2, r.y + r.h / 2 - lift, 28);
-
-    // 준비 중 표시
-    if (!item.ready) {
-      drawOutlinedRoundRect(r.x + r.w - 78, r.y - 12 - lift, 86, 26, 13, COLORS.white, SMALL_OUTLINE_WIDTH);
-      ctx.font = "15px " + FONT_FAMILY;
-      ctx.fillStyle = COLORS.outline;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("준비 중", r.x + r.w - 35, r.y + 1 - lift);
-    }
-
-    // 선택된 버튼 왼쪽에 ▶ 표시
-    if (selected) {
-      drawOutlinedPolygon([
-        [r.x - 30, r.y + r.h / 2 - 12 - lift],
-        [r.x - 12, r.y + r.h / 2 - lift],
-        [r.x - 30, r.y + r.h / 2 + 12 - lift],
-      ], COLORS.yellow, SMALL_OUTLINE_WIDTH);
-    }
+    // 보스는 칸에 들어가게 조금 작게 그린다
+    const r = Math.min(type.radius, type.isBoss ? 24 : 20);
+    drawEnemy({
+      type: id, radius: r, x: cx, y: top + 54 + Math.sin(menuTime * 2 + i) * 3,
+      wave: 1, hp: 1, maxHp: 1, hitFlash: 0, dirX: 1, dirY: 0,
+    });
+    drawFitText(type.name, cx, top + 100, 17, cellW - 16, COLORS.outline);
+    drawFitText(type.desc || "", cx, top + 122, 13, cellW - 14, COLORS.brown);
   }
 
-  // 4) 아래쪽: 알림이 있으면 알림을, 없으면 조작 안내를 보여 준다
-  if (menuToastTimer > 0) {
+  // 2) 증강 패널: 3칸씩 여러 줄
+  const A = COLLECTION_AUGMENT_PANEL;
+  drawStickerRect(A.x, A.y, A.w, A.h, 22, COLORS.white, 6);
+  drawOutlinedText("증강 " + AUGMENTS.length + "종", A.x + 20, A.y + 24, 20, "left", COLORS.purple);
+  const cols = 3, rows = Math.ceil(AUGMENTS.length / cols);
+  const gap = 8;
+  const aw = (A.w - 28 - gap * (cols - 1)) / cols;
+  const ah = (A.h - 58 - gap * (rows - 1)) / rows;
+  // 증강을 하나씩 작은 카드로 그리는 반복문
+  for (let i = 0; i < AUGMENTS.length; i++) {
+    const aug = AUGMENTS[i];
+    const x = A.x + 14 + (aw + gap) * (i % cols);
+    const y = A.y + 46 + (ah + gap) * Math.floor(i / cols);
+    drawOutlinedRoundRect(x, y, aw, ah, 12, COLORS.background, SMALL_OUTLINE_WIDTH);
+    drawOutlinedRoundRect(x, y, aw, 28, 12, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
     ctx.save();
-    ctx.globalAlpha = Math.min(1, menuToastTimer / 0.3); // 끝날 때 흐려짐
-    drawOutlinedRoundRect(CANVAS_WIDTH / 2 - 200, 452, 400, 36, 18, COLORS.red);
-    drawOutlinedText(menuToast, CANVAS_WIDTH / 2, 471, 18);
+    const nameSize = fitTextSize(aug.name, 17, aw - 16);
+    drawOutlinedText(aug.name, x + aw / 2, y + 15, nameSize);
     ctx.restore();
-  } else {
-    drawOutlinedText("↑↓ 선택 · Enter 시작 · 마우스 클릭도 OK", CANVAS_WIDTH / 2, 470, 18);
+    drawFitText(aug.formula, x + aw / 2, y + 28 + (ah - 28) * 0.38, 18, aw - 14, COLORS.outline);
+    drawFitText(aug.concept, x + aw / 2, y + 28 + (ah - 28) * 0.76, 13, aw - 12, COLORS.brown);
   }
-  drawOutlinedText("최고 점수 " + bestScore, CANVAS_WIDTH / 2, 508, 20, "center", COLORS.yellow);
+}
+
+// ---- 설정 창 (로비 위에 겹쳐 뜬다) ----
+
+// 로비에서만 쓰는 조작법 (설정 창에 전투 조작법과 함께 보여 준다)
+const LOBBY_CONTROLS_HELP = [
+  ["탭 이동", "← → / 탭 클릭"],
+  ["게임 시작", "Enter · Space (전투 탭)"],
+  ["뒤로 · 닫기", "Esc"],
+];
+
+function drawSettingsOverlay() {
+  // 1) 반투명 어두운 배경
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+
+  // 2) 가운데 패널
+  const P = SETTINGS_PANEL;
+  drawStickerRect(P.x, P.y, P.w, P.h, 26, COLORS.background, 8);
+
+  // 3) 제목 스티커 + 닫기(X) 버튼
+  ctx.save();
+  ctx.translate(P.x + 110, P.y + 8);
+  ctx.rotate(-0.04);
+  drawStickerRect(-80, -26, 160, 52, 18, COLORS.brown, 5);
+  drawGearIcon(-46, 0, 14, COLORS.white, COLORS.brown);
+  drawOutlinedText("설정", 14, 2, 30);
+  ctx.restore();
+  drawCloseButton(settingsCloseRect(), "settings:close");
+
+  // 4) 왼쪽: 조작법 (전투 + 로비)
+  const lx = P.x + 34, ly = P.y + 74;
+  drawOutlinedText("조작법", lx, ly, 20, "left", COLORS.brown);
+  const rows = CONTROLS_HELP.concat(LOBBY_CONTROLS_HELP);
+  // 조작법을 한 줄씩 쓰는 반복문 (왼쪽 = 할 일, 오른쪽 = 키)
+  for (let i = 0; i < rows.length; i++) {
+    const y = ly + 34 + i * 30;
+    drawFitText(rows[i][0], lx, y, 16, 88, COLORS.outline, "left");
+    drawFitText(rows[i][1], lx + 96, y, 15, 210, COLORS.brown, "left");
+  }
+
+  // 가운데 세로 줄
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(P.x + 348, P.y + 74, 3, P.h - 134);
+
+  // 5) 오른쪽 위: 상태창 접기 (켜고 끄기 버튼)
+  const rx = P.x + 372;
+  drawOutlinedText("전투 중 상태창", rx, P.y + 98, 18, "left", COLORS.brown);
+  const hud = settingsHudRect();
+  const folded = hudCollapsed();
+  drawScaled(hud.x + hud.w / 2, hud.y + hud.h / 2, buttonScale("settings:hud"), function () {
+    drawOutlinedRoundRect(hud.x, hud.y, hud.w, hud.h, 22, hoverColor("settings:hud", folded ? COLORS.gray : COLORS.green));
+    drawOutlinedText(folded ? "접어서 보기" : "펼쳐서 보기", hud.x + hud.w / 2, hud.y + hud.h / 2 + 1, 20);
+  });
+  drawFitText("누를 때마다 바뀌어요.", rx, hud.y + hud.h + 20, 13, 218, COLORS.outline, "left");
+  drawFitText("전투 중에는 Tab 키로도 바꿀 수 있어요.", rx, hud.y + hud.h + 40, 13, 218, COLORS.outline, "left");
+
+  // 6) 오른쪽 아래: 저장 초기화 (두 번 눌러야 실행)
+  drawOutlinedText("저장 데이터", rx, P.y + 250, 18, "left", COLORS.brown);
+  const reset = settingsResetRect();
+  const armed = resetArmTimer > 0;
+  drawScaled(reset.x + reset.w / 2, reset.y + reset.h / 2, buttonScale("settings:reset"), function () {
+    drawOutlinedRoundRect(reset.x, reset.y, reset.w, reset.h, 22, hoverColor("settings:reset", armed ? COLORS.red : COLORS.gray));
+    const label = armed ? "한 번 더 누르면 초기화 (" + Math.ceil(resetArmTimer) + ")" : "저장 초기화";
+    drawOutlinedText(label, reset.x + reset.w / 2, reset.y + reset.h / 2 + 1, fitTextSize(label, 20, reset.w - 24));
+  });
+  drawFitText("코인 · 업그레이드 · 최고 웨이브가 지워져요", rx, reset.y + reset.h + 20, 13, 218, COLORS.outline, "left");
+  drawFitText("(3초 안에 한 번 더 눌러야 실행)", rx, reset.y + reset.h + 40, 13, 218, COLORS.outline, "left");
+
+  // 7) 아래쪽 안내
+  drawOutlinedText("Esc 또는 X 버튼으로 닫기", P.x + P.w / 2, P.y + P.h - 22, 16);
+}
+
+// ---- 로비 화면 전체: 지금 탭 내용 → 위쪽 줄 → 탭 바 → 알림 → 설정 창 순서로 겹쳐 그린다 ----
+function drawLobby() {
+  if (gameState === "menu") drawMenu();
+  else if (gameState === "upgrades") drawUpgradeScreen();
+  else drawCollectionScreen();
+  drawLobbyTopBar();
+  drawTabBar();
+  if (settingsOpen) drawSettingsOverlay();
+  drawLobbyToast();
 }
 
 // ---- 증강 효과 그림 (시간 지연 범위 등) ----
@@ -3244,15 +3695,9 @@ function draw() {
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
 
-  // 메뉴 화면은 따로 그리고 끝낸다
-  if (gameState === "menu") {
-    drawMenu();
-    drawDebug();
-    return;
-  }
-  // 업그레이드 화면도 따로 그리고 끝낸다
-  if (gameState === "upgrades") {
-    drawUpgradeScreen();
+  // 로비 화면들(전투 탭·도감·업그레이드)은 따로 그리고 끝낸다 (탭 바와 톱니는 여기에만 있다)
+  if (isLobbyState()) {
+    drawLobby();
     drawDebug();
     return;
   }
