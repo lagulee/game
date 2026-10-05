@@ -1285,4 +1285,26 @@ module.exports = [
       return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 안쪽 적 " + r.dealt + " (기대 " + r.want + "), 바깥 안 맞음 " + r.out).join(" / ") + " / 폭발로 죽은 적은 안 터짐 " + chainOk };
     },
   },
+  {
+    name: "[증강+] 르샤틀리에: 대미지 배율 = 1 + k(1 − 체력 비율), k = 0.5/0.8/1.2",
+    run: function () {
+      const rows = [];
+      for (let lv = 1; lv <= 3; lv++) {
+        startGame(); ownedAugments = { leChatelier: lv }; player.maxHp = 200;
+        const k = [0.5, 0.8, 1.2][lv - 1];
+        const at = (hp) => { player.hp = hp; return calcDamage({}, { damageScale: 1 }) / player.damage; };
+        rows.push({ lv, full: at(200), half: at(100), near0: at(1), want: [1, 1 + k * 0.5, 1 + k * (1 - 1 / 200)] });
+      }
+      const ok = rows.every((r) => Math.abs(r.full - r.want[0]) < 1e-12 && Math.abs(r.half - r.want[1]) < 1e-12 && Math.abs(r.near0 - r.want[2]) < 1e-12);
+      return { ok: ok, detail: rows.map((r) => "Lv" + r.lv + " 체력 100% ×" + r.full.toFixed(2) + ", 50% ×" + r.half.toFixed(2) + ", 거의 0 ×" + r.near0.toFixed(3)).join(" / ") };
+    },
+  },
+  {
+    name: "[증강+] 증강 14개, 이름·id 겹침 없음",
+    run: function () {
+      const ids = AUGMENTS.map((a) => a.id).concat(SUPPLIES.map((s) => s.id));
+      const ok = AUGMENTS.length === 14 && new Set(ids).size === ids.length;
+      return { ok: ok, detail: "증강 " + AUGMENTS.length + "개, 보급 " + SUPPLIES.length + "개 / " + ids.join(",") };
+    },
+  },
 ];

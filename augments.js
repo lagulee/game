@@ -188,6 +188,10 @@ const EXO_FLASH_TIME = 0.3;
 // 발열 반응 폭발 고리 목록 { x, y, r, born } (그림 전용)
 let exoBlasts = [];
 
+// 르샤틀리에: 레벨별 k. 대미지 배율 = 1 + k × (1 − 체력 비율)
+//   체력이 가득이면 1배, 체력이 0 에 가까우면 (1 + k)배
+const LECHATELIER_K = [0.5, 0.8, 1.2];
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -796,6 +800,33 @@ const AUGMENTS = [
         ctx.fill();
       }
       ctx.restore();
+    },
+  },
+  {
+    id: "leChatelier",
+    name: "르샤틀리에",
+    concept: "화학 · 평형 이동",
+    formula: "1 + k(1 − 체력 비율)",
+    color: "yellow",
+    levels: [
+      {
+        k: LECHATELIER_K[0],
+        desc: "평형이 깨지면 반대쪽으로 움직여 버틴다. 체력이 낮을수록 대미지 × (1 + k × 잃은 비율), k = 0.5",
+      },
+      {
+        k: LECHATELIER_K[1],
+        desc: "더 강하게 버틴다! k = 0.5 → 0.8 (체력이 거의 없으면 1.8배)",
+      },
+      {
+        k: LECHATELIER_K[2],
+        desc: "궁지에 몰린 반격! k = 0.8 → 1.2 (체력이 거의 없으면 2.2배)",
+      },
+    ],
+
+    // 대미지 × (1 + k × (1 − 지금 체력 ÷ 최대 체력))
+    modifyDamage: function (damage, stats) {
+      const ratio = Math.max(0, Math.min(1, player.hp / player.maxHp));   // 체력 비율 (0 ~ 1)
+      return damage * (1 + stats.k * (1 - ratio));
     },
   },
 ];
