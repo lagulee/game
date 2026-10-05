@@ -438,7 +438,8 @@ function handleDebugKey(event) {
 }
 
 // ---- 디버그: 증강·보급 지급 창 (G 키) ----
-// HTML 로 만든 목록 창. 증강 버튼을 누르면 레벨 +1, 보급 버튼을 누르면 바로 사용한다.
+// HTML 로 만든 목록 창. 증강 버튼을 누르면 레벨 +1, 옆의 − 버튼은 레벨 −1 (0 이 되면 삭제),
+// "모두 삭제" 는 가진 증강을 전부 지운다. 보급 버튼을 누르면 바로 사용한다.
 // 전투 중에 열면 게임을 멈췄다가, 닫으면 다시 움직인다.
 
 let debugGivePanel = null;      // 열려 있는 창 (닫혀 있으면 null)
@@ -454,6 +455,21 @@ function debugGiveAugment(aug) {
   const level = Math.min(getAugmentLevel(aug.id) + 1, aug.levels.length);
   ownedAugments[aug.id] = level;
   debugSay(aug.name + " Lv." + level);
+}
+
+// 증강 하나를 한 레벨 내린다 (Lv.1 에서 내리면 삭제)
+function debugRemoveAugment(aug) {
+  const level = getAugmentLevel(aug.id) - 1;
+  if (level < 0) return;
+  if (level === 0) delete ownedAugments[aug.id];
+  else ownedAugments[aug.id] = level;
+  debugSay(level === 0 ? aug.name + " 삭제" : aug.name + " Lv." + level);
+}
+
+// 가진 증강을 모두 지운다
+function debugRemoveAllAugments() {
+  ownedAugments = {};
+  debugSay("증강 모두 삭제");
 }
 
 // 보급 카드 하나를 바로 사용한다
@@ -473,27 +489,41 @@ function openDebugGivePanel() {
   panel.innerHTML =
     '<div class="tuning-head"><span class="tuning-title">디버그 · 지급</span>' +
     '<button class="tuning-close" title="닫기 (Esc / G)">✕</button></div>' +
-    '<p class="tuning-help">증강을 누르면 레벨 +1, 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기</p>' +
-    '<div class="tuning-list"><div class="tuning-group">증강</div><div class="give-grid give-augments"></div>' +
+    '<p class="tuning-help">증강을 누르면 레벨 +1, − 를 누르면 레벨 −1 (Lv.1 에서 누르면 삭제). 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기</p>' +
+    '<div class="tuning-list"><div class="tuning-group give-head">증강 <button class="tuning-btn give-clear">모두 삭제</button></div>' +
+    '<div class="give-grid give-augments"></div>' +
     '<div class="tuning-group">보급</div><div class="give-grid give-supplies"></div></div>';
 
   // 버튼 글자를 지금 레벨에 맞게 다시 쓴다
   const refresh = function () {
-    panel.querySelectorAll(".give-augments button").forEach(function (btn, i) {
+    panel.querySelectorAll(".give-cell").forEach(function (cell, i) {
       const aug = AUGMENTS[i], lv = getAugmentLevel(aug.id), max = aug.levels.length;
-      btn.innerHTML = aug.name + "<small>" + (lv >= max ? "MAX" : "Lv." + lv + " → " + (lv + 1)) + "</small>";
-      btn.disabled = lv >= max;
-      btn.classList.toggle("give-owned", lv > 0);
+      const plus = cell.querySelector(".give-plus"), minus = cell.querySelector(".give-minus");
+      plus.innerHTML = aug.name + "<small>" + (lv >= max ? "Lv." + lv + " (MAX)" : "Lv." + lv + " → " + (lv + 1)) + "</small>";
+      plus.disabled = lv >= max;
+      plus.classList.toggle("give-owned", lv > 0);
+      minus.disabled = lv <= 0;
+      minus.title = lv === 1 ? "삭제" : "레벨 −1";
     });
+    panel.querySelector(".give-clear").disabled = Object.keys(ownedAugments).length === 0;
   };
-  // 증강 버튼 (AUGMENTS 순서)
+  // 증강 칸: [이름 · 레벨 +1 버튼] [− 버튼] (AUGMENTS 순서)
   for (const aug of AUGMENTS) {
-    const btn = document.createElement("button");
-    btn.className = "tuning-btn give-btn";
-    btn.style.borderLeft = "12px solid " + COLORS[aug.color];
-    btn.addEventListener("click", function () { debugGiveAugment(aug); refresh(); });
-    panel.querySelector(".give-augments").appendChild(btn);
+    const cell = document.createElement("div");
+    cell.className = "give-cell";
+    const plus = document.createElement("button");
+    plus.className = "tuning-btn give-btn give-plus";
+    plus.style.borderLeft = "12px solid " + COLORS[aug.color];
+    plus.addEventListener("click", function () { debugGiveAugment(aug); refresh(); });
+    const minus = document.createElement("button");
+    minus.className = "tuning-btn give-minus";
+    minus.textContent = "−";
+    minus.addEventListener("click", function () { debugRemoveAugment(aug); refresh(); });
+    cell.appendChild(plus);
+    cell.appendChild(minus);
+    panel.querySelector(".give-augments").appendChild(cell);
   }
+  panel.querySelector(".give-clear").addEventListener("click", function () { debugRemoveAllAugments(); refresh(); });
   // 보급 버튼
   for (const card of SUPPLIES) {
     const btn = document.createElement("button");

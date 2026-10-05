@@ -91,7 +91,7 @@ module.exports = [
       for (let i = 0; i < WAVES.length + 3; i++) press("BracketRight"); // 끝까지 누르면 마지막 웨이브에서 멈춘다
       const wMax = wave;
       press("BracketLeft"); const wBack = wave;
-      press("KeyG"); const giveBtn = () => document.querySelector(".give-augments button");
+      press("KeyG"); const giveBtn = () => document.querySelector(".give-plus");
       giveBtn().click(); const l1 = getAugmentLevel(AUGMENTS[0].id);
       giveBtn().click(); giveBtn().click(); giveBtn().click(); const l2 = getAugmentLevel(AUGMENTS[0].id);
       press("Escape"); resumeTimer = 0;   // 창을 닫으면 "준비!" 0.5초 뒤 재개 → 검사에서는 바로 재개
@@ -422,7 +422,7 @@ module.exports = [
       startGame(); for (let i = 0; i < 10; i++) update(1 / 60);
       press("KeyG");
       const open = isDebugGiveOpen() && paused;
-      const augBtns = [...document.querySelectorAll(".give-augments button")], supBtns = [...document.querySelectorAll(".give-supplies button")];
+      const augBtns = [...document.querySelectorAll(".give-plus")], supBtns = [...document.querySelectorAll(".give-supplies button")];
       const counts = augBtns.length === AUGMENTS.length && supBtns.length === SUPPLIES.length;
       augBtns.forEach((b) => b.click());
       const allOne = AUGMENTS.every((a) => getAugmentLevel(a.id) === 1);
@@ -1424,5 +1424,29 @@ module.exports = [
       pauseGame(); draw();
       return { ok: true, detail: fits.join(", ") + " (영역 380px)" };
     },
+  },
+  {
+    name: "[디버그] G 창에서 증강 삭제: − 는 레벨 −1 (Lv.1 에서 누르면 삭제), 모두 삭제, 레벨 0 이면 − 버튼 잠김, 효과도 사라짐",
+    run: new Function(PRESS + `
+      startGame(); ownerUnlocked = true; press("F2"); spawnQueue = [];
+      ownedAugments = { catalyst: 3, fourier: 1, halfLife: 2 };
+      press("KeyG");
+      const cellOf = (id) => document.querySelectorAll(".give-cell")[AUGMENTS.findIndex((a) => a.id === id)];
+      const minus = (id) => cellOf(id).querySelector(".give-minus");
+      const interval0 = fireInterval();
+      minus("catalyst").click(); const down = getAugmentLevel("catalyst") === 2 && fireInterval() > interval0;
+      minus("fourier").click(); const removed = !("fourier" in ownedAugments) && minus("fourier").disabled;
+      const plusText = cellOf("catalyst").querySelector(".give-plus").textContent.includes("Lv.2");
+      // 지운 증강은 효과도 없음: 반감기를 지우면 붕괴가 멈춘다
+      const e = createEnemy("basic", 400, 270, 1); e.hp = e.maxHp = 1000; e.speed = 0; e.decayTime = 4; e.decayRate = 0.06; enemies = [e];
+      document.querySelector(".give-clear").click();
+      const allGone = Object.keys(ownedAugments).length === 0 && document.querySelector(".give-clear").disabled &&
+        [...document.querySelectorAll(".give-minus")].every((b) => b.disabled);
+      const hp = e.hp; updateEnemies(1); const noDecay = e.hp === hp;
+      press("Escape");
+      const ok = down && removed && plusText && allGone && noDecay;
+      return { ok: ok, detail: "촉매 Lv3→2 (간격도 돌아옴) " + down + " / 푸리에 Lv1 에서 − → 삭제, 버튼 잠김 " + removed + " / 글자 갱신 " + plusText +
+        " / 모두 삭제 " + allGone + " / 지운 반감기는 붕괴 멈춤 " + noDecay };
+    `),
   },
 ];
