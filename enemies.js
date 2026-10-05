@@ -66,6 +66,17 @@ const SHIELD_ARC = (Math.PI * 2) / 3;     // 방패가 막는 범위 (120°)
 const SHIELD_TURN_RATE = Math.PI / 3;     // 방패가 플레이어 쪽으로 도는 최대 빠르기 (초당 60°)
 const SHIELD_REDUCTION = 0.8;             // 방패에 맞은 총알의 대미지 감소율 (0.8 = 80% 감소)
 
+// ---- 공명형 (물리 · 공명): 주변 적을 빠르게 하고, 자기는 멀리 도망친다 ----
+const RESONATOR_RANGE = 150;        // 공명 범위 반지름 (px)
+const RESONATOR_BOOST = 1.3;        // 범위 안의 다른 적 속도 배율 (+30%). 여러 마리가 겹쳐도 한 번만
+const RESONATOR_FLEE_DISTANCE = 320; // 플레이어가 이 거리보다 가까우면 도망친다
+const RESONATOR_MARGIN = 30;        // 화면 가장자리에서 이만큼 안쪽까지만 도망친다
+
+// ---- 자석형 (물리 · 만유인력): 가까이 온 플레이어를 끌어당긴다 ----
+const MAGNET_RANGE = 220;           // 당기는 범위 반지름 (px)
+const MAGNET_STRENGTH = 2900000;    // 당기는 세기 G. 가속도 = G ÷ r²  (r = 220px → 약 60 px/초², 110px → 약 240 px/초²)
+const MAGNET_MAX_ACCEL_RATIO = 0.4; // 가속도 상한 = 플레이어 가속도 × 0.4
+
 // ---- 공통 ----
 
 // ---- 웨이브 스케일링 : 웨이브가 올라갈수록 적이 얼마나 강해지는지 ----
@@ -472,6 +483,127 @@ const ENEMY_TYPES = {
     },
   },
 
+  // ---- 공명형 (물리 · 공명): 반경 150px 안의 다른 적 속도 +30% ----
+  // 그네를 그네의 박자에 맞춰 밀면 점점 크게 흔들린다(공명). 공명형은 주변 적의 "박자"를 맞춰 빠르게 만든다.
+  // 자기는 약해서 플레이어에게서 멀리 떨어지려 한다 → 먼저 찾아가서 잡는 것이 좋다.
+  resonator: {
+    name: "공명형",
+    desc: "주변 적 +30% 빠르게, 도망침",
+    hp: 35,
+    speed: 60,
+    radius: 14,
+    color: "pink",
+    contactDamage: 10,
+    knockResist: 1,
+    score: 140,
+    shape: "resonator",
+    resonance: { range: RESONATOR_RANGE, boost: RESONATOR_BOOST },
+
+    init: function (enemy) {
+      enemy.wobble = Math.random() * Math.PI * 2;   // 도망 다닐 때 흔들리는 박자 (적마다 다르게)
+    },
+
+    update: function (enemy, dt, info) {
+      enemy.wobble += info.localDt * 2;
+      const dist = distance(enemy.x, enemy.y, player.x, player.y);
+      if (dist < RESONATOR_FLEE_DISTANCE) {
+        // 플레이어 반대쪽으로 도망 (조금씩 옆으로 흔들리며)
+        const ax = enemy.x - player.x, ay = enemy.y - player.y, len = dist || 1;
+        const side = Math.sin(enemy.wobble) * 0.6;
+        enemy.x += ((ax / len) - (ay / len) * side) * info.speed * dt;
+        enemy.y += ((ay / len) + (ax / len) * side) * info.speed * dt;
+      } else {
+        // 충분히 멀면 화면 가운데 쪽으로 천천히 (구석에 박혀 있지 않게)
+        moveToward(enemy, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, info.speed * 0.3, dt);
+      }
+      // 화면 안에 들어온 뒤에는 가장자리 안쪽에 머문다
+      if (enemy.entered || (enemy.x > RESONATOR_MARGIN && enemy.x < CANVAS_WIDTH - RESONATOR_MARGIN &&
+                            enemy.y > RESONATOR_MARGIN && enemy.y < CANVAS_HEIGHT - RESONATOR_MARGIN)) {
+        enemy.entered = true;
+        enemy.x = clamp(enemy.x, RESONATOR_MARGIN, CANVAS_WIDTH - RESONATOR_MARGIN);
+        enemy.y = clamp(enemy.y, RESONATOR_MARGIN, CANVAS_HEIGHT - RESONATOR_MARGIN);
+      } else {
+        moveToward(enemy, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, info.speed, dt);   // 들어오는 중
+      }
+    },
+
+    // 공명 범위: 바깥으로 퍼져 나가는 분홍 물결 고리 3개
+    drawAura: function (enemy) {
+      ctx.save();
+      ctx.strokeStyle = COLORS.pink;
+      ctx.lineWidth = 3;
+      for (let k = 0; k < 3; k++) {
+        const t = ((runTime * 0.8 + k / 3) % 1);          // 0 → 1 로 퍼진다
+        ctx.globalAlpha = 0.45 * (1 - t);
+        ctx.beginPath();
+        ctx.arc(enemy.x, enemy.y, enemy.radius + (RESONATOR_RANGE - enemy.radius) * t, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 0.18;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, RESONATOR_RANGE, 0, Math.PI * 2);   // 범위 끝
+      ctx.stroke();
+      ctx.restore();
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.pink);
+    },
+  },
+
+  // ---- 자석형 (물리 · 만유인력): 반경 220px 안의 플레이어를 끌어당긴다 ----
+  // 당기는 가속도 a = G ÷ r² (거리가 절반이면 4배). 너무 가까우면 끝없이 커지지 않게 상한을 둔다.
+  // 끌려가는 속도는 플레이어가 조종하는 속도와 따로 쌓이고, 범위를 벗어나면 마찰로 줄어든다.
+  magnet: {
+    name: "자석형",
+    desc: "220px 안의 플레이어를 끌어당김",
+    hp: 80,
+    speed: 25,
+    radius: 20,
+    color: "red",
+    contactDamage: 25,
+    knockResist: 0.3,
+    score: 170,
+    shape: "magnet",
+
+    update: function (enemy, dt, info) {
+      moveToward(enemy, player.x, player.y, info.speed, dt);
+    },
+
+    pullOn: function (enemy, x, y) {
+      return gravityPull(enemy.x, enemy.y, x, y, MAGNET_RANGE, MAGNET_STRENGTH, PLAYER_ACCELERATION * MAGNET_MAX_ACCEL_RATIO);
+    },
+
+    // 자기장: 범위 원(점선)과, 플레이어가 범위 안이면 끌어당기는 선
+    drawAura: function (enemy) {
+      ctx.save();
+      ctx.strokeStyle = COLORS.red;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.22;
+      ctx.setLineDash([4, 10]);
+      ctx.lineDashOffset = runTime * 30;                   // 안쪽으로 흐르는 느낌
+      ctx.beginPath();
+      ctx.arc(enemy.x, enemy.y, MAGNET_RANGE, 0, Math.PI * 2);
+      ctx.stroke();
+      const d = distance(enemy.x, enemy.y, player.x, player.y);
+      if (d <= MAGNET_RANGE) {
+        ctx.globalAlpha = 0.5 * (1 - d / MAGNET_RANGE) + 0.15;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(player.x, player.y);
+        ctx.lineTo(enemy.x, enemy.y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.red);
+      spawnParticles(enemy.x, enemy.y, COLORS.blue);
+    },
+  },
+
   // ---- 돌진 대장 (물리 · 가속도): 돌격형의 왕. 연속 돌진을 퍼붓는다 ----
   // 순환: 예고 0.8초 → 돌진 → (재조준 0.35초 → 돌진) ... 총 3번 → 쉬기 2초
   // 체력 50% 아래: 4연속 돌진, 쉬기 시작할 때 돌격형 2마리 소환
@@ -613,6 +745,16 @@ function angleDifference(a, b) {
   if (d > Math.PI) d -= Math.PI * 2;
   if (d < -Math.PI) d += Math.PI * 2;
   return d;
+}
+
+// (cx, cy) 의 물체가 (x, y) 를 반경 range 안에서 끌어당기는 가속도 { ax, ay }
+//   크기 = G ÷ r² (만유인력: 거리의 제곱에 반비례), 단 maxAccel 을 넘지 않는다
+function gravityPull(cx, cy, x, y, range, G, maxAccel) {
+  const dx = cx - x, dy = cy - y;
+  const r = Math.sqrt(dx * dx + dy * dy);
+  if (r > range || r < 1) return { ax: 0, ay: 0 };
+  const a = Math.min(maxAccel, G / (r * r));
+  return { ax: (dx / r) * a, ay: (dy / r) * a };
 }
 
 // (x, y) 에서 온 총알을 방패형의 방패가 막는지: 총알 방향과 방패 방향의 차이가 120° 의 절반(60°) 안이면 막는다

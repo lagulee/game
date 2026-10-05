@@ -2467,6 +2467,10 @@ function drawEnemy(enemy) {
     drawShooterBody(enemy, r, bodyColor);
   } else if (type.shape === "shield") {
     drawShieldBody(enemy, r, bodyColor);
+  } else if (type.shape === "resonator") {
+    drawResonatorBody(enemy, r, bodyColor);
+  } else if (type.shape === "magnet") {
+    drawMagnetBody(enemy, r, bodyColor);
   } else {
     drawBasicBody(enemy, r, bodyColor);
   }
@@ -2602,6 +2606,45 @@ function drawShieldBody(enemy, r, bodyColor) {
   ctx.lineWidth = 7;
   ctx.stroke();
   ctx.lineCap = "butt";
+}
+
+// 공명형 몸통: 둥근 세모 + 몸 둘레에 떨리는 작은 물결 선 두 개 (소리굽쇠 느낌)
+function drawResonatorBody(enemy, r, bodyColor) {
+  const shake = Math.sin(runTime * 30) * 1.2;          // 아주 빠르게 떨린다
+  drawOutlinedPolygon([
+    [shake, -r * 1.25], [r * 1.15, r * 0.8], [-r * 1.15, r * 0.8],
+  ], bodyColor);
+  drawHighlight(0, -r * 0.1, r * 0.8);
+  setOutline(SMALL_OUTLINE_WIDTH);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(0, -r * 0.1, r * 1.6, side > 0 ? -0.5 : Math.PI - 0.5, side > 0 ? 0.5 : Math.PI + 0.5);
+    ctx.stroke();
+  }
+}
+
+// 자석형 몸통: 말굽자석 (빨강·파랑 두 극) + 가운데 몸
+function drawMagnetBody(enemy, r, bodyColor) {
+  ctx.save();
+  ctx.rotate(Math.atan2(player.y - enemy.y, player.x - enemy.x) + Math.PI / 2);   // 극이 플레이어 쪽을 본다
+  // 말굽 (U 자 모양): 굵은 외곽선 → 색 순서로
+  ctx.lineCap = "butt";
+  ctx.beginPath();
+  ctx.arc(0, r * 0.15, r * 0.95, 0, Math.PI);
+  ctx.moveTo(r * 0.95, r * 0.15); ctx.lineTo(r * 0.95, -r * 1.05);
+  ctx.moveTo(-r * 0.95, r * 0.15); ctx.lineTo(-r * 0.95, -r * 1.05);
+  setOutline(r * 0.7 + SMALL_OUTLINE_WIDTH * 2);
+  ctx.stroke();
+  ctx.strokeStyle = bodyColor;
+  ctx.lineWidth = r * 0.7;
+  ctx.stroke();
+  // 두 극 끝: 빨강(N), 파랑(S)
+  drawOutlinedRoundRect(r * 0.6, -r * 1.35, r * 0.7, r * 0.5, 3, COLORS.white, SMALL_OUTLINE_WIDTH);
+  drawOutlinedRoundRect(-r * 1.3, -r * 1.35, r * 0.7, r * 0.5, 3, COLORS.blue, SMALL_OUTLINE_WIDTH);
+  ctx.restore();
+  // 가운데 몸 (얼굴이 들어갈 자리)
+  drawOutlinedCircle(0, 0, r * 0.75, bodyColor);
+  drawHighlight(0, 0, r * 0.7);
 }
 
 // 보스의 왕관: 노란 톱니 모양 + 가운데 빨간 보석
@@ -4130,7 +4173,8 @@ function drawMenu() {
 // ---- 도감 탭: 적 / 증강 / 보급 세 쪽 (위쪽 작은 버튼이나 1·2·3 키로 넘긴다) ----
 
 // 도감에 보여 줄 적 종류 (조각·알갱이는 분열형에 포함)
-const COLLECTION_ENEMIES = ["basic", "charger", "sine", "splitter", "chargerKing", "splitterKing"];
+const COLLECTION_ENEMIES = ["basic", "charger", "sine", "splitter", "shooter", "shield", "resonator", "magnet",
+  "chargerKing", "splitterKing"];
 // 도감의 쪽 목록 (id, 버튼 글자, 버튼 색)
 const COLLECTION_PAGES = [
   { id: "enemies", label: "적", color: "red" },
@@ -4195,24 +4239,24 @@ function drawCollectionScreen() {
   const items = collectionItems(collectionPage);
 
   if (collectionPage === "enemies") {
-    // 적: 한 줄에 6칸. 위에 그림, 아래 이름과 설명
+    // 적: 두 줄로 나눠 놓는다 (한 줄 칸 수 = 전체의 절반). 위에 그림, 아래 이름과 설명
     // 눈이 아래쪽을 보게 플레이어 위치를 화면 아래로 (그림 전용)
     player.x = CANVAS_WIDTH / 2;
     player.y = CANVAS_HEIGHT + 200;
+    const cols = Math.ceil(items.length / 2);
     for (let i = 0; i < items.length; i++) {
-      const type = items[i], c = collectionCell(i, items.length, 6), cx = c.x + c.w / 2;
+      const type = items[i], c = collectionCell(i, items.length, cols), cx = c.x + c.w / 2;
       roundRectPath(c.x, c.y, c.w, c.h, 14);
       ctx.fillStyle = COLORS.background;
       ctx.fill();
-      const r = Math.min(type.radius, type.isBoss ? 30 : 24);     // 보스는 칸에 들어가게 조금 작게
+      const r = Math.min(type.radius, type.isBoss ? 22 : 17);     // 칸에 들어가게 작게 (보스는 조금 크게)
       drawEnemy({
-        type: COLLECTION_ENEMIES[i], radius: r, x: cx, y: c.y + 100 + Math.sin(menuTime * 2 + i) * 3,
-        wave: 1, hp: 1, maxHp: 1, hitFlash: 0, dirX: 1, dirY: 0,
+        type: COLLECTION_ENEMIES[i], radius: r, x: cx, y: c.y + c.h * 0.36 + Math.sin(menuTime * 2 + i) * 2,
+        wave: 1, hp: 1, maxHp: 1, hitFlash: 0, dirX: 1, dirY: 0, shieldAngle: Math.PI / 2,
       });
-      drawFitText(type.name, cx, c.y + 186, 20, c.w - 14, COLORS.outline);
-      const lines = wrapText(type.desc || "", c.w - 20, 14).slice(0, 2);
-      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 216 + n * 20, 14, c.w - 16, COLORS.brown);
-      if (type.isBoss) drawOutlinedText("보스", cx, c.y + 22, 15, "center", COLORS.red);
+      drawFitText(type.name, cx, c.y + c.h * 0.7, 17, c.w - 12, COLORS.outline);
+      drawFitText(type.desc || "", cx, c.y + c.h * 0.87, 12, c.w - 10, COLORS.brown);
+      if (type.isBoss) drawOutlinedText("보스", c.x + 10, c.y + 15, 13, "left", COLORS.red);   // 왼쪽 위 구석 (왕관과 안 겹치게)
     }
   } else if (collectionPage === "augments") {
     // 증강: 한 줄에 5칸. 색 띠(이름) + 수식 + 개념

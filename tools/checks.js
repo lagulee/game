@@ -1405,7 +1405,7 @@ module.exports = [
       AUGMENTS.forEach((a, i) => { const c = collectionCell(i, AUGMENTS.length, 5); check(a.name, 17, c.w - 16, a.name); check(a.formula, 19, c.w - 14, a.formula); check(a.concept, 13, c.w - 12, a.concept); });
       SUPPLIES.forEach((card, i) => { const c = collectionCell(i, SUPPLIES.length, 5); check(card.formula, 20, c.w - 14, card.formula);
         if (wrapText(card.desc, c.w - 20, 14).length > 7) tooWide.push(card.name + " 설명 줄 수"); });
-      const ok = byClick && byKey && back && counts === "6/14/5" && tooWide.length === 0;
+      const ok = byClick && byKey && back && counts === COLLECTION_ENEMIES.length + "/14/5" && tooWide.length === 0;
       return { ok: ok, detail: "클릭 " + byClick + " / 키 " + byKey + "," + back + " / 항목 수 " + counts + " / 넘치는 글자 " + (tooWide.join(",") || "없음") };
     `),
   },
@@ -1541,6 +1541,78 @@ module.exports = [
       draw();
       const ok = Math.abs(front - 10 * 0.2) < 1e-9 && Math.abs(edgeIn - 2) < 1e-9 && side === 10 && back === 10 && Math.abs(turned - 60) < 1 && exoFull && decayFull;
       return { ok: ok, detail: "앞 " + front + " / 55° " + edgeIn + " / 옆 " + side + " / 뒤 " + back + " (기본 10) / 1초 동안 방패 " + turned.toFixed(1) + "° 회전 / 발열 반응 그대로 " + exoFull + ", 반감기 그대로 " + decayFull };
+    },
+  },
+  {
+    name: "[새 적] 공명형: 반경 150px 안의 다른 적 속도 ×1.3 (여러 마리여도 겹치지 않음), 범위 밖·자기 자신은 그대로, 플레이어에게서 도망",
+    run: function () {
+      startGame(); spawnQueue = [];
+      const r1 = createEnemy("resonator", 480, 270, 1), r2 = createEnemy("resonator", 500, 270, 1);
+      const near = createEnemy("basic", 560, 270, 1), far = createEnemy("basic", 480 + 200, 100, 1);
+      enemies = [r1, near, far];
+      const one = resonanceFactor(near), outside = resonanceFactor(far), self = resonanceFactor(r1);
+      enemies = [r1, r2, near, far]; const two = resonanceFactor(near);
+      // 실제 이동 속도: 1초 동안 움직인 거리
+      player.x = 900; player.y = 270; enemies = [r1, near]; r1.speed = 0;
+      const x0 = near.x; updateEnemies(1 / 60);
+      const moved = (near.x - x0) * 60;   // 한 프레임 이동 × 60 = 초당 속도 (범위를 벗어나기 전에 잰다)
+      // 도망: 플레이어가 가까이 있으면 멀어진다 (화면 안쪽에 머문다)
+      startGame(); spawnQueue = [];
+      const r = createEnemy("resonator", 480, 270, 1); r.entered = true; enemies = [r];
+      player.x = 430; player.y = 270;
+      for (let i = 0; i < 180; i++) { player.x = 430; player.y = 270; player.fireTimer = 1e9; updateEnemies(1 / 60); }
+      const fled = distance(r.x, r.y, 430, 270), inside = r.x >= RESONATOR_MARGIN && r.x <= CANVAS_WIDTH - RESONATOR_MARGIN;
+      draw();
+      const ok = one === 1.3 && two === 1.3 && outside === 1 && self === 1 && Math.abs(moved - near.speed * 1.3) < 1e-6 && fled > 200 && inside;
+      return { ok: ok, detail: "범위 안 ×" + one + ", 두 마리 겹쳐도 ×" + two + ", 밖 ×" + outside + ", 자기 자신 ×" + self + " / 속도 " + moved.toFixed(1) + "px (기본 " + near.speed + ") / 3초 뒤 플레이어와 거리 " + fled.toFixed(0) + "px" };
+    },
+  },
+  {
+    name: "[새 적] 자석형: 반경 220px 안의 플레이어를 끌어당김, 가속도 ∝ 1/r² (상한 = 플레이어 가속도의 40%), 범위 밖은 0, 도망치면 벗어날 수 있음",
+    run: function () {
+      startGame(); spawnQueue = [];
+      const m = createEnemy("magnet", 480, 270, 1); m.speed = 0; enemies = [m];
+      const T = ENEMY_TYPES.magnet;
+      const a = (d) => { const v = T.pullOn(m, 480 + d, 270); return Math.hypot(v.ax, v.ay); };
+      const ratio = a(100) / a(200), cap = a(30), outside = a(230), dir = T.pullOn(m, 600, 270).ax < 0;
+      // 가만히 서 있으면 끌려간다
+      player.x = 640; player.y = 270; player.vx = 0; player.vy = 0;
+      for (const k in keys) keys[k] = false;
+      for (let i = 0; i < 60; i++) { updatePlayer(1 / 60); }
+      const pulled = 640 - player.x;
+      // 반대쪽으로 달리면 벗어난다
+      player.x = 640; player.vx = 0; player.pullVx = 0; keys.KeyD = true;
+      for (let i = 0; i < 120; i++) updatePlayer(1 / 60);
+      keys.KeyD = false;
+      const escaped = player.x > 640 + 150;
+      draw();
+      const ok = Math.abs(ratio - 4) < 1e-9 && Math.abs(cap - PLAYER_ACCELERATION * 0.4) < 1e-9 && outside === 0 && dir && pulled > 10 && escaped;
+      return { ok: ok, detail: "a(100)/a(200) = " + ratio + ", 가까우면 상한 " + cap + " px/초², 범위 밖 " + outside + " / 1초 서 있으면 " + pulled.toFixed(1) + "px 끌려감 / 2초 달리면 벗어남 " + escaped + " (x " + player.x.toFixed(0) + ")" };
+    },
+  },
+  {
+    name: "[새 적] 새 적 4종 모두 시간 지연(속도 배율)·과열을 받음, 웨이브 배율 적용, 도감에 등록",
+    run: function () {
+      const ids = ["shooter", "shield", "resonator", "magnet"];
+      const res = [];
+      for (const id of ids) {
+        const step = (setup) => {
+          startGame(); spawnQueue = []; ownedAugments = {}; AUGMENTS.push({ id: "slow", name: "s", levels: [{}], modifyEnemySpeed: (f) => f * 0.5 });
+          const e = createEnemy(id, 480, 100, 1); e.entered = true; enemies = [e]; player.x = 480; player.y = 500;
+          if (id === "resonator") { player.x = 480; player.y = 130; }   // 공명형은 도망치는 쪽으로 잰다
+          setup();
+          const x0 = e.x, y0 = e.y; updateEnemies(1 / 60);
+          AUGMENTS.pop();
+          return Math.hypot(e.x - x0, e.y - y0);
+        };
+        const normal = step(() => {}), slow = step(() => { ownedAugments = { slow: 1 }; }), enraged = step(() => { waveTime = ENRAGE_TIME + 10; });
+        const e10 = createEnemy(id, 0, 0, 10), e1 = createEnemy(id, 0, 0, 1);
+        res.push({ id, slowRatio: slow / normal, enrageRatio: enraged / normal, hpScaled: Math.abs(e10.maxHp / e1.maxHp - waveHpMult(10) / waveHpMult(1)) < 1e-9 });
+      }
+      const inCollection = ids.every((id) => COLLECTION_ENEMIES.includes(id) && ENEMY_TYPES[id].desc);
+      // (공명형은 옆으로 흔들리는 박자도 이 적의 시계로 흘러서 정확히 0.5배는 아니다)
+      const ok = res.every((r) => Math.abs(r.slowRatio - 0.5) < 0.06 && r.enrageRatio > 1.2 && r.hpScaled) && inCollection;
+      return { ok: ok, detail: res.map((r) => r.id + " 시간 지연 ×" + r.slowRatio.toFixed(2) + ", 과열 ×" + r.enrageRatio.toFixed(2) + ", 체력 배율 " + r.hpScaled).join(" / ") + " / 도감 " + inCollection };
     },
   },
 ];
