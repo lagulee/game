@@ -1199,4 +1199,33 @@ module.exports = [
       return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits };
     },
   },
+  {
+    name: "[증강+] 중력 렌즈: 반경 R(80/110/140) 안의 가장 가까운 적 쪽으로 휨, 가속도 ∝ 1/r²(상한), 빠르기 그대로, 빗나갈 총알이 맞음",
+    run: function () {
+      const inv = gravityAccel(50) / gravityAccel(100);            // 거리 절반 → 4배
+      const capped = gravityAccel(5) === GRAVITY_MAX_ACCEL;
+      // 적 옆 45px 를 지나가는 총알: 렌즈 없으면 빗나감, 있으면 맞음
+      const shoot = (own, offset) => {
+        startGame(); spawnQueue = []; ownedAugments = own;
+        const e = createEnemy("basic", 400, 270, 1); e.hp = e.maxHp = 1000; enemies = [e];
+        const b = createBullet(1, 0, { x: 200, y: 270 + offset, fromAugment: true });
+        let speedOk = true;
+        for (let i = 0; i < 60 && !b.dead; i++) { updateBullets(1 / 60); if (!b.dead && Math.abs(Math.hypot(b.vx, b.vy) - BULLET_SPEED) > 1e-6) speedOk = false; }
+        return { hit: e.hp < 1000, speedOk };
+      };
+      const none = shoot({}, 45), lens = shoot({ gravityLens: 1 }, 45);
+      // 반경: 적 중심에서 120px 떨어진 총알은 Lv.1(80) 에서 안 휘고, Lv.3(140) 에서 휜다
+      const bend = (lv) => {
+        startGame(); spawnQueue = []; ownedAugments = { gravityLens: lv };
+        const e = createEnemy("basic", 400, 270, 1); enemies = [e];
+        const b = createBullet(1, 0, { x: 400, y: 150, fromAugment: true }); b.x = 400; updateBullets(1 / 60);
+        return b.vy;   // 적은 아래쪽 → 휘면 vy > 0
+      };
+      const lv1 = bend(1), lv3 = bend(3);
+      const ok = Math.abs(inv - 4) < 1e-9 && capped && !none.hit && lens.hit && lens.speedOk && lv1 === 0 && lv3 > 0 &&
+        AUGMENTS.find((a) => a.id === "gravityLens").levels.map((l) => l.range).join(",") === "80,110,140";
+      return { ok: ok, detail: "a(50)/a(100) = " + inv + ", 가까우면 상한 " + capped + " / 45px 옆: 렌즈 없음 맞음=" + none.hit + ", 렌즈 맞음=" + lens.hit +
+        " (빠르기 그대로 " + lens.speedOk + ") / 120px 떨어진 적: Lv1 vy " + lv1.toFixed(1) + ", Lv3 vy " + lv3.toFixed(1) };
+    },
+  },
 ];

@@ -161,6 +161,16 @@ const FOURIER_RADIUS_BONUS = [3, 5, 7];
 // 푸리에 탄환: 레벨별 관통 수 (1 이면 적 1마리를 뚫고 지나간다)
 const FOURIER_PIERCE = [0, 0, 1];
 
+// 중력 렌즈: 레벨별 끌어당기는 반경 R (px). 총알에서 R 안에 있는 가장 가까운 적 쪽으로 휜다
+const GRAVITY_RANGE = [80, 110, 140];
+// 중력 렌즈: 당기는 세기 G. 가속도 = G ÷ r² (r = 총알과 적 사이 거리)
+//   r = 100px → 1000 px/초², r = 50px → 4000 px/초² (거리가 절반이면 4배)
+const GRAVITY_STRENGTH = 10000000;
+// 중력 렌즈: 가속도 상한 (px/초²). 아주 가까울 때 1/r² 이 끝없이 커지지 않게
+const GRAVITY_MAX_ACCEL = 6000;
+// 중력 렌즈: 쏜 뒤 이 시간(초)까지만 휜다 (적 둘레를 영원히 빙빙 도는 총알이 생기지 않게)
+const GRAVITY_MAX_AGE = 2;
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -610,7 +620,62 @@ const AUGMENTS = [
       bullet.vy = fy + f.latY;
     },
   },
+  {
+    id: "gravityLens",
+    name: "중력 렌즈",
+    concept: "물리 · 만유인력",
+    formula: "a = G ÷ r²",
+    color: "brown",
+    levels: [
+      {
+        range: GRAVITY_RANGE[0],
+        desc: "총알이 반경 80px 안의 가장 가까운 적 쪽으로 휜다. 휘는 세기는 거리의 제곱에 반비례 (1/r²)",
+      },
+      {
+        range: GRAVITY_RANGE[1],
+        desc: "중력이 미치는 범위가 넓어진다! 반경 80px → 110px",
+      },
+      {
+        range: GRAVITY_RANGE[2],
+        desc: "블랙홀급 렌즈! 반경 110px → 140px",
+      },
+    ],
+
+    // 반경 R 안의 가장 가까운 적 쪽으로 a = G ÷ r² 만큼 끌어당긴다 (빠르기는 그대로, 방향만 휜다)
+    onBulletUpdate: function (bullet, stats, dt) {
+      if (bullet.age > GRAVITY_MAX_AGE) return;
+      // 반경 안에서 가장 가까운 적 찾기
+      let target = null, best = stats.range;
+      for (const enemy of enemies) {
+        if (enemy.dead) continue;
+        const d = Math.sqrt((enemy.x - bullet.x) ** 2 + (enemy.y - bullet.y) ** 2);
+        if (d < best) { best = d; target = enemy; }
+      }
+      if (!target) return;
+      const a = gravityAccel(best);
+      const speed = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy);
+      const r = best || 1;
+      // 적 쪽 방향(길이 1) × 가속도 × 시간 만큼 속도를 바꾼다
+      bullet.vx += ((target.x - bullet.x) / r) * a * dt;
+      bullet.vy += ((target.y - bullet.y) / r) * a * dt;
+      // 빠르기는 원래대로 되돌린다 (방향만 휘게)
+      const now = Math.sqrt(bullet.vx * bullet.vx + bullet.vy * bullet.vy) || 1;
+      bullet.vx *= speed / now;
+      bullet.vy *= speed / now;
+    },
+  },
 ];
+
+
+// =============================================================
+// 중력 렌즈의 가속도 (만유인력: 거리의 제곱에 반비례)
+//   a = G ÷ r²  → 거리가 2배 멀면 1/4, 절반이면 4배
+//   단, 아주 가까우면 r² 이 0 에 가까워 a 가 끝없이 커지므로 상한에서 자른다
+// =============================================================
+function gravityAccel(distance) {
+  const r = Math.max(1, distance);
+  return Math.min(GRAVITY_MAX_ACCEL, GRAVITY_STRENGTH / (r * r));
+}
 
 
 // =============================================================
