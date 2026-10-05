@@ -13,6 +13,8 @@
 //   [옛 설정] 기본 적만 나오는 3웨이브 + 기존 증강 3개 → golden/old-config.txt 와 같아야 한다
 //   [새 설정] 지금의 waves.js 그대로                    → golden/new-config.txt 와 같아야 한다
 //   [동작 검사] 훅, 디버그 모드, 새 적 행동 등을 하나씩 확인 (PASS / FAIL)
+//   [되돌리기] 바꾼 규칙의 상수를 옛 값으로 바꿔 끼우면(BEFORE_PRESSURE 등) 그때 저장한 기록과 상태가 같아야 한다
+//   ※ 페이지는 tools/serve.js 의 작은 웹 서버로 연다 (상수를 바꿔 끼우려고)
 //
 // 사용법 (프로젝트 폴더에서, Playwright 가 설치된 환경)
 //   NODE_PATH=$(npm root -g) node tools/regress.js                검사만
@@ -20,13 +22,28 @@
 //      (웨이브·적 구성을 일부러 바꿨을 때만 사용)
 //   NODE_PATH=$(npm root -g) node tools/regress.js --record-old 폴더
 //      (처음 한 번: 예전 버전 코드가 있는 폴더에서 옛 설정 기록을 만든다)
+//   NODE_PATH=$(npm root -g) node tools/regress.js --record-old-current   옛·새 설정 기록을 지금 규칙으로 다시 만든다
+//   NODE_PATH=$(npm root -g) node tools/regress.js --check-before-pressure
+//      (압박 이전 값으로 바꿔 끼운 기록이 지금 저장된 기록과 그림까지 같은지 한 번 확인)
 // =============================================================
 
 const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
 
+const { startServer } = require("./serve.js");
+
 const ROOT = path.resolve(__dirname, "..");
+let server = null;
+
+// "압박 규칙" 이전 값. 이 상수들을 옛 값으로 바꿔 끼우면 압박 규칙 전과 기록이 똑같아야 한다.
+// (속도 배율, 무리 등장, 적 수 배율, 과열, 무적 시간, 웨이브 회복, 성장률, 코인)
+const BEFORE_PRESSURE = {
+  ENEMY_SPEED_BASE: 1.15, ENEMY_SPEED_MAX_MULT: 1.8,
+  WAVE_SPAWN_INTERVAL: 0.8, WAVE_SPAWN_BATCH: 1, WAVE_COUNT_MULT: 1,
+  ENRAGE_TIME: "Infinity", PLAYER_INVINCIBLE_TIME: 1.0, WAVE_CLEAR_HEAL_RATIO: 0.1,
+  ENEMY_HP_GROWTH: 0.12, ENEMY_DMG_GROWTH: 0.05, COIN_PER_SECOND: 1,
+};   // 게임 폴더를 열어 주는 작은 웹 서버 (상수 바꿔 끼우기용, tools/serve.js)
 const GOLDEN = path.join(__dirname, "golden");
 
 // ---- 브라우저 안에서 돌릴 공통 준비 코드 ----
@@ -171,12 +188,18 @@ function scenarioRunner(config) {
 // 각 검사는 브라우저 안에서 돌아가는 함수. { ok: true/false, detail: "설명" } 을 돌려준다.
 const CHECKS = require("./checks.js");
 
-async function openGame(browser, gameDir) {
+// 게임 페이지를 연다. overrides = 바꿔 끼울 상수 { 이름: 값 } (지금 게임 폴더일 때만)
+async function openGame(browser, gameDir, overrides) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript(initScript);
-  await page.goto("file://" + path.join(gameDir, "index.html"));
+  if (gameDir === ROOT) {
+    server.setOverrides(overrides || {});
+    await page.goto(server.url + "index.html");
+  } else {
+    await page.goto("file://" + path.join(gameDir, "index.html"));
+  }
   await page.evaluate(async () => {
     try { await document.fonts.load("20px Jua"); await document.fonts.load('20px "Black Han Sans"'); } catch (e) {}
     await document.fonts.ready;
@@ -184,8 +207,8 @@ async function openGame(browser, gameDir) {
   return { page, errors };
 }
 
-async function trace(browser, gameDir, config) {
-  const { page, errors } = await openGame(browser, gameDir);
+async function trace(browser, gameDir, config, overrides) {
+  const { page, errors } = await openGame(browser, gameDir, overrides);
   const log = await page.evaluate(scenarioRunner, config);
   await page.close();
   if (errors.length) log.push("PAGE ERRORS " + JSON.stringify(errors));
@@ -217,13 +240,14 @@ function compare(label, actual, file) {
 (async () => {
   const args = process.argv.slice(2);
   const browser = await chromium.launch();
+  server = await startServer(ROOT);
   let allOk = true;
 
   if (args[0] === "--record-old") {
     const dir = path.resolve(args[1]);
     fs.writeFileSync(path.join(GOLDEN, "old-config.txt"), await trace(browser, dir, "old"));
     console.log("옛 설정 기록을 만들었습니다: " + dir);
-    await browser.close();
+    await browser.close(); server.close();
     return;
   }
   if (args[0] === "--record-old-current") {
@@ -236,35 +260,40 @@ function compare(label, actual, file) {
     console.log("새 설정 기록을 다시 만들었습니다.");
   }
 
+  if (args[0] === "--check-before-pressure") {
+    // 한 번만 쓰는 확인: 압박 이전 값으로 바꿔 끼운 기록이 지금 저장된 기록과 "그림까지" 완전히 같은지
+    const okOld = compare("압박 이전 값 → 옛 설정 기록", await trace(browser, ROOT, "old", BEFORE_PRESSURE), path.join(GOLDEN, "old-config.txt"));
+    const okNew = compare("압박 이전 값 → 새 설정 기록", await trace(browser, ROOT, "new", BEFORE_PRESSURE), path.join(GOLDEN, "new-config.txt"));
+    await browser.close(); server.close();
+    process.exit(okOld && okNew ? 0 : 1);
+  }
+
   console.log("[기록 비교]");
   allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개)", await trace(browser, ROOT, "old"), path.join(GOLDEN, "old-config.txt")) && allOk;
   allOk = compare("새 설정 (지금 waves.js)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config.txt")) && allOk;
   // 옛 규칙 되돌리기 검사: 화면 그림(draw)은 HUD 글자 등이 바뀔 수 있으니 빼고, 상태 기록만 비교
   const stateOnly = (text) => text.split("\n").filter((l) => !/ draw /.test(l) && !/ menuDraw /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
-  const beforeDFile = path.join(GOLDEN, "old-config-before-growth-d.txt");
-  if (fs.existsSync(beforeDFile)) {
-    const now = stateOnly(await trace(browser, ROOT, "beforeGrowthD"));
-    const want = stateOnly(fs.readFileSync(beforeDFile, "utf8"));
-    if (now === want) console.log("  PASS 성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 완전히 같음");
+  // 되돌리기 검사 목록: 바꾼 규칙을 옛 값으로 바꿔 끼우면, 그때 저장한 기록과 상태가 같아야 한다
+  //   config   : 시나리오 종류 (함수를 바꿔 끼우는 옛 규칙)
+  //   overrides: 바꿔 끼울 상수 (압박 규칙 이전 값은 모든 되돌리기 검사에 들어간다)
+  const ROLLBACKS = [
+    { label: "압박 규칙 되돌리기 (옛 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "old", file: "old-config-before-pressure.txt" },
+    { label: "압박 규칙 되돌리기 (새 설정): 상수를 압박 이전 값으로 바꾸면 이전 기록과 상태가 같음", config: "new", file: "new-config-before-pressure.txt" },
+    { label: "성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 같음", config: "beforeGrowthD", file: "old-config-before-growth-d.txt" },
+    { label: "옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 상태가 같음", config: "legacy", file: "old-config-legacy.txt" },
+  ];
+  for (const rb of ROLLBACKS) {
+    const file = path.join(GOLDEN, rb.file);
+    if (!fs.existsSync(file)) { console.log("  ? " + rb.label + ": 기록 파일이 없음"); continue; }
+    const now = stateOnly(await trace(browser, ROOT, rb.config, BEFORE_PRESSURE));
+    const want = stateOnly(fs.readFileSync(file, "utf8"));
+    if (now === want) console.log("  PASS " + rb.label);
     else {
       allOk = false;
       const x = now.split("\n"), y = want.split("\n"); let i = 0; while (x[i] === y[i]) i++;
-      console.log("  FAIL 성장 D 되돌리기: 상태 기록 " + (i + 1) + "번째 줄부터 다름");
+      console.log("  FAIL " + rb.label + ": 상태 기록 " + (i + 1) + "번째 줄부터 다름");
       console.log("     기록: " + (y[i] || "").slice(0, 200));
       console.log("     지금: " + (x[i] || "").slice(0, 200));
-    }
-  }
-  const legacyFile = path.join(GOLDEN, "old-config-legacy.txt");
-  if (fs.existsSync(legacyFile)) {
-    const now = stateOnly(await trace(browser, ROOT, "legacy"));
-    const want = stateOnly(fs.readFileSync(legacyFile, "utf8"));
-    if (now === want) console.log("  PASS 옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 완전히 같음");
-    else {
-      allOk = false;
-      const a = now.split("\n"), b = want.split("\n"); let i = 0; while (a[i] === b[i]) i++;
-      console.log("  FAIL 옛 규칙 되돌리기: 상태 기록 " + (i + 1) + "번째 줄부터 다름");
-      console.log("     기록: " + (b[i] || "").slice(0, 200));
-      console.log("     지금: " + (a[i] || "").slice(0, 200));
     }
   }
 
@@ -284,6 +313,7 @@ function compare(label, actual, file) {
   }
 
   await browser.close();
+  server.close();
   console.log(allOk ? "\n결과: 모두 통과" : "\n결과: 실패한 항목이 있습니다");
   process.exit(allOk ? 0 : 1);
 })();

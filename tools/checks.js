@@ -468,17 +468,18 @@ module.exports = [
   },
   // ---------------- 30웨이브 A: 웨이브 스케일링 ----------------
   {
-    name: "[30A·성장D] 웨이브 배율: 속도 ≤ 1.8, 체력 2×(1+0.12(w−1)), 대미지 1.5×(1+0.05(w−1)), 웨이브 회복 10%, 항상성 40%",
+    name: "[30A·성장D] 웨이브 배율: 속도 ≤ MAX, 체력 HP_BASE×(1+HP_GROWTH(w−1)), 대미지 DMG_BASE×(1+DMG_GROWTH(w−1)), 웨이브 회복 비율, 항상성 40%",
     run: function () {
       let maxSpeed = 0;
       for (let w = 1; w <= 30; w++) maxSpeed = Math.max(maxSpeed, waveSpeedMult(w));
       const e30 = createEnemy("basic", 0, 0, 30), e1 = createEnemy("basic", 0, 0, 1);
-      startGame(); player.maxHp = 200; player.hp = 50; spawnQueue = []; enemies = []; checkWaveEnd(); const heal = player.hp; // +20
+      startGame(); player.maxHp = 200; player.hp = 50; spawnQueue = []; enemies = []; checkWaveEnd(); const heal = player.hp; // + 200 × 비율
       player.hp = 50; SUPPLIES.find((s) => s.id === "homeostasis").apply(); const homeo = player.hp;                       // +80
-      const ok = maxSpeed <= 1.8 && Math.abs(waveSpeedMult(1) - 1.15) < 1e-12 && Math.abs(waveHpMult(1) - 2) < 1e-12 &&
-        Math.abs(waveHpMult(30) - 8.96) < 1e-9 && Math.abs(waveDamageMult(30) - 3.675) < 1e-9 &&
-        Math.abs(e1.maxHp - 120) < 1e-9 && Math.abs(e1.contactDamage - 30) < 1e-9 && Math.abs(e30.speed - 60 * maxSpeed) < 1e-9 &&
-        heal === 70 && homeo === 130;
+      const near = (a, b) => Math.abs(a - b) < 1e-9;
+      const ok = maxSpeed <= ENEMY_SPEED_MAX_MULT && near(waveSpeedMult(1), ENEMY_SPEED_BASE) && near(waveHpMult(1), ENEMY_HP_BASE) &&
+        near(waveHpMult(30), ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * 29)) && near(waveDamageMult(30), ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * 29)) &&
+        near(e1.maxHp, 60 * ENEMY_HP_BASE) && near(e1.contactDamage, 20 * ENEMY_DMG_BASE) && near(e30.speed, 60 * waveSpeedMult(30)) &&
+        near(heal, 50 + 200 * WAVE_CLEAR_HEAL_RATIO) && homeo === 130;
       return { ok: ok, detail: "최대 속도 배율 " + maxSpeed.toFixed(3) + " / 1웨이브 기본 적 체력 " + e1.maxHp + ", 접촉 " + e1.contactDamage +
         " / 30웨이브 체력 " + e30.maxHp.toFixed(1) + ", 접촉 " + e30.contactDamage.toFixed(1) + ", 속도 " + e30.speed.toFixed(1) +
         " / 최대 200일 때 웨이브 회복 50→" + heal + ", 항상성 50→" + homeo };
@@ -486,7 +487,7 @@ module.exports = [
   },
   // ---------------- 30웨이브 B: 회복과 진행 ----------------
   {
-    name: "[30B] 웨이브 클리어 +10 (최대까지), 보스 처치 최대 체력 50% 회복, 챕터 번호, Shift+0",
+    name: "[30B] 웨이브 클리어 회복 = 최대 체력 × WAVE_CLEAR_HEAL_RATIO (최대까지), 보스 처치 최대 체력 50% 회복, 챕터 번호, Shift+0",
     run: new Function(PRESS + `
       startGame();
       // 웨이브 클리어 회복
@@ -503,7 +504,7 @@ module.exports = [
       // Shift+0
       player.hp = 5; press("Digit0", true); const offNoHeal = player.hp === 5;
       press("F2"); press("Digit0", true); const full = player.hp === player.maxHp;
-      const ok = h1 === 60 && h2 === 100 && h3 === 80 && bossesKilled === 1 && ch === "1,1,2,2,3,6" && offNoHeal && full;
+      const ok = Math.abs(h1 - (50 + 100 * WAVE_CLEAR_HEAL_RATIO)) < 1e-9 && h2 === Math.min(100, 95 + 100 * WAVE_CLEAR_HEAL_RATIO) && h3 === 80 && bossesKilled === 1 && ch === "1,1,2,2,3,6" && offNoHeal && full;
       return { ok: ok, detail: "클리어 50→" + h1 + ", 95→" + h2 + " / 보스 처치 20→" + h3 + " (최대 120) / 챕터 " + ch + " / 디버그 꺼짐 무시=" + offNoHeal + ", Shift+0=" + full };
     `),
   },
@@ -534,7 +535,7 @@ module.exports = [
       const restIdx = log.findIndex((x) => x.startsWith("rest"));
       const rest = +(times[restIdx + 1] - times[restIdx]).toFixed(2);
       const ok = cycles[0] === 3 && cycles[1] === 3 && cycles[2] === 4 && Math.abs(firstWarn - 0.8) < 0.03 &&
-        Math.abs(reaim - 0.35) < 0.03 && Math.abs(rest - 2) < 0.03 && summons.join(",") === "0,2,2" && boss.enraged;
+        Math.abs(reaim - 0.35) < 0.03 && Math.abs(rest - 2) < 0.03 && summons.slice(0, 3).join(",") === "0,2,2" && boss.enraged;
       return { ok: ok, detail: "사이클별 돌진 " + cycles.join(",") + " / 첫 예고 " + firstWarn + "초, 재조준 " + reaim + "초, 쉬기 " + rest + "초 / 쉬기 시작 때 소환 " + summons.join(",") + " (2번째 사이클 도중 50% 아래)" };
     },
   },
@@ -572,16 +573,18 @@ module.exports = [
     },
   },
   {
-    name: "[30C] 보스 웨이브: 2초 뒤 보스 등장, 졸개 3초 간격, 빨간 띠, 보스와 졸개가 모두 죽어야 끝",
+    name: "[30C] 보스 웨이브: 2초 뒤 보스 등장, 졸개는 한 마리씩 3초 간격(수는 표 × WAVE_COUNT_MULT), 빨간 띠, 모두 죽어야 끝",
     run: function () {
       startGame();
       WAVES.splice(0, WAVES.length, { boss: "chargerKing", groups: [{ type: "basic", count: 2 }] }, [{ type: "basic", count: 1 }]);
       startWave(1);
       const banner = bannerText, red = bannerIsBoss;
       const DT = 1 / 60; let t = 0; const appear = [];
-      for (let f = 0; f < 60 * 10; f++) {
+      const minions = scaledCount(2);
+      const want = ["chargerKing@2.0"];
+      for (let i = 0; i < minions; i++) want.push("basic@" + (5 + 3 * i).toFixed(1));
+      for (let f = 0; f < 60 * (3 + 3 * minions); f++) {
         player.fireTimer = 1e9; player.invincibleTimer = 1e9;
-        const before = enemies.map((e) => e.type).join();
         update(DT); t += DT;
         for (const e of enemies) if (!e.__seen) { e.__seen = true; appear.push(e.type + "@" + t.toFixed(1)); }
       }
@@ -589,7 +592,7 @@ module.exports = [
       // 졸개만 다 죽여도 보스가 있으면 계속
       enemies = enemies.filter((e) => enemyType(e).isBoss); checkWaveEnd(); const stillPlaying2 = gameState === "playing";
       enemies = []; checkWaveEnd();
-      const ok = banner === "웨이브 1 · 보스: 돌진 대장!" && red && appear.join(",") === "chargerKing@2.0,basic@5.0,basic@8.0" &&
+      const ok = banner === "웨이브 1 · 보스: 돌진 대장!" && red && appear.length === want.length && appear.every((x, i) => x.split("@")[0] === want[i].split("@")[0] && Math.abs(Number(x.split("@")[1]) - Number(want[i].split("@")[1])) <= 0.15) &&
         stillPlaying1 && stillPlaying2 && gameState === "choosing";
       return { ok: ok, detail: banner + " (빨강=" + red + ") / 등장 " + appear.join(", ") + " / 보스만 남아도 계속=" + stillPlaying2 + " / 다 죽으면 " + gameState };
     },
@@ -976,5 +979,71 @@ module.exports = [
       return { ok: ok, detail: "전투 중 클릭 무시 " + playingSame + ", 탭 바 안 그림 " + noBarPlaying + " / 카드 화면 클릭 무시 " + choosingSame +
         ", 탭 바 안 그림 " + noBarChoosing + " / 로비에서는 탭 바 그림 " + barInLobby };
     `),
+  },
+  // ---------------- 압박 (초반 성장 체감) ----------------
+  {
+    name: "[압박] 무리 등장: WAVE_SPAWN_BATCH 마리가 서로 다른 변에서 동시에, WAVE_SPAWN_INTERVAL 간격, 적 수 = 표 × WAVE_COUNT_MULT 반올림",
+    run: function () {
+      startGame(); debugMode = true; debugInvincible = true;
+      const table = waveGroups(WAVES[1]).reduce((a, g) => a + g.count, 0);
+      const want = waveGroups(WAVES[1]).reduce((a, g) => a + Math.round(g.count * WAVE_COUNT_MULT), 0);
+      enemies = []; spawnQueue = []; startWave(2); bannerTimer = 0;
+      const queued = spawnQueue.length;
+      const DT = 1 / 60; let t = 0; const batches = [];
+      const sideOf = (e) => e.y < 0 ? "위" : e.y > CANVAS_HEIGHT ? "아래" : e.x < 0 ? "왼쪽" : "오른쪽";
+      while (spawnQueue.length > 0 && t < 60) {
+        player.fireTimer = 1e9;
+        const before = enemies.length;
+        const fresh = [];
+        update(DT); t += DT;
+        for (let i = before; i < enemies.length; i++) fresh.push(sideOf(enemies[i]));
+        if (fresh.length) batches.push({ t: +t.toFixed(2), sides: fresh });
+      }
+      debugMode = false;
+      const sizesOk = batches.slice(0, -1).every((b) => b.sides.length === WAVE_SPAWN_BATCH);
+      const distinct = batches.every((b) => new Set(b.sides).size === Math.min(b.sides.length, 4));
+      const gaps = batches.slice(1).map((b, i) => +(b.t - batches[i].t).toFixed(2));
+      const gapOk = gaps.every((g) => Math.abs(g - WAVE_SPAWN_INTERVAL) < 0.05);
+      const ok = queued === want && sizesOk && distinct && gapOk && batches.length === Math.ceil(want / WAVE_SPAWN_BATCH);
+      return { ok: ok, detail: "2웨이브 표 " + table + "마리 × " + WAVE_COUNT_MULT + " → " + queued + "마리 (기대 " + want + ") / 무리 " +
+        batches.map((b) => b.sides.join("·")).join(" | ") + " / 간격 " + gaps.join(",") };
+    },
+  },
+  {
+    name: "[압박] 과열: ENRAGE_TIME 이후 매초 ENRAGE_RATE 씩 빨라짐(복리), 플레이어 속도 × ENRAGE_MAX_PLAYER_RATIO 상한, 다음 웨이브엔 초기화, 무적 시간",
+    run: function () {
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      const e = createEnemy("basic", 100, 100, 1); enemies = [e, createEnemy("basic", 900, 500, 1)];
+      const stepX = () => { const x0 = e.x, y0 = e.y; e.x = 100; e.y = 100; player.x = 700; player.y = 100; updateEnemies(0.1); const d = Math.hypot(e.x - 100, e.y - 100); return d / 0.1; };
+      waveTime = ENRAGE_TIME - 1; const vBefore = stepX(); const calmBefore = !isEnraged();
+      waveTime = ENRAGE_TIME + 10; const v10 = stepX(); const enraged = isEnraged();
+      waveTime = ENRAGE_TIME + 1000; const vMax = stepX();
+      const expect10 = e.speed * Math.pow(1 + ENRAGE_RATE, 10);
+      draw();  // "과열!" 경고 그리기 오류 없음
+      spawnQueue = []; enemies = []; checkWaveEnd(); choosingTime = 1; chooseAugment(0); const reset = gameState === "playing" && waveTime === 0 && !isEnraged();
+      // 무적 시간
+      enemies = [createEnemy("basic", player.x, player.y, 1)]; player.invincibleTimer = 0; updatePlayerHit(1 / 60);
+      const inv = player.invincibleTimer;
+      const ok = calmBefore && Math.abs(vBefore - e.speed) < 1e-6 && enraged && Math.abs(v10 - expect10) < 1e-6 &&
+        Math.abs(vMax - ENRAGE_MAX_PLAYER_RATIO * PLAYER_SPEED) < 1e-6 && reset && inv === PLAYER_INVINCIBLE_TIME;
+      return { ok: ok, detail: "과열 전 " + vBefore.toFixed(1) + " / 10초 뒤 " + v10.toFixed(1) + " (기대 " + expect10.toFixed(1) + ") / 상한 " + vMax.toFixed(1) +
+        " / 다음 웨이브 초기화 " + reset + " / 무적 " + inv + "초" };
+    },
+  },
+  {
+    name: "[결과] 지난 최고 → 이번 웨이브, 기록을 깨면 신기록, 살 수 있는 업그레이드가 있으면 업그레이드 버튼 강조",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.bestWave = 3; saveData.coins = 0;
+      startGame(); wave = 5; runCoins = 10; endGame("gameover");
+      const rec = runPrevBestWave === 3 && saveData.bestWave === 5 && wave > runPrevBestWave; draw();
+      const poor = !anyUpgradeAffordable();
+      for (let i = 0; i < 30; i++) update(1 / 60); const animT = resultTime > 0.4;
+      startGame(); wave = 4; runCoins = 100; endGame("gameover");
+      const noRec = runPrevBestWave === 5 && saveData.bestWave === 5 && !(wave > runPrevBestWave); draw();
+      const rich = anyUpgradeAffordable();
+      const ok = rec && noRec && poor && rich && animT;
+      return { ok: ok, detail: "3→5 신기록 " + rec + " / 5→4 신기록 아님 " + noRec + " / 코인 10: 강조 안 함 " + poor + ", 코인 110: 강조 " + rich + " / 애니메이션 시간 " + animT };
+    },
   },
 ];

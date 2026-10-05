@@ -16,17 +16,23 @@
 //       → 보스와 졸개가 모두 죽어야 웨이브가 끝난다
 //
 // type 은 enemies.js 의 ENEMY_TYPES 이름표.
-// 적은 WAVE_SPAWN_INTERVAL 초 간격으로 한 마리씩 나온다.
+// 적은 WAVE_SPAWN_INTERVAL 초 간격으로 WAVE_SPAWN_BATCH 마리씩 무리 지어 나온다 (서로 다른 변에서).
+// 표의 마릿수(count)에는 WAVE_COUNT_MULT 를 곱해서 반올림한다 (보스 수는 그대로).
 // 배열에 칸을 하나 더 추가하면 웨이브가 하나 늘어난다! (마지막 웨이브를 깨면 클리어)
 // 웨이브가 올라갈수록 적이 강해지는 배율은 enemies.js 맨 위 waveSpeedMult / waveHpMult / waveDamageMult
+// 한 웨이브가 ENRAGE_TIME 초를 넘기면 "과열"로 적이 점점 빨라진다 (game.js)
 // =============================================================
 
-// 웨이브 중에 적이 하나씩 나타나는 간격 (초)
-const WAVE_SPAWN_INTERVAL = 0.8;
+// 웨이브 중에 적 무리가 나타나는 간격 (초)
+const WAVE_SPAWN_INTERVAL = 1.6;
+// 한 무리의 마릿수. 무리는 화면의 서로 다른 변에서 동시에 나와 플레이어를 둘러싼다
+const WAVE_SPAWN_BATCH = 3;
+// 표에 적힌 졸개 수에 곱하는 배율 (반올림). 보스 웨이브의 졸개에도 적용, 보스 수는 그대로
+const WAVE_COUNT_MULT = 1.6;
 
 // 보스 웨이브: 웨이브 시작 후 보스가 나타나기까지 걸리는 시간 (초)
 const BOSS_SPAWN_DELAY = 2;
-// 보스 웨이브: 보스가 나타난 뒤 졸개가 한 마리씩 나오는 간격 (초)
+// 보스 웨이브: 보스가 나타난 뒤 졸개가 한 마리씩 나오는 간격 (초. 보스 웨이브는 무리 없이 한 마리씩)
 const BOSS_MINION_INTERVAL = 3;
 
 // 모든 웨이브를 담는 배열 (30웨이브 = 6챕터 × 5웨이브, 5웨이브마다 보스)

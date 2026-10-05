@@ -84,8 +84,8 @@ const PLAYER_MAX_HP = 100;
 // 체력이 최대 체력의 이 비율보다 낮으면, 카드 3장 중 1장은 반드시 보급 카드가 나온다
 const LOW_HP_RATIO = 0.4;
 
-// 웨이브를 깨면 최대 체력의 이 비율만큼 회복 (0.1 = 10%. 최대 체력까지만)
-const WAVE_CLEAR_HEAL_RATIO = 0.1;
+// 웨이브를 깨면 최대 체력의 이 비율만큼 회복 (0.05 = 5%. 최대 체력까지만)
+const WAVE_CLEAR_HEAL_RATIO = 0.05;
 
 // 보스를 잡으면 최대 체력의 이 비율만큼 회복 (0.5 = 50%)
 const BOSS_KILL_HEAL_RATIO = 0.5;
@@ -120,7 +120,15 @@ const COIN_WAVE_TIME_CAP = 60;
 const BOSS_COIN_BONUS = 50;
 
 // 맞은 뒤 잠깐 무적이 되는 시간 (초). 이 시간 동안은 또 맞지 않는다.
-const PLAYER_INVINCIBLE_TIME = 1.0;
+const PLAYER_INVINCIBLE_TIME = 0.6;
+
+// ---- 과열: 한 웨이브를 너무 오래 끌면 적이 점점 빨라진다 (끝없이 도망만 다니는 것을 막는다) ----
+// 웨이브 시작 후 이 시간(초)이 지나면 과열 시작
+const ENRAGE_TIME = 40;
+// 과열 중에는 살아 있는 모든 적의 속도가 1초마다 이 비율씩 빨라진다 (0.03 = 3%, 복리)
+const ENRAGE_RATE = 0.03;
+// 과열로 빨라져도 적의 속도는 플레이어 최고 속도의 이 배수를 넘지 않는다
+const ENRAGE_MAX_PLAYER_RATIO = 1.1;
 
 // 자동 발사 간격 (초). 0.4 이면 1초에 2.5발
 const FIRE_INTERVAL = 0.4;
@@ -559,6 +567,9 @@ let particles = [];
 // 다음 적이 나타날 때까지 남은 시간 (초)
 let spawnTimer = 0;
 
+// 이번 웨이브가 시작된 뒤 흐른 전투 시간 (초). 과열(ENRAGE_TIME)을 잴 때 쓴다
+let waveTime = 0;
+
 // 게임 상태: 지금 어떤 화면인지 기억하는 변수
 //   "menu"      : 로비의 전투 탭 (처음 화면)
 //   "upgrades"  : 로비의 업그레이드 탭 (영구 업그레이드)
@@ -593,6 +604,12 @@ let hpFlashTimer = 0;
 // 이번 판의 코인을 이미 저장했는지 (두 번 저장하지 않으려고)
 let runCommitted = false;
 
+// 이번 판을 저장하기 직전의 최고 웨이브 (결과 화면 "지난 최고 기록: 웨이브 N → 이번: 웨이브 M")
+let runPrevBestWave = 0;
+
+// 결과 화면이 열린 뒤 흐른 시간 (초). 신기록 스티커·업그레이드 버튼이 콩닥거리는 애니메이션에 사용
+let resultTime = 0;
+
 // 일시정지 중인지, 그리고 "계속하기" 뒤 다시 움직이기까지 남은 시간 (초)
 let paused = false;
 let resumeTimer = 0;
@@ -625,6 +642,8 @@ let bossTimer = 0;
 
 // 지금 웨이브에서 졸개가 나오는 간격 (보통 WAVE_SPAWN_INTERVAL, 보스 웨이브는 BOSS_MINION_INTERVAL)
 let currentSpawnInterval = WAVE_SPAWN_INTERVAL;
+// 지금 웨이브에서 한 번에 나오는 졸개 수 (보통 WAVE_SPAWN_BATCH, 보스 웨이브는 1)
+let currentSpawnBatch = WAVE_SPAWN_BATCH;
 
 // 안내 띠가 보스 안내인지 (보스 안내면 띠 색이 빨강)
 let bannerIsBoss = false;
@@ -734,11 +753,12 @@ function updatePlayer(dt) {
 }
 
 // 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 typeId 종류의 적 하나를 만든다
-function spawnEnemy(typeId) {
+// side 를 주면 그 변에서 (0 위, 1 아래, 2 왼쪽, 3 오른쪽), 안 주면 무작위 변에서 나온다
+function spawnEnemy(typeId, side) {
   const r = ENEMY_TYPES[typeId].radius; // 이 종류의 몸 반지름
 
-  // 0, 1, 2, 3 중 하나를 무작위로 뽑아 어느 변에서 나올지 정한다
-  const side = Math.floor(Math.random() * 4);
+  // 변을 정하지 않았으면 0, 1, 2, 3 중 하나를 무작위로 뽑는다
+  if (side === undefined) side = Math.floor(Math.random() * 4);
 
   // 적이 나타날 위치
   let x = 0;
@@ -785,11 +805,49 @@ function updateSpawning(dt) {
   // 남은 시간을 흐른 시간만큼 줄인다
   spawnTimer -= dt;
 
-  // 시간이 다 됐으면 대기열 맨 앞의 적을 꺼내(shift) 하나 만든다
+  // 시간이 다 됐으면 대기열 맨 앞에서 한 무리를 꺼내(shift) 만든다
   if (spawnTimer <= 0) {
-    spawnEnemy(spawnQueue.shift());
+    spawnBatch(currentSpawnBatch);
     spawnTimer = currentSpawnInterval; // 타이머를 다시 채운다
   }
+}
+
+// 대기열에서 count 마리를 꺼내 "서로 다른 변"에서 동시에 나오게 한다 (둘러싸는 느낌)
+function spawnBatch(count) {
+  // 한 마리씩 나오는 웨이브는 예전처럼 무작위 변에서
+  if (count <= 1) {
+    spawnEnemy(spawnQueue.shift());
+    return;
+  }
+  // 네 변의 순서를 섞어서 앞에서부터 하나씩 쓴다 (4마리가 넘으면 다시 처음 변부터)
+  const sides = shuffle([0, 1, 2, 3]);
+  for (let i = 0; i < count && spawnQueue.length > 0; i++) {
+    spawnEnemy(spawnQueue.shift(), sides[i % sides.length]);
+  }
+}
+
+// 표의 마릿수에 WAVE_COUNT_MULT 를 곱한 실제 마릿수 (반올림)
+function scaledCount(count) {
+  return Math.round(count * WAVE_COUNT_MULT);
+}
+
+// 지금 과열 배율: 과열 전에는 1, 과열이 시작되면 1초마다 (1 + ENRAGE_RATE) 배씩
+function enrageMult() {
+  if (waveTime <= ENRAGE_TIME) return 1;
+  return Math.pow(1 + ENRAGE_RATE, waveTime - ENRAGE_TIME);
+}
+
+// 과열 중인지 (화면 위 "과열!" 경고)
+function isEnraged() {
+  return gameState === "playing" && waveTime > ENRAGE_TIME;
+}
+
+// 이 적이 과열로 받는 속도 배율. 플레이어 최고 속도 × ENRAGE_MAX_PLAYER_RATIO 를 넘지 않게 자른다
+function enrageFactor(enemy) {
+  const mult = enrageMult();
+  if (mult === 1) return 1;
+  const cap = (ENRAGE_MAX_PLAYER_RATIO * PLAYER_SPEED) / enemy.speed;  // 이 적이 낼 수 있는 최대 배율
+  return Math.max(1, Math.min(mult, cap));
 }
 
 // n번째 웨이브를 시작하는 함수
@@ -803,7 +861,7 @@ function startWave(n) {
   // 이번 웨이브의 묶음을 하나씩 보는 반복문
   for (const group of waveGroups(waveDef)) {
     // 같은 종류를 count 마리만큼 줄 뒤에 붙이는 반복문
-    for (let i = 0; i < group.count; i++) {
+    for (let i = 0; i < scaledCount(group.count); i++) {
       spawnQueue.push(group.type);
     }
   }
@@ -811,18 +869,21 @@ function startWave(n) {
   if (waveIsMixed(waveDef)) {
     shuffle(spawnQueue);
   }
-  // 새 웨이브: 이 웨이브에서 코인이 쌓인 시간을 0 부터 다시 잰다
+  // 새 웨이브: 이 웨이브에서 코인이 쌓인 시간, 과열 시계를 0 부터 다시 잰다
   waveCoinTime = 0;
+  waveTime = 0;
 
   // 보스 웨이브인지 확인
   bossQueue = waveBosses(waveDef).slice();
   if (bossQueue.length > 0) {
     bossTimer = BOSS_SPAWN_DELAY;                              // 2초 뒤 보스 등장
     currentSpawnInterval = BOSS_MINION_INTERVAL;               // 졸개는 3초 간격
+    currentSpawnBatch = 1;                                     // 보스 웨이브의 졸개는 한 마리씩
     spawnTimer = BOSS_SPAWN_DELAY + BOSS_MINION_INTERVAL;      // 첫 졸개는 보스 등장 3초 뒤
   } else {
     currentSpawnInterval = WAVE_SPAWN_INTERVAL;
-    spawnTimer = 1.0;       // 1초 뒤 첫 적 등장
+    currentSpawnBatch = WAVE_SPAWN_BATCH;
+    spawnTimer = 1.0;       // 1초 뒤 첫 무리 등장
   }
   gameState = "playing";
 
@@ -1081,6 +1142,7 @@ function endGame(result) {
 
   paused = false;
   resumeTimer = 0;
+  resultTime = 0;
   gameState = result;
 }
 
@@ -1092,6 +1154,7 @@ function commitRunProgress() {
   runCommitted = true;
   lastRunCoins = Math.floor(runCoins);
   saveData.coins += lastRunCoins;
+  runPrevBestWave = saveData.bestWave;
   saveData.bestWave = Math.max(saveData.bestWave, wave);
   writeSave();
 }
@@ -1438,7 +1501,7 @@ function updateEnemies(dt) {
     //   timeScale : 배율 그 자체 = 이 적의 시간이 흐르는 빠르기
     //   localDt   : 이 적의 시계로 흐른 시간 (예고·돌진·흔들림 같은 행동 시간에 사용)
     enemyType(enemy).update(enemy, dt, {
-      speed: enemy.speed * enemy.slowFactor,
+      speed: enemy.speed * enemy.slowFactor * enrageFactor(enemy),   // 과열 중이면 더 빠르게
       timeScale: enemy.slowFactor,
       localDt: dt * enemy.slowFactor,
     });
@@ -1784,6 +1847,7 @@ function update(dt) {
 
   if (gameState === "playing") {
     // 전투 중 (순서가 중요하다)
+    waveTime += dt;       // 0) 과열 시계
     updatePlayer(dt);     // 1) 플레이어 이동
     updateSpawning(dt);   // 2) 적 생성
     updateEnemies(dt);    // 3) 적 이동
@@ -1799,6 +1863,9 @@ function update(dt) {
     if (gameState === "playing") {
       checkWaveEnd();
     }
+  } else if (gameState === "gameover" || gameState === "clear") {
+    // 결과 화면: 애니메이션 시간만 흐른다
+    resultTime += dt;
   } else if (isLobbyState()) {
     // 로비 화면들: 장식 애니메이션, 알림, 버튼 효과 시간만 흐른다
     updateLobby(dt);
@@ -1813,7 +1880,7 @@ function update(dt) {
   bannerTimer = Math.max(0, bannerTimer - dt);
   hpFlashTimer = Math.max(0, hpFlashTimer - dt);
   debugMessageTimer = Math.max(0, debugMessageTimer - dt);
-  // "gameover", "clear" 상태에서는 아무것도 움직이지 않는다 (R 키를 기다림)
+  // "gameover", "clear" 상태에서는 게임이 멈춰 있다 (결과 화면 애니메이션 시간만 흐른다)
 }
 
 
@@ -2559,6 +2626,22 @@ function drawCoinIcon(x, y, r) {
   drawHighlight(x, y, r);
 }
 
+// ---- "과열!" 경고 (화면 위쪽 가운데, 보스 체력바가 있으면 그 아래) ----
+function drawEnrageWarning() {
+  if (!isEnraged()) return;
+  const bossCount = enemies.filter(function (e) { return enemyType(e).isBoss; }).length;
+  const y = bossCount > 0 ? 24 + bossCount * 50 + 6 : 30;
+  // 0.5초마다 살짝 커졌다 작아지며 깜빡이는 느낌
+  const pulse = 1 + 0.06 * Math.sin(waveTime * Math.PI * 4);
+  ctx.save();
+  ctx.translate(CANVAS_WIDTH / 2, y);
+  ctx.scale(pulse, pulse);
+  ctx.rotate(-0.02);
+  drawOutlinedRoundRect(-140, -18, 280, 36, 16, COLORS.red);
+  drawOutlinedText("과열! 적이 점점 빨라져요", 0, 1, 19);
+  ctx.restore();
+}
+
 // ---- 보스 체력바 (화면 위쪽 가운데) ----
 // 보스가 여러 마리면 아래로 한 줄씩 쌓는다
 function drawBossBars() {
@@ -2961,13 +3044,14 @@ function drawOverlay() {
   }
   drawOutlinedText("최고 점수 " + bestScore, 0, -48, 18);
 
-  // 도달한 웨이브와 잡은 보스 수
-  drawOutlinedText("도달 웨이브 " + wave + " / " + WAVES.length + "   ·   잡은 보스 " + bossesKilled + "마리",
-    0, -18, 20, "center", COLORS.yellow);
+  // 성장 체감: 지난 최고 기록과 이번 기록 (기록을 깼으면 아래에서 "신기록!" 스티커)
+  const newRecord = wave > runPrevBestWave;
+  const recordText = "지난 최고 기록: " + (runPrevBestWave > 0 ? "웨이브 " + runPrevBestWave : "없음") + "  →  이번: 웨이브 " + wave;
+  drawOutlinedText(recordText, 0, -18, fitTextSize(recordText, 21, pw - 60), "center", newRecord ? COLORS.green : COLORS.yellow);
 
-  // 코인: 생존 시간 / 번 코인 / 보유 코인 / 최고 웨이브
+  // 코인: 생존 시간 / 번 코인 / 보유 코인 / 잡은 보스
   const coinText = "생존 " + formatTime(runTime) + "  ·  번 코인 +" + lastRunCoins +
-    "  ·  보유 " + saveData.coins + "  ·  최고 웨이브 " + saveData.bestWave;
+    "  ·  보유 " + saveData.coins + "  ·  잡은 보스 " + bossesKilled + "마리";
   const coinSize = fitTextSize(coinText, 18, pw - 70);
   ctx.font = coinSize + "px " + FONT_FAMILY;
   const coinW = ctx.measureText(coinText).width;
@@ -2987,13 +3071,35 @@ function drawOverlay() {
   }
 
   // 아래쪽 버튼 3개: 다시 시작(R) / 업그레이드(U) / 메뉴(M)
-  // 업그레이드 버튼만 눈에 띄게 초록색
+  // 지금 코인으로 살 수 있는 업그레이드가 있으면 업그레이드 버튼을 초록색으로 강조 (콩닥콩닥 + 빨간 점)
+  const canUpgrade = anyUpgradeAffordable();
   for (const b of RESULT_BUTTONS) {
-    drawOutlinedRoundRect(b.dx - b.w / 2, 112, b.w, 40, 20, b.id === "upgrades" ? COLORS.green : COLORS.outline);
-    drawOutlinedText(b.label, b.dx, 133, 18, "center", b.id === "upgrades" ? COLORS.white : COLORS.yellow);
+    const strong = b.id === "upgrades" && canUpgrade;
+    ctx.save();
+    ctx.translate(b.dx, 132);
+    if (strong) { const s = 1 + RESULT_UPGRADE_PULSE * Math.sin(resultTime * Math.PI * 2 / START_PULSE_PERIOD); ctx.scale(s, s); }
+    drawOutlinedRoundRect(-b.w / 2, -20, b.w, 40, 20, strong ? COLORS.green : COLORS.outline);
+    drawOutlinedText(b.label, 0, 1, 18, "center", strong ? COLORS.white : COLORS.yellow);
+    if (strong) drawOutlinedCircle(b.w / 2 - 6, -18, 8, COLORS.red, SMALL_OUTLINE_WIDTH);
+    ctx.restore();
+  }
+
+  // 신기록 스티커 (패널 위쪽 가장자리에 비스듬히 붙인다. 제목을 가리지 않게 패널 바깥쪽으로)
+  if (newRecord) {
+    ctx.save();
+    ctx.translate(0, -194);
+    ctx.rotate(-0.04);
+    const s = 1 + 0.05 * Math.sin(resultTime * Math.PI * 2);
+    ctx.scale(s, s);
+    drawStickerRect(-86, -28, 172, 56, 20, COLORS.green, 6);
+    drawOutlinedText("신기록!", 0, 2, 36, "center", COLORS.yellow);
+    ctx.restore();
   }
   ctx.restore();
 }
+
+// 결과 화면: 살 수 있는 업그레이드가 있을 때 업그레이드 버튼이 커졌다 작아지는 정도
+const RESULT_UPGRADE_PULSE = 0.06;
 
 // 결과 화면 아래쪽 버튼들 (dx = 화면 가운데에서 가로로 떨어진 거리)
 const RESULT_BUTTONS = [
@@ -3710,6 +3816,7 @@ function draw() {
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
   drawBossBars();   // 보스 체력바
+  drawEnrageWarning(); // "과열!" 경고 (웨이브가 너무 길어지면)
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
   drawOverlay();    // 게임 오버·클리어 안내
