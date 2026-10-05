@@ -1956,4 +1956,55 @@ module.exports = [
       return { ok: def && off && on, detail: "기본 " + def + " / 끄기·저장 " + off + " / 켜기·저장 " + on };
     },
   },
+  // ---------------- 의견 B: 상태창 반투명 ----------------
+  {
+    name: "[반투명] 상태창 · 증강 목록 · 보스 체력바: 플레이어 · 적 · 적 탄환이 들어오면 0.15초에 걸쳐 0.3, 나가면 다시 1. 크기 · 자리 그대로, 클릭 · 접기 그대로",
+    run: function () {
+      const DT = 1 / 60;
+      const step = (n) => { for (let i = 0; i < n; i++) { player.fireTimer = 1e9; update(DT); } };
+      startGame(); debugMode = true; debugInvincible = true; spawnQueue = []; bannerTimer = 0; enemies = []; enemyBullets = [];
+      ownedAugments = { compound: 1, variance: 1 };
+      // 웨이브가 끝나지 않게 멀리 서 있는 적 하나 (움직이지 않음)
+      const keeper = createEnemy("basic", 880, 470, 1); keeper.speed = 0; enemies = [keeper];
+      const hud0 = JSON.stringify(hudPanelRect()), aug0 = JSON.stringify(augmentListRect());
+      const fixed = (o) => { const keep = { x: o.x, y: o.y }; return () => { o.x = keep.x; o.y = keep.y; }; };
+      // 1) 플레이어가 상태창 안 → 0.075초면 중간, 0.15초면 0.3
+      player.x = 100; player.y = 60; player.vx = player.vy = 0;
+      const pin = fixed(player);
+      for (let i = 0; i < 5; i++) { pin(); update(DT); }
+      const mid = hudFade.hud;
+      for (let i = 0; i < 5; i++) { pin(); update(DT); }
+      const hudIn = Math.abs(hudFade.hud - HUD_FADE_ALPHA) < 1e-9 && mid > HUD_FADE_ALPHA && mid < 1;
+      const augStay = hudFade.aug === 1 && hudFade.boss === 1;
+      // 반투명이어도 클릭: 화살표 = 접기, 나머지 = 일시정지 (자리는 그대로)
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => canvas.dispatchEvent(new MouseEvent("click", { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 }));
+      const ar = hudArrowRect(); click(ar.x + ar.w / 2, ar.y + ar.h / 2); const folded = hudCollapsed();
+      const ar1 = hudArrowRect(); click(ar1.x + ar1.w / 2, ar1.y + ar1.h / 2);   // (접으면 화살표 자리가 바뀐다)
+      const hp = hudPanelRect(); click(hp.x + 40, hp.y + hp.h - 20); const pausedOk = paused; resumeGame(); resumeTimer = 0;
+      // 2) 나가면 0.15초 뒤 1
+      player.x = 480; player.y = 400; const pin2 = fixed(player);
+      for (let i = 0; i < 10; i++) { pin2(); update(DT); }
+      const hudOut = hudFade.hud === 1;
+      // 3) 적이 증강 목록 안 → 증강 목록만 반투명 / 4) 적 탄환이 상태창 안 → 상태창 반투명
+      const ar2 = augmentListRect();
+      const e = createEnemy("basic", ar2.x + 30, ar2.y + 20, 1); e.speed = 0; enemies = [e, keeper];
+      enemyBullets = [{ x: 60, y: 40, vx: 0, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 1 }];
+      for (let i = 0; i < 10; i++) { pin2(); e.x = ar2.x + 30; e.y = ar2.y + 20; enemyBullets.forEach((b) => { b.x = 60; b.y = 40; }); update(DT); }
+      const augIn = Math.abs(hudFade.aug - HUD_FADE_ALPHA) < 1e-9, bulletIn = Math.abs(hudFade.hud - HUD_FADE_ALPHA) < 1e-9;
+      // 5) 보스 체력바: 보스가 있고 그 영역에 적이 있으면
+      enemies = []; enemyBullets = [];
+      const boss = createEnemy("chargerKing", 100, 400, 5); boss.speed = 0; boss.update = null;
+      const minion = createEnemy("basic", CANVAS_WIDTH / 2, 40, 1); minion.speed = 0;
+      enemies = [boss, minion, keeper];
+      for (let i = 0; i < 10; i++) { pin2(); boss.x = 100; boss.y = 400; minion.x = CANVAS_WIDTH / 2; minion.y = 40; update(DT); }
+      const bossIn = Math.abs(hudFade.boss - HUD_FADE_ALPHA) < 1e-9;
+      draw();
+      const sameRects = JSON.stringify(hudPanelRect()) === hud0 && JSON.stringify(augmentListRect()) === aug0;
+      debugMode = false; debugInvincible = false;
+      const ok = hudIn && augStay && folded && pausedOk && hudOut && augIn && bulletIn && bossIn && sameRects;
+      return { ok: ok, detail: "플레이어 → 상태창 " + hudIn + " (0.075초 " + mid.toFixed(2) + ") / 다른 창 그대로 " + augStay + " / 반투명 중 접기 " + folded + " · 일시정지 " + pausedOk +
+        " / 나가면 1 " + hudOut + " / 적 → 증강 목록 " + augIn + " / 적 탄환 → 상태창 " + bulletIn + " / 보스 체력바 " + bossIn + " / 크기 · 자리 그대로 " + sameRects + (sameRects ? "" : " " + hud0 + aug0 + " → " + JSON.stringify(hudPanelRect()) + JSON.stringify(augmentListRect())) };
+    },
+  },
 ];

@@ -105,6 +105,10 @@ const HUD_WIDTH = 290;
 const HUD_HEIGHT = 132;
 // 접은 상태창의 높이 (체력바와 웨이브 번호만 한 줄로)
 const HUD_COLLAPSED_HEIGHT = 40;
+// 상태창 · 증강 목록 · 보스 체력바 영역에 플레이어 · 적 · 적 탄환이 들어오면 그 창만 이 투명도로 (뒤가 보이게)
+const HUD_FADE_ALPHA = 0.3;
+// 투명도가 바뀌는 데 걸리는 시간 (초). 1 → 0.3 (또는 반대) 를 이 시간에 걸쳐 부드럽게
+const HUD_FADE_TIME = 0.15;
 // 체력바 길이: 최대 체력 100 일 때의 길이. 최대 체력에 비례해서 늘어나고, 상태창 폭에서 멈춘다
 const HP_BAR_BASE_WIDTH = 140;
 // 최대 체력이 늘었을 때 체력바가 번쩍이는 시간 (초)
@@ -874,6 +878,9 @@ let lobbyToastTimer = 0;
 
 // 체력바가 번쩍이는 남은 시간 (초)
 let hpFlashTimer = 0;
+
+// 창마다 지금 투명도 (1 = 보통, HUD_FADE_ALPHA = 반투명). 그림 전용 값 (게임 진행에는 쓰지 않는다)
+let hudFade = { hud: 1, aug: 1, boss: 1 };
 
 // 이번 판의 코인을 이미 저장했는지 (두 번 저장하지 않으려고)
 let runCommitted = false;
@@ -1907,6 +1914,7 @@ function updatePlayerHit(dt) {
 
 // 게임을 처음 상태로 되돌리는 함수 (R 키로 다시 시작할 때 사용)
 function resetGame() {
+  hudFade = { hud: 1, aug: 1, boss: 1 };   // 창 투명도도 처음처럼
   // 플레이어를 가운데로, 체력은 가득, 타이머는 0으로
   player.x = CANVAS_WIDTH / 2;
   player.y = CANVAS_HEIGHT / 2;
@@ -2396,6 +2404,7 @@ function update(dt) {
     updatePopups(dt);     // 8) 대미지 숫자 떠오르기
     updateParticles(dt);  // 9) 파티클 날아가기
     updateCoins(dt);      // 10) 생존 시간과 코인 (전투 중에만)
+    updateHudFade(dt);    // 11) 상태창 · 증강 목록 · 보스 체력바 반투명 (그림 전용)
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -3248,6 +3257,15 @@ function drawHudArrow() {
 // 왼쪽 위: 웨이브 번호, 체력바(숫자), 점수, 코인 / 오른쪽 위: 가진 증강 목록
 // 접으면: 웨이브 번호 + 체력바만 한 줄로 얇게, 증강 목록도 작은 표시만
 function drawHud() {
+  ctx.save();
+  ctx.globalAlpha *= hudFade.hud;   // 뒤에 플레이어 · 적 · 탄환이 있으면 반투명
+  drawHudPanel();
+  ctx.restore();
+  // ---- 오른쪽 위: 가진 증강 목록 (따로 반투명) ----
+  drawAugmentList();
+}
+
+function drawHudPanel() {
   const p = hudPanelRect();
 
   if (hudCollapsed()) {
@@ -3257,7 +3275,6 @@ function drawHud() {
     drawHpBar(p.x + 86, p.y + 10, hpBarWidth(HUD_WIDTH - 110), 20);
     drawHudArrow();
     drawEffectIcons(p.x + p.w + 22, p.y + p.h / 2, 1);   // 접은 상태창 오른쪽 바깥에 왼쪽부터
-    drawAugmentList();
     return;
   }
 
@@ -3281,9 +3298,6 @@ function drawHud() {
 
   // 남은 보급 효과 아이콘 (코인 줄 오른쪽 끝에서 왼쪽으로)
   drawEffectIcons(p.x + p.w - 24, p.y + 110, -1);
-
-  // ---- 오른쪽 위: 가진 증강 목록 ----
-  drawAugmentList();
 }
 
 // ---- 남은 보급 효과 아이콘 (상태창) ----
@@ -3380,13 +3394,73 @@ function drawImmuneRing() {
   ctx.lineCap = "butt";
 }
 
+// 가진 증강 목록 (augments.js 에 적힌 순서대로)
+function ownedAugmentList() {
+  return AUGMENTS.filter(function (aug) {
+    return getAugmentLevel(aug.id) > 0;
+  });
+}
+
+// 오른쪽 위 증강 목록 창의 사각형 (가진 증강이 없으면 null). 그리기와 반투명 판정이 같이 쓴다
+function augmentListRect() {
+  const n = ownedAugmentList().length;
+  if (n === 0) return null;
+  if (hudCollapsed()) return { x: CANVAS_WIDTH - 12 - 110, y: 12, w: 110, h: HUD_COLLAPSED_HEIGHT };
+  if (n > AUGMENT_LIST_COMPACT_FROM - 1) {
+    const w = 150 * 2 + 16;
+    return { x: CANVAS_WIDTH - 12 - w, y: 12, w: w, h: 40 + Math.ceil(n / 2) * 24 };
+  }
+  return { x: CANVAS_WIDTH - 12 - 220, y: 12, w: 220, h: 44 + n * 32 };
+}
+
+// 보스 체력바 영역 (보스 이름 + 체력바, 보스가 여러 마리면 아래로 쌓인 전체. 보스가 없으면 null)
+function bossBarsRect() {
+  const count = enemies.filter(function (e) { return enemyType(e).isBoss; }).length;
+  if (count === 0) return null;
+  return { x: CANVAS_WIDTH / 2 - BOSS_BAR_WIDTH / 2 - 4, y: 8, w: BOSS_BAR_WIDTH + 8, h: (count - 1) * 50 + 46 };
+}
+
+// 원 (cx, cy, r) 이 사각형 rect 와 겹치는지
+function circleHitsRect(cx, cy, r, rect) {
+  const nx = clamp(cx, rect.x, rect.x + rect.w);
+  const ny = clamp(cy, rect.y, rect.y + rect.h);
+  return (cx - nx) * (cx - nx) + (cy - ny) * (cy - ny) <= r * r;
+}
+
+// 사각형 안에 플레이어 · 적 · 적 탄환 중 하나라도 들어와 있는지
+function somethingUnder(rect) {
+  if (!rect) return false;
+  if (circleHitsRect(player.x, player.y, PLAYER_RADIUS, rect)) return true;
+  for (const e of enemies) if (circleHitsRect(e.x, e.y, e.radius, rect)) return true;
+  for (const b of enemyBullets) if (circleHitsRect(b.x, b.y, b.radius, rect)) return true;
+  return false;
+}
+
+// 창 투명도를 목표 쪽으로 HUD_FADE_TIME 에 걸쳐 옮긴다 (그림 전용. 난수 · 게임 진행과 상관없다)
+function updateHudFade(dt) {
+  const step = (1 - HUD_FADE_ALPHA) * dt / HUD_FADE_TIME;
+  const move = function (key, under) {
+    const target = under ? HUD_FADE_ALPHA : 1;
+    const now = hudFade[key];
+    hudFade[key] = now < target ? Math.min(target, now + step) : Math.max(target, now - step);
+  };
+  move("hud", somethingUnder(hudPanelRect()));
+  move("aug", somethingUnder(augmentListRect()));
+  move("boss", somethingUnder(bossBarsRect()));
+}
+
 // 가진 증강을 한 줄씩 보여 주는 패널 (하나도 없으면 그리지 않는다)
 function drawAugmentList() {
   // 가진 증강만 골라 목록으로 만든다 (augments.js 에 적힌 순서대로)
-  const owned = AUGMENTS.filter(function (aug) {
-    return getAugmentLevel(aug.id) > 0;
-  });
+  const owned = ownedAugmentList();
   if (owned.length === 0) return;
+  ctx.save();
+  ctx.globalAlpha *= hudFade.aug;   // 뒤에 무언가 있으면 반투명
+  drawAugmentListPanel(owned);
+  ctx.restore();
+}
+
+function drawAugmentListPanel(owned) {
 
   // 상태창을 접었으면 증강 목록도 접어서 "증강 N개" 작은 표시만
   if (hudCollapsed()) {
@@ -3482,6 +3556,8 @@ function drawEnrageWarning() {
 function drawBossBars() {
   const bosses = enemies.filter(function (e) { return enemyType(e).isBoss; });
   const w = BOSS_BAR_WIDTH;
+  ctx.save();
+  ctx.globalAlpha *= hudFade.boss;   // 뒤에 무언가 있으면 반투명
   // 살아 있는 보스를 하나씩 그리는 반복문
   for (let i = 0; i < bosses.length; i++) {
     const boss = bosses[i];
@@ -3489,6 +3565,7 @@ function drawBossBars() {
     drawOutlinedText(enemyType(boss).name, CANVAS_WIDTH / 2, y, 20, "center", COLORS.yellow);
     drawBar(CANVAS_WIDTH / 2 - w / 2, y + 14, w, 18, boss.hp / boss.maxHp, COLORS.red);
   }
+  ctx.restore();
 }
 
 // ---- 적 등장 예고 ----
