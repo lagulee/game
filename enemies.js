@@ -61,6 +61,11 @@ const SHOOTER_FIRE_INTERVAL = 2.5;  // 쏘는 간격 (초)
 const SHOOTER_WARN_TIME = 0.5;      // 쏘기 전에 몸이 깜빡이는 시간 (초)
 const SHOOTER_BULLET_DAMAGE = 12;   // 조준탄 기본 대미지 (× 웨이브 접촉 대미지 배율)
 
+// ---- 방패형 (수학 · 각도): 앞쪽 120° 를 방패로 막는다 ----
+const SHIELD_ARC = (Math.PI * 2) / 3;     // 방패가 막는 범위 (120°)
+const SHIELD_TURN_RATE = Math.PI / 3;     // 방패가 플레이어 쪽으로 도는 최대 빠르기 (초당 60°)
+const SHIELD_REDUCTION = 0.8;             // 방패에 맞은 총알의 대미지 감소율 (0.8 = 80% 감소)
+
 // ---- 공통 ----
 
 // ---- 웨이브 스케일링 : 웨이브가 올라갈수록 적이 얼마나 강해지는지 ----
@@ -424,6 +429,49 @@ const ENEMY_TYPES = {
     },
   },
 
+  // ---- 방패형 (수학 · 각도): 앞쪽 120° 범위에 방패. 방패는 초당 60° 까지만 천천히 돈다 ----
+  // 총알이 맞은 방향과 방패 방향 사이의 각도가 60° (120° 의 절반) 안이면 방패에 맞은 것 → 대미지 80% 감소.
+  // 방패가 천천히 돌기 때문에, 빠르게 옆이나 뒤로 돌아가서 쏘면 제대로 맞힐 수 있다.
+  // 반감기·발열 반응처럼 총알이 아닌 대미지는 방패를 무시한다 (modifyBulletDamage 는 총알에만 쓰인다).
+  shield: {
+    name: "방패형",
+    desc: "앞쪽 120° 방패, 옆·뒤가 약점",
+    hp: 70,
+    speed: 38,
+    radius: 18,
+    color: "slate",
+    contactDamage: 20,
+    knockResist: 0.5,
+    score: 160,
+    shape: "shield",
+
+    init: function (enemy) {
+      enemy.shieldAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);  // 처음에는 플레이어 쪽
+      enemy.shieldFlash = 0;   // 방패로 막았을 때 반짝이는 남은 시간 (그림 전용)
+    },
+
+    update: function (enemy, dt, info) {
+      moveToward(enemy, player.x, player.y, info.speed, dt);
+      // 방패를 플레이어 쪽으로, 이번 프레임에 돌 수 있는 만큼만 돌린다 (이 적의 시계 localDt 로)
+      const want = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+      const diff = angleDifference(want, enemy.shieldAngle);
+      const maxTurn = SHIELD_TURN_RATE * info.localDt;
+      enemy.shieldAngle += clamp(diff, -maxTurn, maxTurn);
+      enemy.shieldFlash = Math.max(0, enemy.shieldFlash - dt);
+    },
+
+    // 총알이 맞은 방향이 방패 쪽이면 대미지 80% 감소
+    modifyBulletDamage: function (enemy, damage, bullet) {
+      if (!shieldBlocks(enemy, bullet.x, bullet.y)) return damage;
+      enemy.shieldFlash = 0.15;
+      return damage * (1 - SHIELD_REDUCTION);
+    },
+
+    onDeath: function (enemy) {
+      spawnParticles(enemy.x, enemy.y, COLORS.slate);
+    },
+  },
+
   // ---- 돌진 대장 (물리 · 가속도): 돌격형의 왕. 연속 돌진을 퍼붓는다 ----
   // 순환: 예고 0.8초 → 돌진 → (재조준 0.35초 → 돌진) ... 총 3번 → 쉬기 2초
   // 체력 50% 아래: 4연속 돌진, 쉬기 시작할 때 돌격형 2마리 소환
@@ -557,6 +605,21 @@ const ENEMY_TYPES = {
 
 
 // ---- 적 행동 도우미 함수 ----
+
+// 각도 a 에서 b 를 뺀 차이를 −π ~ π (−180° ~ 180°) 로 맞춘다
+//   예: 350° 와 10° 의 차이는 340° 가 아니라 −20°
+function angleDifference(a, b) {
+  let d = (a - b) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+// (x, y) 에서 온 총알을 방패형의 방패가 막는지: 총알 방향과 방패 방향의 차이가 120° 의 절반(60°) 안이면 막는다
+function shieldBlocks(enemy, x, y) {
+  const hitAngle = Math.atan2(y - enemy.y, x - enemy.x);
+  return Math.abs(angleDifference(hitAngle, enemy.shieldAngle)) <= SHIELD_ARC / 2;
+}
 
 // 적을 (tx, ty) 쪽으로 똑바로 움직인다. speed: 속도(px/초), dt: 흐른 시간(초)
 function moveToward(enemy, tx, ty, speed, dt) {

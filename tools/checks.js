@@ -1515,4 +1515,32 @@ module.exports = [
       return { ok: ok, detail: "발사 " + shots.length + "번, 간격 " + gaps.join(",") + " / 깜빡임 시작 → 발사 " + flashBefore.join(",") + "초 / 12초 뒤 거리 " + dist.toFixed(0) + "px" };
     },
   },
+  {
+    name: "[새 적] 방패형: 앞 120° 에 맞으면 대미지 80% 감소, 옆·뒤는 그대로, 방패는 초당 60° 까지만 돎, 반감기·발열 반응은 방패 무시",
+    run: function () {
+      const hitFrom = (angleDeg) => {   // 방패는 0°(오른쪽)를 보고 있을 때, angleDeg 방향에서 날아온 총알
+        startGame(); spawnQueue = []; ownedAugments = {};
+        const e = createEnemy("shield", 480, 270, 1); e.hp = e.maxHp = 1000; e.shieldAngle = 0; e.speed = 0; enemies = [e];
+        const a = angleDeg * Math.PI / 180;
+        const b = createBullet(-Math.cos(a), -Math.sin(a), { x: 480 + Math.cos(a) * 60, y: 270 + Math.sin(a) * 60, fromAugment: true });
+        for (let i = 0; i < 20 && !b.dead; i++) updateBullets(1 / 60);
+        return 1000 - e.hp;
+      };
+      const front = hitFrom(0), edgeIn = hitFrom(55), side = hitFrom(90), back = hitFrom(180);
+      // 방패 회전 빠르기: 플레이어가 뒤쪽(180°)에 있으면 1초에 60° 만 돈다
+      startGame(); spawnQueue = [];
+      const e = createEnemy("shield", 480, 270, 1); e.shieldAngle = 0; e.speed = 0; enemies = [e];
+      player.x = 300; player.y = 270;
+      for (let i = 0; i < 60; i++) { player.x = 300; player.y = 270; player.fireTimer = 1e9; updateEnemies(1 / 60); }
+      const turned = Math.abs(e.shieldAngle) * 180 / Math.PI;
+      // 총알이 아닌 대미지: 발열 반응 폭발(damageEnemy)과 반감기 붕괴는 방패를 무시한다
+      e.hp = e.maxHp = 1000; e.shieldAngle = 0;
+      damageEnemy(e, 100, { explosion: true }); const exoFull = e.hp === 900;
+      ownedAugments = { halfLife: 1 }; e.decayTime = 4; e.decayRate = 0.04; updateEnemies(1);
+      const decayFull = Math.abs(e.hp - 900 * 0.96) < 1e-6;
+      draw();
+      const ok = Math.abs(front - 10 * 0.2) < 1e-9 && Math.abs(edgeIn - 2) < 1e-9 && side === 10 && back === 10 && Math.abs(turned - 60) < 1 && exoFull && decayFull;
+      return { ok: ok, detail: "앞 " + front + " / 55° " + edgeIn + " / 옆 " + side + " / 뒤 " + back + " (기본 10) / 1초 동안 방패 " + turned.toFixed(1) + "° 회전 / 발열 반응 그대로 " + exoFull + ", 반감기 그대로 " + decayFull };
+    },
+  },
 ];

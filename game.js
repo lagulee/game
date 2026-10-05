@@ -2465,6 +2465,8 @@ function drawEnemy(enemy) {
     drawSplitterBody(type, r, bodyColor);
   } else if (type.shape === "shooter") {
     drawShooterBody(enemy, r, bodyColor);
+  } else if (type.shape === "shield") {
+    drawShieldBody(enemy, r, bodyColor);
   } else {
     drawBasicBody(enemy, r, bodyColor);
   }
@@ -2583,6 +2585,23 @@ function drawShooterBody(enemy, r, bodyColor) {
   }
   drawOutlinedPolygon(pts, bodyColor);
   drawHighlight(0, 0, r * 0.9);
+}
+
+// 방패형 몸통: 동그란 몸 + 앞쪽 120° 의 두꺼운 노란 방패 (막을 때 하얗게 반짝)
+function drawShieldBody(enemy, r, bodyColor) {
+  drawOutlinedCircle(0, 0, r, bodyColor);
+  drawHighlight(0, 0, r);
+  const a = enemy.shieldAngle || 0, half = SHIELD_ARC / 2;
+  const shieldR = r + 7;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, 0, shieldR, a - half, a + half);
+  setOutline(13);
+  ctx.stroke();
+  ctx.strokeStyle = enemy.shieldFlash > 0 ? COLORS.white : COLORS.yellow;
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.lineCap = "butt";
 }
 
 // 보스의 왕관: 노란 톱니 모양 + 가운데 빨간 보석
