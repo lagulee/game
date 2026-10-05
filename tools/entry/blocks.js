@@ -64,6 +64,11 @@ function touching(obj) {
 
 // ---- 명령 블록 ----
 const blk = (type, params, statements) => (statements ? { type, params, statements } : { type, params });
+// 묻고 기다리기 · 대답 · 대답 숨기기 · "숫자인가?"
+const ask = (text) => blk("ask_and_wait", [ex(text), null]);
+const answer = () => ({ type: "get_canvas_input_value", params: [null] });
+const hideAnswer = () => blk("set_visible_answer", ["HIDE", null]);
+function isNumber(val) { return { type: "is_type", params: [ex(val), null, "number", null] }; }
 const set = (name, val) => blk("set_variable", [need("vars", name, "변수"), ex(val), null]);
 const change = (name, val) => blk("change_variable", [need("vars", name, "변수"), ex(val), null]);
 const showVar = (name) => blk("show_variable", [need("vars", name, "변수"), null]);
@@ -140,6 +145,6 @@ module.exports = {
   cmp, and, or, not, key, touching,
   set, change, showVar, hideVar, goXY, setX, setY, moveX, moveY, goTo, rotateTo, rotateToV, show, hide, shape, size,
   effect, clearEffects, front, write, say, unsay, wait, waitUntil, clone, deleteClone, removeAllClones, send, sendWait, stop,
-  shapeV, fontColor, listAdd, listRemove, listSet, listItem, listLen, blk, charAt, strLen, indexOf, stretchW, resetSize,
+  shapeV, fontColor, listAdd, listRemove, listSet, listItem, listLen, blk, charAt, strLen, indexOf, stretchW, resetSize, ask, answer, hideAnswer, isNumber,
   forever, repeat, repeatUntil, iff, ifElse, when,
 };

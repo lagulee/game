@@ -162,7 +162,11 @@ function drawAll(spec) {
     const ch = spec.glyphs[gi];
     ctx.font = set.size + "px " + FONT_FAMILY;
     const adv = ch === " " ? 12 * set.size / 40 : ctx.measureText(ch).width;
-    shot("g_" + set.name + "_" + gi, adv + 12, glyphHeight(set.size), () => { if (ch !== " ") drawOutlinedText(ch, 0, set.size / 40, set.size, "center", set.color); });
+    shot("g_" + set.name + "_" + gi, adv + 12, glyphHeight(set.size), () => {
+      if (ch === " ") return;
+      if (set.plain) { ctx.font = set.size + "px " + FONT_FAMILY; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = set.color; ctx.fillText(ch, 0, set.size / 40); }
+      else drawOutlinedText(ch, 0, set.size / 40, set.size, "center", set.color);
+    });
   }));
 
   // ================= 상태창 =================
@@ -327,7 +331,193 @@ function drawAll(spec) {
     });
   });
   shot("slow_text", 140, 30, () => drawOutlinedText("시간 ×" + TIME_MIN_FACTOR.toFixed(2), 0, 0, 16));
+  if (spec.debug) drawDebugUI(spec.debug);
+  if (spec.thumb) drawThumb(spec.thumb);
   return out;
+
+  // ================= 설정 · 비밀번호 · 숫자 조절 · 디버그 창 =================
+  // 웹의 HTML 창(style.css 의 .tuning-panel 등)과 같은 색 · 모양을 캔버스로 그린다
+  function drawDebugUI(D) {
+    const H = { panel: "#E9E6D8", list: "#F7F4EA", purple: "#8A63B8", line: "#2B2118", group: "#C98A4B", gray: "#A39D92", red: "#D9482B", green: "#6FB04A", yellow: "#F2C14E" };
+    const txt = (t, x, y, size, color, align) => { ctx.font = size + "px " + FONT_FAMILY; ctx.textAlign = align || "left"; ctx.textBaseline = "middle"; ctx.fillStyle = color || H.line; ctx.fillText(t, x, y); };
+    const box = (x, y, w, h, r, fill, lw, shadow) => {
+      if (shadow) { roundRectPath(x + shadow, y + shadow, w, h, r); ctx.fillStyle = H.line; ctx.fill(); }
+      roundRectPath(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); ctx.lineWidth = lw; ctx.strokeStyle = H.line; ctx.stroke();
+    };
+    const wrap = (t, maxW, size) => { ctx.font = size + "px " + FONT_FAMILY; const out = []; let line = ""; for (const w of t.split(" ")) { const tryL = line ? line + " " + w : w; if (ctx.measureText(tryL).width > maxW && line) { out.push(line); line = w; } else line = tryL; } if (line) out.push(line); return out; };
+    // .tuning-panel: 바탕 + 제목(보라 알약) + 닫기(✕) + 설명
+    const htmlPanel = (w, h, title, help, lock) => {
+      const L = -w / 2, T = -h / 2;
+      box(L, T, w, h, 22, H.panel, 4, 8);
+      ctx.font = "24px " + FONT_FAMILY; const tw = ctx.measureText(title).width + (lock ? 30 : 0);
+      box(L + 18, T + 16, tw + 40, 40, 14, H.purple, 4);
+      if (lock) drawPadlock(L + 52, T + 36, 11);
+      txt(title, L + 38 + (lock ? 30 : 0), T + 37, 24, "#F7F4EA");
+      wrap(help, w - 40, 14).forEach((ln, i) => txt(ln, L + 20, T + 78 + i * 21, 14));
+    };
+    const closeX = (key) => shot(key, 52, 52, () => { box(-20, -20, 40, 40, 20, H.red, 4); txt("✕", 0, 1, 18, "#F7F4EA", "center"); });
+    // .tuning-btn
+    const tbtn = (key, w, h, label, bg, color, size, small, smallColor) => shot(key, w + 8, h + 8, () => {
+      box(-w / 2, -h / 2, w, h, 16, bg, 4);
+      if (small) { txt(label, -w / 2 + 12, -8, size, color); txt(small, -w / 2 + 12, 11, 12, smallColor || H.group); }
+      else txt(label, 0, 1, size, color, "center");
+    });
+
+    // ---- 메뉴 톱니 버튼 (웹 로비 오른쪽 위와 같다) ----
+    shot("gear_btn", 60, 60, () => { drawOutlinedCircle(3, 3, 22, C.outline, 0.1); drawOutlinedCircle(0, 0, 22, C.brown); drawGearIcon(0, 0, 22 * 0.66, C.white, C.brown); });
+
+    // ---- 설정 창 (웹 drawSettingsOverlay 와 같은 배치) ----
+    const S = D.settings;
+    shot("set_panel", S.w + 30, S.h + 40, () => {
+      const L = -S.w / 2, T = -S.h / 2;
+      drawStickerRect(L, T, S.w, S.h, 26, C.background, 8);
+      ctx.save(); ctx.translate(L + 110, T + 8); ctx.rotate(-0.04);
+      drawStickerRect(-80, -26, 160, 52, 18, C.brown, 5); drawGearIcon(-46, 0, 14, C.white, C.brown); drawOutlinedText("설정", 14, 2, 30); ctx.restore();
+      const lx = L + 34, ly = T + 74;
+      drawOutlinedText("조작법", lx, ly, 20, "left", C.brown);
+      S.controls.forEach(([a, b], i) => { const y = ly + 34 + i * 30; drawFitText(a, lx, y, 16, 88, C.outline, "left"); drawFitText(b, lx + 96, y, 15, 210, C.brown, "left"); });
+      ctx.fillStyle = C.outline; ctx.fillRect(L + 348, T + 74, 3, S.h - 134);
+      const rx = L + 372;
+      drawOutlinedText("디버그 모드", rx, T + 82, 18, "left", C.brown);
+      drawFitText("` 키로도 켜고 끌 수 있어요 (만든 사람용)", rx, T + 98 + 40 + 16, 13, 218, C.outline, "left");
+      drawOutlinedText("디버그 키", rx, T + 196, 18, "left", C.brown);
+      S.debugKeys.forEach(([a, b], i) => { const y = T + 226 + i * 24; drawFitText(a, rx, y, 15, 80, C.outline, "left"); drawFitText(b, rx + 84, y, 14, 140, C.brown, "left"); });
+      drawOutlinedText("Esc 또는 X 버튼으로 닫기", rx, T + S.h - 24, 15, "left");
+    });
+    // 디버그 켜고 끄기 버튼 (잠겨 있으면 자물쇠) · 숫자 조절 버튼 (잠김 / 만든 사람용 / n개 바꿈)
+    const setBtn = (key, w, color, label, lock) => shot(key, w + 12, 52, () => {
+      drawOutlinedRoundRect(-w / 2, -20, w, 40, 20, color);
+      if (lock) drawPadlock(-w / 2 + 26, 0, 14);
+      drawOutlinedText(label, lock ? 10 : 0, 1, fitTextSize(label, 19, w - (lock ? 60 : 24)));
+    });
+    setBtn("set_dbg_lock", 218, C.gray, "꺼짐", true); setBtn("set_dbg_off", 218, C.gray, "꺼짐"); setBtn("set_dbg_on", 218, C.green, "켜짐");
+    setBtn("set_tune_lock", 290, C.purple, "숫자 조절 (만든 사람용)", true); setBtn("set_tune_0", 290, C.purple, "숫자 조절 (만든 사람용)");
+    for (let n = 1; n <= D.tunes.length; n++) setBtn("set_tune_" + n, 290, C.purple, "숫자 조절 (" + n + "개 바꿈)");
+    shot("btn_closeX", 56, 56, () => {
+      drawOutlinedCircle(0, 0, 22, C.red); setOutline(SMALL_OUTLINE_WIDTH * 2.4); ctx.lineCap = "round";
+      const d = 44 * 0.18; ctx.beginPath(); ctx.moveTo(-d, -d); ctx.lineTo(d, d); ctx.moveTo(d, -d); ctx.lineTo(-d, d); ctx.stroke();
+    });
+
+    // ---- 비밀번호 창 (.pin-panel) : 엔트리의 대답 칸은 무대 아래에 뜬다 ----
+    for (const [key, title] of [["pin_dbg", "디버그 모드"], ["pin_tune", "숫자 조절"]]) {
+      shot(key, 420, 230, () => {
+        htmlPanel(380, 200, title, "만든 사람만 쓸 수 있어요. 비밀번호를 넣어 주세요.", true);
+        box(-170, 0, 340, 44, 14, H.list, 4);
+        txt("아래 대답 칸에 쓰고 Enter", 0, 22, 16, H.gray, "center");
+        txt("그만두려면 \"취소\" 라고 쓰기", 0, 76, 13, H.gray, "center");
+      });
+    }
+    shot("pin_wrong", 300, 30, () => txt("비밀번호가 달라요", 0, 0, 15, H.red, "center"));
+
+    // ---- 숫자 조절판 ----
+    const U = D.tune;
+    shot("tune_panel", U.w + 20, U.h + 20, () => {
+      htmlPanel(U.w, U.h, "숫자 조절", U.help);
+      box(U.list.x, U.list.y, U.list.w, U.list.h, 14, H.list, 3);
+      U.groups.forEach((g) => txt(g.name, g.x, g.y, 17, H.group));
+    });
+    D.tunes.forEach((t, i) => {
+      for (const ch of [0, 1]) shot("tune_row_" + i + "_" + ch, U.rowW + 4, U.rowH + 4, () => {
+        const L = -U.rowW / 2, T = -U.rowH / 2;
+        // 줄 전체를 칠한다 (투명한 곳은 엔트리에서 클릭이 안 되므로, 바뀌지 않은 줄도 목록 바탕색으로)
+        roundRectPath(L, T, U.rowW, U.rowH, 8); ctx.fillStyle = ch ? H.yellow : H.list; ctx.fill();
+        ctx.font = "15px " + FONT_FAMILY; const lab = fitTextSize(t.label, 15, U.rowW - 96 - 90);
+        txt(t.label, L + 6, 0, lab);
+        txt("기본 " + t.defText, L + U.rowW - 96 - 10, 0, 13, H.gray, "right");
+        box(L + U.rowW - 96, T + 2, 96, U.rowH - 4, 8, H.list, 3);
+      });
+    });
+    tbtn("tune_apply", 200, 40, "적용하고 다시 시작", H.green, "#F7F4EA", 16);
+    tbtn("tune_reset", 130, 40, "모두 기본값", H.list, H.line, 16);
+    shot("tune_lock", 128, 48, () => { box(-60, -20, 120, 40, 16, H.list, 4); drawPadlock(-34, 0, 10); txt("잠그기", 10, 1, 16, H.line, "center"); });
+    closeX("html_close");
+
+    // ---- 디버그 · 지급 (G) ----
+    const G = D.give;
+    shot("give_panel", G.w + 20, G.h + 20, () => {
+      htmlPanel(G.w, G.h, "디버그 · 지급", "증강을 누르면 레벨 +1, − 를 누르면 레벨 −1 (Lv.1 에서 누르면 삭제). 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기");
+      box(G.list.x, G.list.y, G.list.w, G.list.h, 14, H.list, 3);
+      G.groups.forEach((g) => txt(g.name, g.x, g.y, 17, H.group));
+    });
+    D.augs.forEach((a, k) => {
+      for (let lv = 0; lv <= a.max; lv++) tbtn("give_aug_" + k + "_" + lv, G.cellW, 44, a.name, lv > 0 ? H.yellow : H.list, H.line, 15,
+        lv >= a.max ? "Lv." + lv + " (MAX)" : "Lv." + lv + " → " + (lv + 1));
+    });
+    for (const on of [0, 1]) shot("give_minus_" + on, 46, 52, () => { ctx.globalAlpha = on ? 1 : 0.3; box(-19, -22, 38, 44, 16, H.red, 4); txt("−", 0, 0, 22, "#F7F4EA", "center"); ctx.globalAlpha = 1; });
+    D.supplies.forEach((sup, i) => tbtn("give_sup_" + i, G.cellW + 42, 44, sup.name, H.list, H.line, 15, sup.formula));
+    shot("give_clear", 96, 36, () => { box(-44, -14, 88, 28, 16, H.list, 3); txt("모두 삭제", 0, 1, 13, H.line, "center"); });
+
+    // ---- 디버그 · 보스 선택 (B) ----
+    const BS = D.boss;
+    shot("boss_panel", BS.w + 20, BS.h + 20, () => {
+      htmlPanel(BS.w, BS.h, "디버그 · 보스 선택", "누르면 그 보스가 나오는 웨이브를 바로 시작해요 (지금 가진 증강은 그대로). Esc 나 B 로 닫기");
+      box(BS.list.x, BS.list.y, BS.list.w, BS.list.h, 14, H.list, 3);
+    });
+    D.bosses.forEach((b, i) => tbtn("bsel_" + i, BS.cellW, 52, b.names, H.list, H.line, 15, b.wave + "웨이브"));
+  }
+
+  // ================= 썸네일 (작품 대표 그림, 960 × 540) =================
+  function drawThumb(T) {
+    shot("thumb", 960, 540, () => {
+      ctx.translate(-480, -270);
+      // 배경: 게임과 같은 모눈
+      ctx.fillStyle = C.background; ctx.fillRect(0, 0, 960, 540);
+      ctx.strokeStyle = C.outline; ctx.globalAlpha = 0.06; ctx.lineWidth = 1;
+      for (let x = 0; x <= 960; x += GRID_SIZE) { ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, 540); ctx.stroke(); }
+      for (let y = 0; y <= 540; y += GRID_SIZE) { ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(960, y + 0.5); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+      const at = (x, y, sc, rot, fn) => { ctx.save(); ctx.translate(x, y); if (rot) ctx.rotate(rot); if (sc !== 1) ctx.scale(sc, sc); fn(); ctx.restore(); };
+      const PX = 290, PY = 360;   // 플레이어 자리
+      // 시간 지연 범위
+      at(PX, PY, 1, 0, () => { ctx.globalAlpha = 0.18; ctx.fillStyle = C.green; ctx.beginPath(); ctx.arc(0, 0, 115, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.6; ctx.setLineDash([10, 8]); setOutline(SMALL_OUTLINE_WIDTH); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; });
+      // 적 · 보스 (눈은 플레이어 쪽)
+      const enemy = (type, x, y, sc, extra) => at(x, y, sc, 0, () => { player.x = (PX - x) / sc; player.y = (PY - y) / sc; drawEnemy(fake(type, extra)); });
+      const BR = ENEMY_TYPES.blackHole.radius;
+      at(820, 330, 1.2, 0, () => { ctx.beginPath(); ctx.ellipse(0, 0, BR * 1.9, BR * 0.55, -0.15, 0, Math.PI * 2);
+        ctx.fillStyle = C.orange; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1; setOutline(SMALL_OUTLINE_WIDTH); ctx.stroke(); });
+      at(820, 330, 1.2, 0, () => { player.x = (PX - 820) / 1.2; player.y = (PY - 330) / 1.2; drawOutlinedCircle(0, 0, BR, C.outline); drawEnemyFace(fake("blackHole"), BR); drawCrown(BR); });
+      at(820, 330, 1.2, 0, () => { ctx.setLineDash([6, 6]); ctx.strokeStyle = C.red; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, BH_HORIZON, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); });
+      enemy("splitterKing", 880, 480, 0.85, {});
+      enemy("chargerKing", 650, 255, 1, { dirX: -0.93, dirY: 0.37 });
+      enemy("basic", 470, 262, 1, { wave: 3 }); enemy("charger", 420, 440, 1, { dirX: -0.6, dirY: -0.8 }); enemy("sine", 600, 470, 1, {});
+      enemy("basic", 95, 330, 1, { wave: 2 }); enemy("splitter", 540, 385, 1, { hitFlash: 1 });
+      // 돌진 대장 둘레 원형 탄막
+      enemyBullets = []; for (let k = 0; k < 12; k++) { const a = k * Math.PI / 6 + 0.2; enemyBullets.push({ x: 650 + Math.cos(a) * 92, y: 255 + Math.sin(a) * 92, vx: Math.cos(a), vy: Math.sin(a), radius: ENEMY_BULLET_RADIUS }); }
+      drawEnemyBullets(); enemyBullets = [];
+      // 총알 (3방향)
+      bullets = []; for (const [ang, d] of [[-0.62, 110], [-0.4, 150], [-0.18, 190], [-0.4, 70]]) bullets.push({ x: PX + Math.cos(ang) * d, y: PY + Math.sin(ang) * d, vx: Math.cos(ang), vy: Math.sin(ang) });
+      drawBullets(); bullets = [];
+      // 파티클
+      particles = []; for (let k = 0; k < 9; k++) particles.push({ x: 540 + Math.cos(k * 0.7) * (24 + k * 4), y: 385 + Math.sin(k * 1.7) * (20 + k * 3), size: 6 + (k % 3) * 3, rotation: k, shape: ["circle", "square", "triangle"][k % 3], color: [C.red, C.yellow, C.purple][k % 3], age: 0.1 });
+      drawParticles(); particles = [];
+      // 플레이어 (오른쪽 위를 본다)
+      const PR = PLAYER_RADIUS, f = -0.4;
+      at(PX, PY, 1.5, 0, () => {
+        ctx.save(); ctx.rotate(f); drawOutlinedRoundRect(PR * 0.3, -6, PR + 10, 12, 4, C.brown); ctx.restore();
+        drawOutlinedCircle(0, 0, PR, C.green); drawHighlight(0, 0, PR);
+        const lx = Math.cos(f) * 3, ly = Math.sin(f) * 2;
+        for (const side of [-1, 1]) { const ex = side * PR * 0.36 + lx, ey = -PR * 0.15 + ly; ctx.fillStyle = C.outline; ctx.beginPath(); ctx.arc(ex, ey, PR * 0.17, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = C.white; ctx.beginPath(); ctx.arc(ex - 1, ey - 1.5, PR * 0.06, 0, Math.PI * 2); ctx.fill(); }
+        setOutline(2.5); ctx.beginPath(); ctx.arc(lx, PR * 0.25 + ly, PR * 0.22, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+      });
+      // 대미지 숫자 (클수록 크게 · 큰 한 방은 노랑 · 내가 맞으면 빨강)
+      drawOutlinedText("37", 470, 212, 40, "center", C.yellow); drawOutlinedText("12", 540, 338, 26); drawOutlinedText("-14", PX, PY - 52, 24, "center", C.red);
+      // 카드 3장 (왼쪽 아래, 부채꼴)
+      T.cards.forEach((card, i) => at(70 + i * 72, 440, 0.4, -0.2 + i * 0.12, () => {
+        const CW = CARD_WIDTH, CH = CARD_HEIGHT, left = -CW / 2, top = -CH / 2, accent = C[card.color];
+        roundRectPath(left + 7, top + 7, CW, CH, 20); ctx.fillStyle = C.outline; ctx.fill();
+        drawOutlinedRoundRect(left, top, CW, CH, 20, C.white); drawOutlinedRoundRect(left + 12, top + 12, CW - 24, 58, 14, accent);
+        drawOutlinedText(card.name, 0, top + 41, fitTextSize(card.name, 30, CW - 44));
+        drawOutlinedText(card.formula, 0, top + 135, fitTextSize(card.formula, 30, CW - 34), "center", accent);
+      }));
+      // 제목 스티커 (메뉴와 같다) + 띠
+      at(480, 92, 1, -0.03, () => { drawStickerRect(-250, -62, 500, 124, 30, C.yellow, 8); drawOutlinedText("증강 슈터", 0, -12, 64); drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 36, 22, "center", C.white); });
+      at(140, 222, 1, -0.06, () => { drawStickerRect(-92, -24, 184, 48, 16, C.red, 5); drawOutlinedText("보스 6마리", 0, 2, 26); });
+      at(835, 75, 1, 0.08, () => { drawStickerRect(-92, -26, 184, 52, 16, C.green, 5); drawOutlinedText("30 웨이브", 0, 2, 28); });
+      at(480, 510, 1, 0, () => { drawStickerRect(-150, -21, 300, 42, 16, C.blue, 5); drawOutlinedText("엔트리판 · 증강 카드 8장", 0, 2, 21); });
+    });
+  }
 }
 
 async function makeSprites(spec) {

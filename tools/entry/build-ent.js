@@ -33,25 +33,71 @@ const WAVE_COUNT = 30;
 const BOSS_WAVES = { 5: ["ck"], 10: ["sk"], 15: ["wl"], 20: ["tu"], 25: ["ck", "sk"], 30: ["bh"] };
 // 보스 웨이브의 졸개 (웹 게임과 같은 수, 종류는 엔트리판의 3종: 1 기본, 2 돌격형, 3 사인파형)
 const BOSS_MINIONS = { 5: [1, 1, 1, 1], 10: [2, 2, 3, 3], 15: [1, 1, 1, 3, 3], 20: [1, 1, 1, 1, 2], 25: [2, 2, 3, 3], 30: [2, 2, 3, 3, 1] };
-const PLAYER_SPEED = 1.85;        // 웹 220 px/초
-const PLAYER_HP = 100;
-const BASE_DAMAGE = 10;
-const BIG_HIT = 20;               // 이 대미지 이상이면 노란 숫자 (기본 공격력의 2배, 웹과 같다)
-const BULLET_SPEED = 4;           // 웹 480 px/초
-const FIRE_FRAMES = 24;           // 웹 0.4초
-const INVINCIBLE_FRAMES = 36;     // 웹 0.6초
-const WAVE_HEAL_RATIO = 0.05;     // 웨이브를 깨면 최대 체력의 5% 회복 (웹과 같다)
-const BOSS_KILL_HEAL = 0.5;       // 보스를 잡으면 최대 체력의 50% 회복 (웹과 같다)
+// 숫자 조절판(만든 사람용)으로 바꿀 수 있는 값 = 엔트리 변수 "조절_이름". 웹의 tune() 값과 같은 단위 (px/초, 초)
+//   [묶음, 이름, 설명(웹과 같다), 기본값, { int: 정수만, min: 이보다 작게는 못 바꿈 }]
+const TUNES = [
+  ["플레이어", "이동속도", "이동 속도 (px/초)", 220],
+  ["플레이어", "시작체력", "시작 최대 체력", 100, { int: true, min: 1 }],
+  ["플레이어", "무적시간", "맞은 뒤 무적 시간 (초)", 0.6],
+  ["플레이어", "발사간격", "자동 발사 간격 (초)", 0.4, { min: 0.05 }],
+  ["플레이어", "총알속도", "총알 속도 (px/초)", 480, { min: 1 }],
+  ["플레이어", "기본대미지", "총알 기본 대미지", 10],
+  ["플레이어", "웨이브회복", "웨이브 클리어 회복 (최대 체력 비율)", 0.05],
+  ["플레이어", "보스회복", "보스 처치 회복 (최대 체력 비율)", 0.5],
+  ["적 강화", "체력배율", "체력 배율 (1웨이브)", 0.5],
+  ["적 강화", "체력증가", "체력 증가 (웨이브당)", 0.12],
+  ["적 강화", "접촉배율", "접촉 대미지 배율 (1웨이브)", 0.5],
+  ["적 강화", "접촉증가", "접촉 대미지 증가 (웨이브당)", 0.02],
+  ["적 강화", "속도배율", "속도 배율 (1웨이브)", 1.5],
+  ["적 강화", "속도증가", "속도 증가 (웨이브당)", 0.025],
+  ["적 강화", "속도상한", "속도 배율 상한", 2.2],
+  ["웨이브", "무리간격", "적 무리 등장 간격 (초)", 1.6, { min: 0.05 }],
+  ["웨이브", "무리수", "한 무리 마릿수", 3, { int: true, min: 1 }],
+].map(([group, key, label, def, o]) => Object.assign({ group, key, v: "조절_" + key, label, def, int: false, min: 0 }, o || {}));
+const TUNE = Object.fromEntries(TUNES.map((t) => [t.key, t]));
+// ---- 숫자 조절판 · 디버그 창 배치 (웹 px, 창 가운데 = 무대 가운데, 아래가 +y) ----
+const TUNE_UI = (() => {
+  const w = 900, h = 510, rowW = 412, rowH = 30;
+  const groups = [], rows = [];
+  for (const col of [{ x: -427, groups: ["플레이어"] }, { x: 10, groups: ["적 강화", "웨이브"] }]) {
+    let y = -132;
+    for (const g of col.groups) {
+      groups.push({ name: g, x: col.x + 2, y }); y += 26;
+      TUNES.forEach((t, i) => { if (t.group === g) { rows[i] = { x: col.x + rowW / 2, y }; y += 33; } });
+      y -= 7;
+    }
+  }
+  return { w, h, rowW, rowH, groups, rows, list: { x: -435, y: -150, w: 870, h: 345 },
+    apply: { x: -330, y: 225 }, reset: { x: -157, y: 225 }, lock: { x: -24, y: 225 }, close: { x: 412, y: -219 },
+    help: "줄을 누르고 무대 아래 대답 칸에 새 값을 쓰면 바로 바뀌어요 (다음 웨이브부터). 노란 줄 = 기본값과 다른 값" };
+})();
+// 디버그 · 지급 (G) 창: 증강 칸 = [레벨 +1 버튼][− 버튼] 3열, 보급 2칸
+const GIVE_UI = (() => {
+  const cols = [-330, -110, 110];
+  return { w: 720, h: 360, cellW: 170, list: { x: -340, y: -60, w: 680, h: 222 }, groups: [{ name: "증강", x: -328, y: -42 }, { name: "보급", x: -328, y: 96 }],
+    aug: (k) => ({ x: cols[k % 3] + 85, y: -8 + Math.floor(k / 3) * 52 }), minus: (k) => ({ x: cols[k % 3] + 193, y: -8 + Math.floor(k / 3) * 52 }),
+    sup: (i) => ({ x: cols[i] + 106, y: 130 }), clear: { x: 290, y: -42 }, close: { x: 322, y: -144 } };
+})();
+// 디버그 · 보스 선택 (B) 창
+const BOSS_UI = (() => {
+  const cols = [-224, -4, 216];
+  return { w: 720, h: 330, cellW: 212, list: { x: -340, y: -60, w: 680, h: 190 }, cell: (i) => ({ x: cols[i % 3], y: -8 + Math.floor(i / 3) * 66 }), close: { x: 322, y: -129 } };
+})();
+// 설정 창 (웹 SETTINGS_PANEL 과 같은 크기 · 자리. 엔트리 좌표)
+const SET_UI = { w: 620, h: 418, x: 0, y: 8.5, close: { x: 139, y: 97 }, dbg: { x: 85.5, y: 54 }, tune: { x: -65.5, y: -78 },
+  controls: [["이동", "방향키 · WASD"], ["발사", "가장 가까운 적에게 자동"], ["일시정지", "P · Esc"], ["카드 고르기", "클릭 · 1 2 3"], ["결과 화면", "R 다시 · M 메뉴"], ["게임 시작", "Enter · Space"], ["디버그", "` 키 (숫자 1 왼쪽)"]],
+  debugKeys: [["[ ]", "웨이브 이동"], ["G", "증강 · 보급 지급"], ["B", "보스 선택"], ["Shift+0", "체력 가득"], ["I", "무적 켜고 끄기"]] };
+// 웹 좌표(창 가운데 기준) → 엔트리
+const uiPos = (p) => [p.x / 2, -p.y / 2];
+// 주인 잠금: 비밀번호 자체는 어디에도 적지 않는다. 넣은 수 x 가 (x × PIN_MUL) mod PIN_MOD = PIN_CHECK 이면 통과
+//   (0 ~ 10006 사이에서는 답이 하나뿐이다. 웹과 같은 비밀번호)
+const PIN_MUL = 7919, PIN_MOD = 10007, PIN_CHECK = 2605;
 const SIDE_BULLET_SCALE = 0.6;
-const SPAWN_INTERVAL = 1.6;       // 1.6초마다 3마리씩 (웹과 같다)
-const SPAWN_BATCH = 3;
 const BANNER_FRAMES = 108;        // 웨이브 띠 1.8초
 const CHOICE_DELAY = 24;          // 카드가 나온 뒤 0.4초는 고르지 않는다 (웹과 같다)
 const RESUME_FRAMES = 30;         // "준비!" 0.5초
-// 적 체력·속도·대미지 배율 (엔트리판은 영구 업그레이드가 없어서 웹보다 순하게)
-const HP_SCALE = 0.5, HP_GROWTH = 0.12;                       // 체력 배율 = 0.5 × (1 + 0.12 × (웨이브 − 1))
-const SPEED_BASE = 1.5, SPEED_STEP = 0.025, SPEED_MAX = 2.2;  // 속도 배율 (웹과 같다)
-const DMG_SCALE = 0.5, DMG_GROWTH = 0.02;                     // 접촉 대미지 배율 = 0.5 × (1 + 0.02 × (웨이브 − 1))
+// 적 체력·속도·대미지 배율은 숫자 조절판 값 (엔트리판은 영구 업그레이드가 없어서 웹보다 순하게)
+//   체력 배율 = 체력배율 × (1 + 체력증가 × (웨이브 − 1)), 접촉 대미지 배율도 같은 꼴, 속도 배율은 상한까지
 
 // 적 종류 (웹 게임의 값. r = 엔트리 반지름, speed = 웹 px/초, parts = 죽을 때 파티클 색)
 const T = {
@@ -126,7 +172,13 @@ const VARIANCE_MAX = [0, 2.5, 3, 3.5];
 // 상태창 (웹: 왼쪽 위 (12, 12), 폭 290. 엔트리판은 코인 줄이 없어 높이 104)
 const HUD_H = 104;
 const HP_WIDTHS = [140, 168, 196, 224, 252, 258];  // 최대 체력 100 · 120 · … 200+ 일 때 체력바 길이 (웹과 같다)
-const IN_GAME = ["준비", "전투", "카드준비", "고르기", "멈춤", "재개", "결과"];
+const IN_GAME = ["준비", "전투", "카드준비", "고르기", "멈춤", "재개", "결과", "잠금", "지급", "보스선택"];
+// 메뉴 화면이 뒤에 깔리는 상태 (설정 · 숫자 조절 · 비밀번호 · 메뉴에서 연 보스 선택)
+const MENU_BG = ["메뉴", "설정", "설정잠금", "메뉴잠금", "조절", "조절입력", "메뉴보스"];
+// 디버그 · 설정 창이 떠 있는 상태 (뒤를 어둡게)
+const PANEL_STATES = ["설정", "설정잠금", "메뉴잠금", "잠금", "조절", "조절입력", "지급", "보스선택", "메뉴보스"];
+// 디버그 키 ([ ] G Shift+0) 가 듣는 게임 상태
+const DEBUG_GAME = ["준비", "전투", "카드준비", "고르기", "멈춤", "재개"];
 // 상태창 글씨가 보이는 상태 (일시정지 중에는 판이 상태창을 덮으니 숨긴다) · 어둡게 깔리는 상태 (글씨도 같이 어둡게)
 const HUD_TEXT = ["준비", "전투", "카드준비", "고르기", "재개", "결과"];
 const DIMMED = ["카드준비", "고르기", "결과"];
@@ -148,7 +200,7 @@ const TEXT_SAMPLES = [
   "생존 0:00 · 잡은 보스 0마리", "증강: 모은 증강 없음", "회복", "최대 체력 +20", "사건의 지평선!", "Lv.",
   ...AUGS.map((a) => a.name),
 ];
-const GLYPH_COLORS = [["흰", "#F7F4EA"], ["노랑", "#F2C14E"], ["초록", "#6FB04A"], ["빨강", "#D9482B"]];
+const GLYPH_COLORS = [["흰", "#F7F4EA"], ["노랑", "#F2C14E"], ["초록", "#6FB04A"], ["빨강", "#D9482B"], ["검", "#2B2118"]];   // 검 = 테두리 없는 글자
 // 글자 그림 묶음: 웹과 같은 글자 크기(px) · 색마다 쓰는 글자만 그린다 (숫자와 빈칸은 늘 포함)
 //   엔트리(WebGL)는 그림을 크게 줄이면 테두리가 깨지니, 크기마다 따로 그려서 줄이지 않고 쓴다
 const DIGITS = "0123456789 ";
@@ -161,14 +213,22 @@ const GLYPH_SET_DEFS = [
   ["흰", 15, "증강: 모은 증강 없음 Lv. · " + AUGS.map((a) => a.name).join(" ")],
   ...POPUP_SIZES.flatMap((size) => ["흰", "노랑", "빨강"].map((c) => [c, size, "-"])),
   ["초록", 22, "+ 회복 최대 체력 +20"], ["빨강", 22, "사건의 지평선!"],
+  // 디버그 (웹 drawDebug 와 같은 크기 · 색): DEBUG 16 노랑, 키 안내 13 흰, 알림 15 초록 (비밀번호 틀림 등은 빨강)
+  ["노랑", 16, "DEBUG · 무적"], ["흰", 13, "[ ] 웨이브  G 지급  B 보스  Shift+0 체력  I 무적  ` 끄기"],
+  ["초록", 15, "디버그 모드 ON OFF 웨이브 로 이동 체력 가득! 무적 모두 기본값으로 잠갔어요 바뀐 값으로 다시 시작해요 보스:"],
+  ["빨강", 15, "증강 지급은 전투 중에만 비밀번호가 달라요 숫자를 넣어 주세요 보다 작게는 못 바꿔요"],
+  // 숫자 조절판 입력칸 (웹 input: 16px 검은 글자)
+  ["검", 16, ".-"],
 ];
+// 디버그 알림 글 (위 글자 묶음에 들어 있는 글자만 쓴다)
+const DEBUG_KEYS_HELP = "[ ] 웨이브  G 지급  B 보스  Shift+0 체력  I 무적  ` 끄기";
 const GLYPHS = [...new Set((TEXT_SAMPLES.join("") + DIGITS + GLYPH_SET_DEFS.map((d) => d[2]).join("")).split(""))];
 const GLYPH_STR = GLYPHS.join("");
 const GLYPH_SETS = (() => {
   const byName = {};
   for (const [c, size, sample] of GLYPH_SET_DEFS) {
     const name = c + size;
-    const set = byName[name] || (byName[name] = { name, size, color: GLYPH_COLORS.find((g) => g[0] === c)[1], chars: new Set() });
+    const set = byName[name] || (byName[name] = { name, size, color: GLYPH_COLORS.find((g) => g[0] === c)[1], plain: c === "검", chars: new Set() });
     for (const ch of sample + DIGITS) set.chars.add(GLYPHS.indexOf(ch));
   }
   return Object.values(byName).map((x) => Object.assign(x, { chars: [...x.chars].sort((a, b) => a - b) }));
@@ -196,7 +256,8 @@ function cardSpecs() {
 // =============================================================
 // 변수 · 리스트
 // =============================================================
-const GLOBALS = ["상태", "팝업순번", "웨이브", "체력", "최대체력", "점수", "최고웨이브", "최고점수", "지난최고", "지난최고글", "새점수기록", "신기록", "결과종류", "생존", "잡은보스",
+const GLOBALS = ["상태", "팝업순번", "디버그", "디버그무적", "치트무적", "주인확인", "이전상태", "요청종류", "알림글", "알림색", "알림시간", "흔들시간", "비번틀림", "끝",
+  "입력값", "이동웨이브", "시작웨이브", "조절칸", "조절바뀜", "디버그글", "웨이브", "체력", "최대체력", "점수", "최고웨이브", "최고점수", "지난최고", "지난최고글", "새점수기록", "신기록", "결과종류", "생존", "잡은보스",
   "배너시간", "배너보스", "배너부제", "다음부제", "배너진행", "배너알파", "조준거리", "무적", "남은적", "다음종류", "대미지배율",
   "후보거리", "후보x", "후보y", "목표x", "목표y", "목표있음", "바라봄",
   "발사타이머", "발사간격", "공격력", "쏠vx", "쏠vy", "이동x", "이동y", "움직임", "끌림vx", "끌림vy",
@@ -227,6 +288,7 @@ const LOCALS = {
   메뉴장식: ["복제본", "칸"],
   체력바: ["칸", "폭번호"],
   체력번쩍: ["이전최대", "번쩍"],
+  보스고르기: ["복제본", "칸"], 지급빼기: ["복제본", "칸", "값"], 지급줄: ["복제본", "칸", "값"], 지급보급: ["복제본", "칸"], 조절줄: ["복제본", "칸", "값"],
 };
 const LISTS = ["팝업x", "팝업y", "팝업값", "팝업종류", "슬롯x", "슬롯y", "슬롯비율", "슬롯선각", "슬롯선진함", "슬롯보스", "슬롯폭",
   "생성종류", "생성x", "생성y", "생성밀기x", "생성밀기y", "탄x", "탄y", "탄각", "탄피해", "파편x", "파편y", "파편색1", "파편색2", ...KEEP_LISTS];
@@ -235,7 +297,9 @@ const LISTS = ["팝업x", "팝업y", "팝업값", "팝업종류", "슬롯x", "�
 // 설계
 // =============================================================
 function design(sp) {
-  const variables = GLOBALS.map((name) => ({ name, value: name === "글자표" ? GLYPH_STR : 0 }));
+  const variables = GLOBALS.map((name) => ({ name, value: name === "글자표" ? GLYPH_STR : name === "시작웨이브" ? 1 : name === "디버그글" ? "DEBUG" : name === "알림색" ? "초록" : 0 }));
+  // 숫자 조절판 값 (처음 = 기본값)
+  for (const t of TUNES) variables.push({ name: t.v, value: t.def });
   for (const obj in LOCALS) for (const name of LOCALS[obj]) variables.push({ name, local: obj, value: 0 });
   const listInit = {
     글자폭: GLYPHS.map((g, i) => +sp["adv_" + i].adv.toFixed(2)),
@@ -246,13 +310,27 @@ function design(sp) {
   };
   const maxId = Math.max(...TYPES.map((t) => t.id));
   for (const [name, f] of Object.entries(TYPE_TABLES)) listInit[name] = Array.from({ length: maxId }, (_, i) => { const t = TYPES.find((x) => x.id === i + 1); return t ? f(t) : 0; });
-  const messages = ["게임시작", "메뉴로", "정리", "목록비우기", "도감열기", "카드보이기", "카드선택", "발사"];
+  const messages = ["게임시작", "메뉴로", "정리", "목록비우기", "도감열기", "웨이브진행", "감시", "웨이브이동", "능력갱신", "창닫기", "디버그끄기", "잠금열기", "잠금성공", "조절입력", "조절열기", "지급열기", "보스열기", "카드보이기", "카드선택", "발사"];
   // 그림 하나 → 오브젝트 모양
   const pic = (key, name) => ({ name: name || key, png: sp[key].png, width: sp[key].w, height: sp[key].h });
   const pics = (keys) => keys.map((k) => pic(k));
   const baseSize = (key) => (sp[key].w + sp[key].h) / 2 * 0.5;   // 엔트리 "크기" (가로·세로 평균, 50%)
 
   // ---- 자주 쓰는 블록 묶음 ----
+  // 숫자 조절판 값 (엔트리 단위로): TV = 그대로, 속도 px/초 → 프레임당 (÷ 120), 시간 초 → 프레임 (× 60)
+  const TV = (B, key) => B.v(TUNE[key].v);
+  const TVspeed = (B, key) => B.div(TV(B, key), 120);
+  const TVframes = (B, key) => B.mul(TV(B, key), 60);
+  const invFrames = (B) => TVframes(B, "무적시간");
+  // 증강 레벨로 공격력 · 발사 간격을 다시 계산 (카드 고르기 · 디버그 지급)
+  const statsRecompute = (B) => [
+    B.iff(B.cmp(B.v("체력"), ">", B.v("최대체력")), [B.set("체력", B.v("최대체력"))]),
+    B.set("공격력", TV(B, "기본대미지")), B.repeat(B.v("복리"), [B.set("공격력", B.mul(B.v("공격력"), 1.2))]),
+    B.set("발사간격", TVframes(B, "발사간격")),
+    ...[1, 2, 3].map((lv) => B.iff(B.cmp(B.v("촉매"), "=", lv), [B.set("발사간격", B.mul(TVframes(B, "발사간격"), 1 - CATALYST[lv]))])),
+  ];
+  // 디버그 치트 무적이 아닐 때만 맞는다
+  const canHurt = (B) => B.cmp(B.v("치트무적"), "=", 0);
   const stateIs = (B, s) => B.cmp(B.v("상태"), "=", s);
   const stateIn = (B, list) => list.slice(1).reduce((acc, st) => B.or(acc, stateIs(B, st)), stateIs(B, list[0]));
   const fighting = (B) => stateIs(B, "전투");
@@ -302,7 +380,7 @@ function design(sp) {
           B.ifElse(B.touching("mouse"), [B.size(base * 1.04)],
             [o.pulse ? B.size(B.mul(base, B.add(1, B.mul(0.03, B.mathOp("sin", B.mul(B.v("타이머숨"), 4)))))) : B.size(base)]),
         ])])]),
-        B.when.click([B.iff(stateIn(B, states), onClick(B))]),
+        B.when.click([B.iff(stateIn(B, o.clickStates || states), onClick(B))]),
       ],
     };
   };
@@ -339,6 +417,14 @@ function design(sp) {
     { states: ["결과"], x: () => rotP(0, -21)[0], y: () => rotP(0, -21)[1], size: 15, color: "흰", align: 0.5, maxLen: 40, rot: RESULT_ROT, text: (B) => B.v("증강글1") },
     { states: ["결과"], x: () => rotP(0, -31)[0], y: () => rotP(0, -31)[1], size: 15, color: "흰", align: 0.5, maxLen: 40, rot: RESULT_ROT, text: (B) => B.v("증강글2") },
   ];
+  // 숫자 조절판 입력칸 값 (웹 input 처럼 16px 검은 글자)
+  TUNES.forEach((t, i) => { const r = TUNE_UI.rows[i];
+    FIELDS.push({ states: ["조절", "조절입력"], x: () => (r.x + TUNE_UI.rowW / 2 - 48) / 2, y: () => -r.y / 2, size: 16, color: "검", align: 0.5, maxLen: 8, text: (B) => B.v(t.v) }); });
+  // 디버그 표시 (웹 drawDebug: 왼쪽 아래 구석) · 알림
+  const htmlOpen = (B) => stateIn(B, ["조절", "조절입력", "지급", "보스선택", "메뉴보스", "잠금", "설정잠금", "메뉴잠금"]);
+  FIELDS.push({ states: null, cond: (B) => B.and(B.cmp(B.v("디버그"), "=", 1), B.not(htmlOpen(B))), x: () => ex(14), y: () => ey(522), size: 16, color: "노랑", align: 0, maxLen: 12, text: (B) => B.v("디버그글") });
+  FIELDS.push({ states: null, cond: (B) => B.and(B.cmp(B.v("디버그"), "=", 1), B.not(htmlOpen(B))), x: () => ex(14), y: () => ey(500), size: 13, color: "흰", align: 0, maxLen: DEBUG_KEYS_HELP.length, text: () => DEBUG_KEYS_HELP });
+  FIELDS.push({ states: null, cond: (B) => B.cmp(B.v("알림시간"), ">", 0), x: () => ex(14), y: () => ey(478), size: 15, colorVar: "알림색", align: 0, maxLen: 24, text: (B) => B.v("알림글") });
   const MAX_FIELD_LEN = Math.max(...FIELDS.map((f) => f.maxLen));
   listInit.필드길이 = FIELDS.map((f) => f.maxLen);
   for (const l of ["필드있음", "필드투명", "필드글", "필드x", "필드y", "필드색", "필드보임"]) listInit[l] = FIELDS.map(() => 0);
@@ -368,7 +454,7 @@ function design(sp) {
         B.iff(B.cmp(B.v("값"), "<", 0), [B.set("값", 0)]),
         // 글 · 색 · 크기 (웹: 대미지는 16 + √대미지 × 3, 글자 팝업은 22px / 0.8초, 글자 팝업 1.6초)
         B.set("배율", B.div(B.add(16, B.mul(B.mathOp("root", B.v("값")), 3)), 40)), B.set("수명", 48),
-        B.iff(B.cmp(B.v("종류"), "=", 1), [B.set("글", B.v("값")), B.ifElse(B.cmp(B.v("값"), ">=", BIG_HIT), [B.set("색이름", "노랑")], [B.set("색이름", "흰")])]),
+        B.iff(B.cmp(B.v("종류"), "=", 1), [B.set("글", B.v("값")), B.ifElse(B.cmp(B.v("값"), ">=", B.mul(2, TV(B, "기본대미지"))), [B.set("색이름", "노랑")], [B.set("색이름", "흰")])]),
         B.iff(B.cmp(B.v("종류"), "=", 2), [B.set("글", B.join("-", B.v("값"))), B.set("색이름", "빨강")]),
         B.iff(B.cmp(B.v("종류"), "=", 3), [B.set("글", B.join("+", B.join(B.v("값"), " 회복"))), B.set("색이름", "초록"), B.set("배율", 22 / 40), B.set("수명", 96)]),
         B.iff(B.cmp(B.v("종류"), "=", 4), [B.set("글", "최대 체력 +20"), B.set("색이름", "초록"), B.set("배율", 22 / 40), B.set("수명", 96)]),
@@ -385,9 +471,11 @@ function design(sp) {
         B.set("팝업", 1), B.clone("self"), B.set("팝업", 0),
       ]);
       // (원본) 필드마다 지금 보여야 하는지 · 글 · 자리 · 색을 목록에 적는다 (글자 복제본은 바뀌었을 때만 다시 놓는다)
-      const fieldWrite = (f, fi) => B.ifElse(stateIn(B, f.states), [
+      // (states 가 없으면 어느 화면에서나, cond 만 본다)
+      const fieldWrite = (f, fi) => B.ifElse(!f.states ? f.cond(B) : f.cond ? B.and(stateIn(B, f.states), f.cond(B)) : stateIn(B, f.states), [
         B.listSet("필드글", fi + 1, f.text(B)), B.listSet("필드x", fi + 1, f.x(B)), B.listSet("필드y", fi + 1, f.y(B)),
-        f.colorByRecord ? B.ifElse(B.cmp(B.v("신기록"), "=", 1), [B.listSet("필드색", fi + 1, "초록")], [B.listSet("필드색", fi + 1, "노랑")]) : B.listSet("필드색", fi + 1, f.color),
+        f.colorByRecord ? B.ifElse(B.cmp(B.v("신기록"), "=", 1), [B.listSet("필드색", fi + 1, "초록")], [B.listSet("필드색", fi + 1, "노랑")])
+          : B.listSet("필드색", fi + 1, f.colorVar ? B.v(f.colorVar) : f.color),
         B.listSet("필드보임", fi + 1, 1),
         f.dim ? B.ifElse(stateIn(B, DIMMED), [B.listSet("필드투명", fi + 1, 45)], [B.listSet("필드투명", fi + 1, 0)]) : B.listSet("필드투명", fi + 1, 0),
         // 이 필드의 글자 복제본이 없으면 첫 칸을 만든다 (나머지 칸은 복제본이 이어서)
@@ -477,6 +565,104 @@ function design(sp) {
     },
   });
 
+  // ================= 설정 · 비밀번호 · 숫자 조절 · 디버그 창 (글씨 바로 뒤 = 다른 모든 것보다 앞) =================
+  // 상태: 설정 / 조절 · 조절입력 / 잠금 · 설정잠금 · 메뉴잠금 (비밀번호) / 지급 (G) / 보스선택 · 메뉴보스 (B)
+  const say = (B, text, color) => [B.set("알림글", text), B.set("알림색", color || "초록"), B.set("알림시간", 120)];
+  // 마우스를 올리면 1.04배 (웹 버튼과 같다). 모양이 바뀌는 버튼
+  const dynButton = (name, keys, x, y, states, shapeFn, onClick, clickStates) => {
+    const base = baseSize(keys[0]);
+    return { name, pictures: pics(keys), scale: 0.5, x, y, visible: false, scripts: (B) => [
+      B.when.run([B.hide(), B.forever([whileIn(B, states, [B.show(), ...shapeFn(B), B.ifElse(B.touching("mouse"), [B.size(base * 1.04)], [B.size(base)])])])]),
+      B.when.click([B.iff(stateIn(B, clickStates || states), onClick(B))]),
+    ] };
+  };
+  // 같은 모양 버튼 n 개 (복제본, 칸 = 1 ~ n). 창을 열 때(remakeMsg) 다시 만든다
+  const cloneButtons = (name, keys, n, states, pos, shapeFn, onClick, remakeMsg, clickStates) => {
+    const base = baseSize(keys[0]);
+    const create = (B) => [B.set("칸", 0), B.repeat(n, [B.change("칸", 1), B.clone("self")])];
+    return { name, pictures: pics(keys), scale: 0.5, visible: false, scripts: (B) => [
+      B.when.run([B.hide(), B.set("복제본", 0), ...create(B)]),
+      remake(B, remakeMsg, create(B)),
+      B.when.clone([B.set("복제본", 1), ...Array.from({ length: n }, (_, i) => B.iff(B.cmp(B.v("칸"), "=", i + 1), [B.goXY(...pos(i))])),
+        B.forever([whileIn(B, states, [B.show(), ...shapeFn(B), B.ifElse(B.touching("mouse"), [B.size(base * 1.04)], [B.size(base)])])])]),
+      B.when.click([B.iff(B.and(isClone(B), stateIn(B, clickStates || states)), onClick(B))]),
+    ] };
+  };
+  const LOCK_STATES = ["잠금", "설정잠금", "메뉴잠금"];
+  // 이전상태 가 목록 중 하나인지
+  const prevIn = (B, list) => list.slice(1).reduce((acc, st) => B.or(acc, B.cmp(B.v("이전상태"), "=", st)), B.cmp(B.v("이전상태"), "=", list[0]));
+  // 틀리면 0.35초 동안 좌우로 흔들림 (웹 .pin-shake: ±10px 두 번)
+  const shakeX = (B) => B.mul(5, B.mathOp("sin", B.mul(B.v("흔들시간"), 34.3)));
+  objects.push(sprite("비밀번호틀림", ["pin_wrong"], 0, 16, LOCK_STATES, (B) => [B.setX(shakeX(B))], { cond: (B) => B.cmp(B.v("비번틀림"), "=", 1) }));
+  objects.push(sprite("비밀번호창", ["pin_dbg", "pin_tune"], 0, 45, LOCK_STATES, (B) => [
+    B.ifElse(B.cmp(B.v("요청종류"), "=", 2), [B.shapeV("pin_tune")], [B.shapeV("pin_dbg")]), B.setX(shakeX(B))]));
+
+  // ---- 디버그 · 보스 선택 (B) ----
+  const BOSS_PICK = Object.entries(BOSS_WAVES).map(([w, list]) => ({ wave: +w, names: list.map((b) => T[b].name).join(" & ") }));
+  const BOSS_ST = ["보스선택", "메뉴보스"];
+  const closeBoss = (B) => [B.ifElse(stateIs(B, "메뉴보스"), [B.set("상태", "메뉴")], [B.set("상태", B.v("이전상태"))])];
+  objects.push(button("보스닫기", "html_close", ...uiPos(BOSS_UI.close), BOSS_ST, closeBoss));
+  objects.push(cloneButtons("보스고르기", BOSS_PICK.map((b, i) => "bsel_" + i), BOSS_PICK.length, BOSS_ST, (i) => uiPos(BOSS_UI.cell(i)),
+    (B) => [B.shapeV(B.join("bsel_", B.sub(B.v("칸"), 1)))],
+    (B) => [
+      ...BOSS_PICK.map((b, i) => B.iff(B.cmp(B.v("칸"), "=", i + 1), [B.set("이동웨이브", b.wave), B.set("시작웨이브", b.wave)])),
+      // 게임 중이면 그 웨이브로 바로 (증강은 그대로), 메뉴 · 결과 화면이면 새 게임을 그 웨이브부터
+      B.ifElse(B.and(stateIs(B, "보스선택"), prevIn(B, DEBUG_GAME)), [
+        B.set("상태", "준비"), ...say(B, B.join("웨이브 ", B.join(B.v("이동웨이브"), " 로 이동"))), B.send("웨이브이동")],
+      [B.send("게임시작")]),
+    ], "보스열기"));
+  objects.push(sprite("보스판", ["boss_panel"], 0, 0, BOSS_ST));
+
+  // ---- 디버그 · 지급 (G) ----
+  const giveLv = (B) => [B.set("값", 0), ...AUGS.map((a, k) => B.iff(B.cmp(B.v("칸"), "=", k + 1), [B.set("값", B.v(a.v))]))];
+  objects.push(button("지급닫기", "html_close", ...uiPos(GIVE_UI.close), ["지급"], (B) => [B.set("상태", B.v("이전상태"))]));
+  objects.push(button("지급삭제", "give_clear", ...uiPos(GIVE_UI.clear), ["지급"], (B) => [...AUGS.map((a) => B.set(a.v, 0)), B.send("능력갱신")]));
+  objects.push(cloneButtons("지급빼기", ["give_minus_0", "give_minus_1"], AUGS.length, ["지급"], (i) => uiPos(GIVE_UI.minus(i)),
+    (B) => [...giveLv(B), B.ifElse(B.cmp(B.v("값"), ">", 0), [B.shapeV("give_minus_1")], [B.shapeV("give_minus_0")])],
+    (B) => [...AUGS.map((a, k) => B.iff(B.and(B.cmp(B.v("칸"), "=", k + 1), B.cmp(B.v(a.v), ">", 0)), [B.change(a.v, -1)])), B.send("능력갱신")], "지급열기"));
+  objects.push(cloneButtons("지급줄", AUGS.flatMap((a, k) => Array.from({ length: a.max + 1 }, (_, lv) => "give_aug_" + k + "_" + lv)), AUGS.length, ["지급"], (i) => uiPos(GIVE_UI.aug(i)),
+    (B) => [...giveLv(B), B.shapeV(B.join(B.join("give_aug_", B.sub(B.v("칸"), 1)), B.join("_", B.v("값"))))],
+    (B) => [...AUGS.map((a, k) => B.iff(B.and(B.cmp(B.v("칸"), "=", k + 1), B.cmp(B.v(a.v), "<", a.max)), [B.change(a.v, 1)])), B.send("능력갱신")], "지급열기"));
+  objects.push(cloneButtons("지급보급", SUPPLIES.map((s, i) => "give_sup_" + i), SUPPLIES.length, ["지급"], (i) => uiPos(GIVE_UI.sup(i)),
+    (B) => [B.shapeV(B.join("give_sup_", B.sub(B.v("칸"), 1)))],
+    (B) => [
+      // 세포 분열: 최대 체력 +20 · 체력 +20 / 항상성: 최대 체력의 40% 회복 (카드와 같다)
+      B.iff(B.cmp(B.v("칸"), "=", 1), [B.change("최대체력", 20), B.change("체력", 20), ...popup(B, playerX(B), B.add(playerY(B), 18), 20, 4)]),
+      B.iff(B.cmp(B.v("칸"), "=", 2), [B.set("회복량", B.sub(B.v("최대체력"), B.v("체력"))),
+        B.iff(B.cmp(B.v("회복량"), ">", B.mul(B.v("최대체력"), 0.4)), [B.set("회복량", B.mul(B.v("최대체력"), 0.4))]),
+        B.change("체력", B.v("회복량")), ...popup(B, playerX(B), B.add(playerY(B), 18), B.v("회복량"), 3)]),
+      B.send("능력갱신")], "지급열기"));
+  objects.push(sprite("지급판", ["give_panel"], 0, 0, ["지급"]));
+
+  // ---- 숫자 조절판 ----
+  const TUNE_ST = ["조절", "조절입력"];
+  objects.push(button("조절닫기", "html_close", ...uiPos(TUNE_UI.close), TUNE_ST, (B) => [B.set("상태", "설정")], { clickStates: ["조절"] }));
+  objects.push(button("조절적용", "tune_apply", ...uiPos(TUNE_UI.apply), TUNE_ST, (B) => [...say(B, "바뀐 값으로 다시 시작해요"), B.send("메뉴로")], { clickStates: ["조절"] }));
+  objects.push(button("조절기본", "tune_reset", ...uiPos(TUNE_UI.reset), TUNE_ST, (B) => [...TUNES.map((t) => B.set(t.v, t.def)), ...say(B, "모두 기본값으로")], { clickStates: ["조절"] }));
+  objects.push(button("조절잠금", "tune_lock", ...uiPos(TUNE_UI.lock), TUNE_ST, (B) => [B.set("주인확인", 0), B.set("상태", "설정"), ...say(B, "잠갔어요")], { clickStates: ["조절"] }));
+  objects.push(cloneButtons("조절줄", TUNES.flatMap((t, i) => [0, 1].map((c) => "tune_row_" + i + "_" + c)), TUNES.length, TUNE_ST, (i) => uiPos(TUNE_UI.rows[i]),
+    (B) => [
+      // 기본값과 다르면 노란 줄 (웹 .tuning-changed)
+      B.set("값", 0), ...TUNES.map((t, i) => B.iff(B.and(B.cmp(B.v("칸"), "=", i + 1), B.cmp(B.v(t.v), "!=", t.def)), [B.set("값", 1)])),
+      B.shapeV(B.join(B.join("tune_row_", B.sub(B.v("칸"), 1)), B.join("_", B.v("값")))), B.wait(0.05)],
+    (B) => [B.set("조절칸", B.v("칸")), B.send("조절입력")], "조절열기", ["조절"]));
+  objects.push(sprite("조절판", ["tune_panel"], 0, 0, TUNE_ST));
+
+  // ---- 설정 창 (메뉴의 톱니 버튼) ----
+  const SET_ST = ["설정", "설정잠금"];
+  objects.push(button("설정닫기", "btn_closeX", SET_UI.close.x, SET_UI.close.y, SET_ST, (B) => [B.set("상태", "메뉴")], { clickStates: ["설정"] }));
+  objects.push(dynButton("디버그버튼", ["set_dbg_lock", "set_dbg_off", "set_dbg_on"], SET_UI.dbg.x, SET_UI.dbg.y, SET_ST,
+    (B) => [B.ifElse(B.cmp(B.v("디버그"), "=", 1), [B.shapeV("set_dbg_on")], [B.ifElse(B.cmp(B.v("주인확인"), "=", 1), [B.shapeV("set_dbg_off")], [B.shapeV("set_dbg_lock")])])],
+    (B) => [B.ifElse(B.cmp(B.v("디버그"), "=", 1), [B.send("디버그끄기")], [B.set("요청종류", 1), B.send("잠금열기")])], ["설정"]));
+  objects.push(dynButton("조절열기버튼", ["set_tune_lock", "set_tune_0", ...TUNES.map((t, i) => "set_tune_" + (i + 1))], SET_UI.tune.x, SET_UI.tune.y, SET_ST,
+    (B) => [
+      B.set("조절바뀜", 0), ...TUNES.map((t) => B.iff(B.cmp(B.v(t.v), "!=", t.def), [B.change("조절바뀜", 1)])),
+      B.ifElse(B.cmp(B.v("주인확인"), "=", 1), [B.shapeV(B.join("set_tune_", B.v("조절바뀜")))], [B.shapeV("set_tune_lock")])],
+    (B) => [B.set("요청종류", 2), B.send("잠금열기")], ["설정"]));
+  objects.push(sprite("설정판", ["set_panel"], SET_UI.x, SET_UI.y, SET_ST));
+  // 창 뒤를 어둡게 (웹 .tuning-overlay: 55%)
+  objects.push(sprite("창어둡게", ["dim55"], 0, 0, PANEL_STATES));
+
   // ================= 결과 화면 =================
   const rp = (x, y) => rotP(x, y);
   objects.push(sprite("신기록스티커", ["sticker_record"], rp(0, 97)[0], rp(0, 97)[1], ["결과"], (B) => [
@@ -539,12 +725,14 @@ function design(sp) {
   objects.push(sprite("도감판", ["book_panel"], 0, 0, ["도감"]));
 
   // ================= 메뉴 =================
-  objects.push(button("시작버튼", "menu_start", 0, ey(293), ["메뉴"], (B) => [B.send("게임시작")], { pulse: true }));
-  objects.push(button("조작법버튼", "mb_help", -68, -104, ["메뉴"], (B) => [B.set("상태", "조작법")]));
-  objects.push(button("도감버튼", "mb_book", 68, -104, ["메뉴"], (B) => [B.send("도감열기"), B.set("상태", "도감")]));
-  objects.push(sprite("메뉴안내", ["menu_hint"], 0, ey(400), ["메뉴"]));
+  const M1 = { clickStates: ["메뉴"] };
+  objects.push(button("설정버튼", "gear_btn", ex(922), ey(34), MENU_BG, (B) => [B.set("상태", "설정")], M1));
+  objects.push(button("시작버튼", "menu_start", 0, ey(293), MENU_BG, (B) => [B.send("게임시작")], { pulse: true, clickStates: ["메뉴"] }));
+  objects.push(button("조작법버튼", "mb_help", -68, -104, MENU_BG, (B) => [B.set("상태", "조작법")], M1));
+  objects.push(button("도감버튼", "mb_book", 68, -104, MENU_BG, (B) => [B.send("도감열기"), B.set("상태", "도감")], M1));
+  objects.push(sprite("메뉴안내", ["menu_hint"], 0, ey(400), MENU_BG));
   // 제목 스티커: 아주 살짝 흔들흔들 (웹: −0.04 + 0.01·sin(1.5t) rad)
-  objects.push(sprite("메뉴제목", ["menu_title"], 0, ey(148), ["메뉴"], (B) => [
+  objects.push(sprite("메뉴제목", ["menu_title"], 0, ey(148), MENU_BG, (B) => [
     B.rotateToV(B.add(-2.29, B.mul(0.57, B.mathOp("sin", B.mul(B.v("타이머숨"), 1.43)))))]));
   // 장식: 오른쪽에 웨이브 1·2·3 의 기본 적 (동그라미 · 뿔 · 가시), 왼쪽에 가운데 적을 겨누는 플레이어 (웹과 같다)
   const deco = [[790, 236, 1], [870, 318, 2], [780, 384, 3]];
@@ -553,7 +741,7 @@ function design(sp) {
     scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 0), B.repeat(5, [B.change("칸", 1), B.clone("self")])]),
       remake(B, "정리", [B.set("칸", 0), B.repeat(5, [B.change("칸", 1), B.clone("self")])]),
-      B.when.clone([B.set("복제본", 1), B.shapeV(B.v("칸")), B.forever([whileIn(B, ["메뉴"], [
+      B.when.clone([B.set("복제본", 1), B.shapeV(B.v("칸")), B.forever([whileIn(B, MENU_BG, [
         B.show(),
         // 둥실둥실: sin(2t + 1.3i) × 8px (적), sin(2.4t) × 10px (플레이어). 적의 눈은 플레이어 쪽
         ...deco.map(([x, y, v], i) => B.iff(B.cmp(B.v("칸"), "=", i + 1), [
@@ -727,7 +915,7 @@ function design(sp) {
   objects.push({
     name: "체력번쩍", pictures: HP_WIDTHS.map((w, i) => pic("hpflash_" + i)), scale: 0.5, visible: false, scripts: (B) => [
       // 최대 체력이 늘면 1초 동안 하얀 빛이 깜빡이며 사라지고 노란 테두리 (웹과 같다)
-      B.when.run([B.hide(), B.set("이전최대", PLAYER_HP), B.set("번쩍", 0), B.forever([
+      B.when.run([B.hide(), B.set("이전최대", TV(B, "시작체력")), B.set("번쩍", 0), B.forever([
         B.iff(B.and(B.cmp(B.v("최대체력"), ">", B.v("이전최대")), B.cmp(B.v("이전최대"), ">", 0)), [B.set("번쩍", 60)]),
         B.set("이전최대", B.v("최대체력")),
         showIn(B, IN_GAME, B.cmp(B.v("번쩍"), ">", 0)),
@@ -878,8 +1066,8 @@ function design(sp) {
         B.when.clone([B.set("복제본", 1), B.show(), B.forever([
           B.iff(fighting(B), [
             B.moveX(B.v("vx")), B.moveY(B.v("vy")),
-            B.iff(B.and(B.touching("플레이어"), B.cmp(B.v("무적"), "<=", 0)), [
-              B.change("체력", B.mul(B.v("피해"), -1)), B.set("무적", INVINCIBLE_FRAMES),
+            B.iff(B.and(B.touching("플레이어"), B.and(B.cmp(B.v("무적"), "<=", 0), canHurt(B))), [
+              B.change("체력", B.mul(B.v("피해"), -1)), B.set("무적", invFrames(B)),
               ...popup(B, playerX(B), B.add(playerY(B), 18), B.v("피해"), 2),
               B.deleteClone()]),
           ]),
@@ -930,7 +1118,7 @@ function design(sp) {
       B.when.msg("정리", [B.iff(isClone(B), [B.deleteClone()])]),
       B.when.msg("발사", [B.iff(isOrig(B), onFire(B))]),
       B.when.clone([
-        B.set("복제본", 1), B.goTo("플레이어"), B.set("나이", 0), B.set("속력", BULLET_SPEED),
+        B.set("복제본", 1), B.goTo("플레이어"), B.set("나이", 0), B.set("속력", TVspeed(B, "총알속도")),
         B.forever([
           // 움직이기 "전에" 닿았는지 본다 (태어난 프레임은 빼고) → 같은 프레임에 적도 이 총알을 볼 수 있다
           B.iff(B.and(B.cmp(B.v("나이"), ">", 0), B.touching("적")), [B.deleteClone()]),
@@ -983,7 +1171,7 @@ function design(sp) {
             B.iff(keyPair(38, 87), [B.change("이동y", 1)]), B.iff(keyPair(40, 83), [B.change("이동y", -1)]),
             B.set("움직임", 0), B.iff(B.or(B.cmp(B.v("이동x"), "!=", 0), B.cmp(B.v("이동y"), "!=", 0)), [B.set("움직임", 1)]),
             B.iff(B.and(B.cmp(B.v("이동x"), "!=", 0), B.cmp(B.v("이동y"), "!=", 0)), [B.set("이동x", B.mul(B.v("이동x"), 0.707)), B.set("이동y", B.mul(B.v("이동y"), 0.707))]),
-            B.moveX(B.add(B.mul(B.v("이동x"), PLAYER_SPEED), B.v("끌림vx"))), B.moveY(B.add(B.mul(B.v("이동y"), PLAYER_SPEED), B.v("끌림vy"))),
+            B.moveX(B.add(B.mul(B.v("이동x"), TVspeed(B, "이동속도")), B.v("끌림vx"))), B.moveY(B.add(B.mul(B.v("이동y"), TVspeed(B, "이동속도")), B.v("끌림vy"))),
             // 블랙홀에 끌려가는 속도는 마찰로 줄어든다
             B.set("끌림vx", B.mul(B.v("끌림vx"), BH_FRICTION)), B.set("끌림vy", B.mul(B.v("끌림vy"), BH_FRICTION)),
             B.iff(B.cmp(B.myX(), ">", 231), [B.setX(231)]), B.iff(B.cmp(B.myX(), "<", -231), [B.setX(-231)]),
@@ -997,8 +1185,8 @@ function design(sp) {
             B.change("발사타이머", -1),
             B.iff(B.and(B.cmp(B.v("발사타이머"), "<=", 0), B.cmp(B.v("목표있음"), "=", 1)), [
               B.set("조준거리", B.add(B.mathOp("root", B.add(B.mathOp("square", B.sub(B.v("목표x"), B.myX())), B.mathOp("square", B.sub(B.v("목표y"), B.myY())))), 0.01)),
-              B.set("쏠vx", B.mul(B.div(B.sub(B.v("목표x"), B.myX()), B.v("조준거리")), BULLET_SPEED)),
-              B.set("쏠vy", B.mul(B.div(B.sub(B.v("목표y"), B.myY()), B.v("조준거리")), BULLET_SPEED)),
+              B.set("쏠vx", B.mul(B.div(B.sub(B.v("목표x"), B.myX()), B.v("조준거리")), TVspeed(B, "총알속도"))),
+              B.set("쏠vy", B.mul(B.div(B.sub(B.v("목표y"), B.myY()), B.v("조준거리")), TVspeed(B, "총알속도"))),
               B.send("발사"), B.set("발사타이머", B.v("발사간격")),
             ]),
             // 4) 무적: 0.1초 간격으로 반투명(0.45) ↔ 불투명 (웹과 같다)
@@ -1024,6 +1212,97 @@ function design(sp) {
   { cond: (B) => B.cmp(B.v("지연"), ">", 0) }));
 
   // ================= 배경 + 게임 진행 (맨 뒤) =================
+  // ================= 시계 (프레임마다 +1): 메뉴 장식 · 반짝임 · 생존 시간 · 카드 등장 · "준비!" · 알림 =================
+  //   배경 오브젝트의 "다른 스크립트 멈추기" 에 같이 멈추지 않게 따로 둔다
+  objects.push({ name: "시계", pictures: [pic("menu_hint")], scale: 0.5, visible: false, scripts: (B) => [
+    B.when.run([B.forever([B.change("타이머숨", 1),
+      B.iff(fighting(B), [B.change("생존", 1 / 60)]),
+      B.iff(stateIs(B, "고르기"), [B.change("고르기시간", 1)]),
+      B.iff(stateIs(B, "재개"), [B.change("멈춤시간", -1), B.iff(B.cmp(B.v("멈춤시간"), "<=", 0), [B.set("상태", "전투")])]),
+      B.iff(B.cmp(B.v("알림시간"), ">", 0), [B.change("알림시간", -1)]),
+      B.iff(B.cmp(B.v("흔들시간"), ">", 0), [B.change("흔들시간", -1)]),
+    ])]),
+  ] });
+
+  // ================= 디버그 모드 (웹과 같다) =================
+  // ` 켜기/끄기 (웹의 F2. 켤 때 비밀번호) · [ ] 웨이브 이동 · G 지급 창 · B 보스 선택 · Shift+0 체력 가득 · I 무적
+  // 비밀번호는 엔트리의 "묻고 기다리기" 대답 칸에 넣는다 (웹은 코인이 있어 Shift+C 코인 +1000 도 있지만 엔트리판엔 코인이 없다)
+  objects.push({ name: "디버그", pictures: [pic("menu_hint")], scale: 0.5, x: 225, y: -85, visible: false, scripts: (B) => {
+    const debugText = (B) => B.ifElse(B.cmp(B.v("디버그무적"), "=", 1), [B.set("디버그글", "DEBUG · 무적")], [B.set("디버그글", "DEBUG")]);
+    const pinOk = (B) => B.and(B.isNumber(B.answer()), B.and(B.and(B.cmp(B.answer(), ">=", 0), B.cmp(B.answer(), "<", PIN_MOD)),
+      B.and(B.cmp(B.mathOp("floor", B.answer()), "=", B.answer()), B.cmp(B.mod(B.mul(B.answer(), PIN_MUL), PIN_MOD), "=", PIN_CHECK))));
+    return [
+      B.when.run([B.set("디버그", 0), B.set("디버그무적", 0), B.set("치트무적", 0), B.set("주인확인", 0), B.set("알림시간", 0), B.set("흔들시간", 0), B.set("시작웨이브", 1), B.hideAnswer()]),
+      // ` 키 (웹은 F2. 엔트리는 F2 키를 못 받아서 숫자 1 왼쪽의 ` 키로)
+      B.when.key(192, [B.ifElse(B.cmp(B.v("디버그"), "=", 1), [B.send("디버그끄기")], [
+        B.iff(B.not(B.or(stateIn(B, LOCK_STATES), stateIs(B, "조절입력"))), [B.set("요청종류", 1), B.send("잠금열기")])])]),
+      B.when.msg("디버그끄기", [B.set("디버그", 0), B.set("치트무적", 0), B.set("알림시간", 0)]),
+      // 주인 잠금: 이미 열려 있으면 바로, 아니면 비밀번호 (틀리면 흔들고 다시, 빈칸이면 취소)
+      B.when.msg("잠금열기", [B.ifElse(B.cmp(B.v("주인확인"), "=", 1), [B.send("잠금성공")], [
+        B.set("이전상태", B.v("상태")),
+        // 전투 중이면 비밀번호를 넣는 동안 멈춰 두고, 끝나면 일시정지 화면으로 (웹과 같다)
+        B.iff(B.or(stateIs(B, "전투"), stateIs(B, "재개")), [B.set("이전상태", "멈춤")]),
+        B.ifElse(stateIn(B, IN_GAME), [B.set("상태", "잠금")], [B.ifElse(stateIs(B, "설정"), [B.set("상태", "설정잠금")], [B.set("상태", "메뉴잠금")])]),
+        B.set("비번틀림", 0), B.set("끝", 0),
+        B.repeatUntil(B.cmp(B.v("끝"), "=", 1), [
+          // (엔트리 대답 칸은 빈칸으로 낼 수 없어서, 숫자가 아닌 글 (예: 취소) 을 내면 그만둔다)
+          B.ask("비밀번호 (그만두기: 취소)"),
+          B.ifElse(B.not(B.isNumber(B.answer())), [B.set("끝", 1)], [
+            B.ifElse(pinOk(B), [B.set("주인확인", 1), B.set("끝", 1)], [B.set("비번틀림", 1), B.set("흔들시간", 21)])]),
+        ]),
+        B.set("상태", B.v("이전상태")),
+        B.iff(B.cmp(B.v("주인확인"), "=", 1), [B.send("잠금성공")]),
+      ])]),
+      B.when.msg("잠금성공", [
+        B.iff(B.cmp(B.v("요청종류"), "=", 1), [B.set("디버그", 1), B.set("치트무적", B.v("디버그무적")), debugText(B), ...say(B, "디버그 모드 ON")]),
+        B.iff(B.cmp(B.v("요청종류"), "=", 2), [B.set("상태", "조절"), B.send("조절열기")]),
+      ]),
+      // 숫자 조절: 줄을 누르면 새 값을 묻는다 (숫자가 아니거나 너무 작으면 안 바꾼다)
+      B.when.msg("조절입력", [
+        B.set("상태", "조절입력"),
+        ...TUNES.map((t, i) => B.iff(B.cmp(B.v("조절칸"), "=", i + 1), [
+          B.ask(t.label + " (기본 " + t.def + ") 새 값은? (그만두기: 취소)"),
+          B.iff(B.cmp(B.answer(), "!=", "취소"), [
+            B.ifElse(B.isNumber(B.answer()), [
+              B.set("입력값", B.answer()), ...(t.int ? [B.set("입력값", B.mathOp("round", B.v("입력값")))] : []),
+              B.ifElse(B.cmp(B.v("입력값"), "<", t.min), [...say(B, t.min + " 보다 작게는 못 바꿔요", "빨강")], [B.set(t.v, B.v("입력값"))]),
+            ], [...say(B, "숫자를 넣어 주세요", "빨강")]),
+          ]),
+        ])),
+        B.set("상태", "조절"),
+      ]),
+      // Esc: 창 닫기
+      B.when.msg("창닫기", [
+        B.ifElse(stateIs(B, "설정"), [B.set("상태", "메뉴")], [
+          B.ifElse(stateIs(B, "조절"), [B.set("상태", "설정")], [
+            B.ifElse(stateIs(B, "메뉴보스"), [B.set("상태", "메뉴")], [
+              B.iff(B.or(stateIs(B, "지급"), stateIs(B, "보스선택")), [B.set("상태", B.v("이전상태"))])])])]),
+      ]),
+      // [ ] 웨이브 이동
+      ...[[219, -1], [221, 1]].map(([k, d]) => B.when.key(k, [B.iff(B.and(B.cmp(B.v("디버그"), "=", 1), stateIn(B, DEBUG_GAME)), [
+        B.set("이동웨이브", B.add(B.v("웨이브"), d)),
+        B.iff(B.and(B.cmp(B.v("이동웨이브"), ">=", 1), B.cmp(B.v("이동웨이브"), "<=", WAVE_COUNT)), [
+          B.set("상태", "준비"), B.send("웨이브이동"), ...say(B, B.join("웨이브 ", B.join(B.v("이동웨이브"), " 로 이동")))]),
+      ])])),
+      // G 지급 창 (전투 · 카드 고르기 중에만)
+      B.when.key(71, [B.iff(B.cmp(B.v("디버그"), "=", 1), [
+        B.ifElse(stateIs(B, "지급"), [B.set("상태", B.v("이전상태"))], [
+          B.ifElse(stateIn(B, DEBUG_GAME), [B.set("이전상태", B.v("상태")), B.set("상태", "지급"), B.send("지급열기")], [
+            B.iff(B.not(B.or(stateIn(B, LOCK_STATES), stateIs(B, "조절입력"))), say(B, "증강 지급은 전투 중에만", "빨강"))])])])]),
+      // B 보스 선택 (어느 화면에서나)
+      B.when.key(66, [B.iff(B.cmp(B.v("디버그"), "=", 1), [
+        B.ifElse(stateIs(B, "보스선택"), [B.set("상태", B.v("이전상태"))], [
+          B.ifElse(stateIs(B, "메뉴보스"), [B.set("상태", "메뉴")], [
+            B.ifElse(B.or(stateIn(B, DEBUG_GAME), stateIs(B, "결과")), [B.set("이전상태", B.v("상태")), B.set("상태", "보스선택"), B.send("보스열기")], [
+              B.iff(stateIn(B, ["메뉴", "조작법", "도감"]), [B.set("이전상태", "메뉴"), B.set("상태", "메뉴보스"), B.send("보스열기")])])])])])]),
+      // Shift + 0 체력 가득
+      B.when.key(48, [B.iff(B.and(B.cmp(B.v("디버그"), "=", 1), B.and(B.key(16), stateIn(B, DEBUG_GAME))), [B.set("체력", B.v("최대체력")), ...say(B, "체력 가득!")])]),
+      // I 무적
+      B.when.key(73, [B.iff(B.cmp(B.v("디버그"), "=", 1), [
+        B.set("디버그무적", B.sub(1, B.v("디버그무적"))), B.set("치트무적", B.v("디버그무적")), debugText(B),
+        B.ifElse(B.cmp(B.v("디버그무적"), "=", 1), say(B, "무적 ON"), say(B, "무적 OFF"))])]),
+    ];
+  } });
   objects.push(managerObject());
 
   // 전투 화면 겹침 순서를 웹과 같게 (앞 → 뒤): 플레이어 > 적 탄 > 적 (+ 체력바) > 파편 > 총알 > 증강 범위
@@ -1035,7 +1314,9 @@ function design(sp) {
   objects.splice(firstGame, GAME_ORDER.length, ...gameObjs);
 
   // 맨 위에 블록이 없는 작은 오브젝트: 작품을 열 때 처음 고른 오브젝트의 블록을 그리느라 오래 걸리지 않게
-  objects.unshift({ name: "작품 안내", pictures: [pic("menu_hint")], scale: 0.5, visible: false, scripts: () => [] });
+  // 맨 위 썸네일: ▶ 를 누르기 전(편집 화면)에만 보인다. 엔트리는 작품을 저장할 때 무대를 찍어 대표 그림으로 쓴다.
+  //   블록이 적어서 작품을 열 때 처음 고른 오브젝트로도 가볍다
+  objects.unshift({ name: "썸네일", pictures: [pic("thumb")], scale: 0.5, visible: true, scripts: (B) => [B.when.run([B.hide()])] });
   return { scene: "증강 슈팅", variables, lists: LISTS, listInit, messages, objects };
 
   // ---------------------------------------------------------------
@@ -1106,7 +1387,7 @@ function design(sp) {
           ...particles(B, B.myX(), B.myY(), B.listItem("적표파편1", B.v("종류")), B.listItem("적표파편2", B.v("종류"))),
           // 보스: 최대 체력의 절반 회복 (초록 숫자), 잡은 보스 +1, 체력바 자리 비우기
           B.iff(B.cmp(B.v("종류"), ">", 10), [
-            B.set("회복량", B.sub(B.v("최대체력"), B.v("체력"))), B.iff(B.cmp(B.v("회복량"), ">", B.mul(B.v("최대체력"), BOSS_KILL_HEAL)), [B.set("회복량", B.mul(B.v("최대체력"), BOSS_KILL_HEAL))]),
+            B.set("회복량", B.sub(B.v("최대체력"), B.v("체력"))), B.iff(B.cmp(B.v("회복량"), ">", B.mul(B.v("최대체력"), TV(B, "보스회복"))), [B.set("회복량", B.mul(B.v("최대체력"), TV(B, "보스회복")))]),
             B.change("체력", B.v("회복량")), ...popup(B, playerX(B), B.add(playerY(B), 18), B.v("회복량"), 3),
             B.change("잡은보스", 1),
             B.iff(B.cmp(B.v("보스칸"), "=", 1), [B.set("보스1종류", 0)]), B.iff(B.cmp(B.v("보스칸"), "=", 2), [B.set("보스2종류", 0)]),
@@ -1211,7 +1492,7 @@ function design(sp) {
             // 사건의 지평선: 닿으면 큰 대미지 + 바깥으로 튕겨 냄 (무적이면 튕기기만)
             B.iff(B.cmp(B.v("거리"), "<", BH_HORIZON + 9), [
               B.set("끌림vx", B.mul(B.div(B.v("dx"), B.v("거리")), -BH_KICK)), B.set("끌림vy", B.mul(B.div(B.v("dy"), B.v("거리")), -BH_KICK)),
-              B.iff(B.cmp(B.v("무적"), "<=", 0), [B.change("체력", B.mul(-BH_HORIZON_DMG, B.v("대미지배율"))), B.set("무적", INVINCIBLE_FRAMES),
+              B.iff(B.and(B.cmp(B.v("무적"), "<=", 0), canHurt(B)), [B.change("체력", B.mul(-BH_HORIZON_DMG, B.v("대미지배율"))), B.set("무적", invFrames(B)),
                 ...popup(B, playerX(B), B.add(playerY(B), 18), 0, 5)]),
             ]),
             B.set("블랙홀x", B.myX()), B.set("블랙홀y", B.myY()), B.set("블랙홀있음", 1),
@@ -1235,8 +1516,8 @@ function design(sp) {
           ...["생성종류", "생성x", "생성y", "생성밀기x", "생성밀기y"].map((l) => B.listRemove(l, 1)),
           B.set("적최대", B.listItem("적표체력", B.v("종류"))), B.set("속도", B.listItem("적표속도", B.v("종류"))), B.set("반지름", B.listItem("적표반지름", B.v("종류"))),
           // 웨이브 배율 (체력 · 속도)
-          B.set("적최대", B.mul(B.v("적최대"), B.mul(HP_SCALE, B.add(1, B.mul(HP_GROWTH, B.sub(B.v("웨이브"), 1)))))),
-          B.set("k", B.mul(SPEED_BASE, B.add(1, B.mul(SPEED_STEP, B.sub(B.v("웨이브"), 1))))), B.iff(B.cmp(B.v("k"), ">", SPEED_MAX), [B.set("k", SPEED_MAX)]),
+          B.set("적최대", B.mul(B.v("적최대"), B.mul(TV(B, "체력배율"), B.add(1, B.mul(TV(B, "체력증가"), B.sub(B.v("웨이브"), 1)))))),
+          B.set("k", B.mul(TV(B, "속도배율"), B.add(1, B.mul(TV(B, "속도증가"), B.sub(B.v("웨이브"), 1))))), B.iff(B.cmp(B.v("k"), ">", TV(B, "속도상한")), [B.set("k", TV(B, "속도상한"))]),
           B.set("속도", B.mul(B.v("속도"), B.v("k"))),
           B.set("태어난웨이브", B.v("웨이브")), B.iff(B.cmp(B.v("태어난웨이브"), ">", 3), [B.set("태어난웨이브", 3)]),
           // 모양 이름 앞부분 (기본 적은 웨이브마다 뿔 · 가시가 다르다)
@@ -1293,9 +1574,9 @@ function design(sp) {
                 B.set("거리", B.dist("플레이어")),
                 B.iff(B.cmp(B.v("거리"), "<", B.v("후보거리")), [B.set("후보거리", B.v("거리")), B.set("후보x", B.myX()), B.set("후보y", B.myY())]),
                 // 5) 부딪히면 대미지 (빨간 숫자)
-                B.iff(B.and(B.touching("플레이어"), B.cmp(B.v("무적"), "<=", 0)), [
+                B.iff(B.and(B.touching("플레이어"), B.and(B.cmp(B.v("무적"), "<=", 0), canHurt(B))), [
                   B.set("k", B.mul(B.listItem("적표접촉", B.v("종류")), B.v("대미지배율"))),
-                  B.change("체력", B.mul(B.v("k"), -1)), B.set("무적", INVINCIBLE_FRAMES),
+                  B.change("체력", B.mul(B.v("k"), -1)), B.set("무적", invFrames(B)),
                   ...popup(B, playerX(B), B.add(playerY(B), 18), B.v("k"), 2)]),
               ]),
               ...shapeName(),
@@ -1346,36 +1627,39 @@ function design(sp) {
         ];
         return [
           B.when.run([B.set("상태", "메뉴"), B.set("최고웨이브", 0), B.set("최고점수", 0), B.set("타이머숨", 0), B.set("보스1종류", 0), B.set("보스2종류", 0), B.set("배너시간", 0),
-            B.set("파동있음", 0), B.set("포대있음", 0), B.set("블랙홀있음", 0), B.set("체력바길이", 140), B.set("최대체력", PLAYER_HP)]),
-          // 시간 (프레임마다 +1): 메뉴 장식 · 반짝임 · 생존 시간 · 카드 등장 · "준비!"
-          B.when.run([B.forever([B.change("타이머숨", 1),
-            B.iff(fighting(B), [B.change("생존", 1 / 60)]),
-            B.iff(stateIs(B, "고르기"), [B.change("고르기시간", 1)]),
-            B.iff(stateIs(B, "재개"), [B.change("멈춤시간", -1), B.iff(B.cmp(B.v("멈춤시간"), "<=", 0), [B.set("상태", "전투")])]),
-          ])]),
+            B.set("파동있음", 0), B.set("포대있음", 0), B.set("블랙홀있음", 0), B.set("체력바길이", 140), B.set("최대체력", TV(B, "시작체력"))]),
           // 키보드: Enter · Space 시작, P · Esc 일시정지 · 닫기, R 다시, M 메뉴
           ...[13, 32].map((k) => B.when.key(k, [B.iff(stateIs(B, "메뉴"), [B.send("게임시작")])])),
           ...[80, 27].map((k) => B.when.key(k, [
             B.ifElse(stateIs(B, "전투"), [B.set("상태", "멈춤")], [
               B.ifElse(stateIs(B, "멈춤"), [B.set("상태", "재개"), B.set("멈춤시간", RESUME_FRAMES)], [
-                B.iff(B.or(stateIs(B, "조작법"), stateIs(B, "도감")), [B.set("상태", "메뉴")])])])])),
+                B.iff(B.or(stateIs(B, "조작법"), stateIs(B, "도감")), [B.set("상태", "메뉴")]),
+                // Esc: 설정 · 숫자 조절 · 디버그 창 닫기
+                ...(k === 27 ? [B.send("창닫기")] : []),
+              ])])])),
           B.when.key(82, [B.iff(stateIs(B, "결과"), [B.send("게임시작")])]),
           B.when.key(77, [B.iff(B.or(stateIs(B, "결과"), stateIs(B, "멈춤")), [B.send("메뉴로")])]),
 
           // ---- 게임 시작 ----
           B.when.msg("게임시작", [
+            B.stop("otherThread"),
             B.set("상태", "준비"), B.set("배너시간", 0), B.set("배너부제", 0), B.set("다음부제", 0), B.set("웨이브", 1),
-            B.set("체력", PLAYER_HP), B.set("최대체력", PLAYER_HP), B.set("점수", 0), B.set("생존", 0), B.set("잡은보스", 0),
+            B.set("체력", TV(B, "시작체력")), B.set("최대체력", TV(B, "시작체력")), B.set("점수", 0), B.set("생존", 0), B.set("잡은보스", 0),
             B.set("무적", 0), B.set("남은적", 0), B.set("후보거리", 99999), B.set("목표있음", 0), B.set("발사타이머", 0), B.set("끌림vx", 0), B.set("끌림vy", 0),
             B.set("보스1종류", 0), B.set("보스2종류", 0), B.set("파동있음", 0), B.set("포대있음", 0), B.set("블랙홀있음", 0), B.set("블랙홀시간", 0), B.set("블랙홀약점", 0),
             B.set("포대각", 0), B.set("포대방향", 1), B.set("포대예고", 0), B.set("고른카드", 0),
             ...AUGS.map((a) => B.set(a.v, 0)),
-            B.set("공격력", BASE_DAMAGE), B.set("발사간격", FIRE_FRAMES),
+            B.set("공격력", TV(B, "기본대미지")), B.set("발사간격", TVframes(B, "발사간격")),
             B.sendWait("정리"),
             B.sendWait("목록비우기"), B.set("바만듦", 0), B.set("선만듦", 0),
+            // 디버그 보스 선택(메뉴에서)이면 그 웨이브부터
+            B.iff(B.cmp(B.v("시작웨이브"), ">", 1), [B.set("웨이브", B.v("시작웨이브"))]), B.set("시작웨이브", 1),
+            B.send("웨이브진행"), B.send("감시"),
+          ]),
+          B.when.msg("웨이브진행", [
             B.repeatUntil(B.cmp(B.v("웨이브"), ">", WAVE_COUNT), [
               // 웨이브 배율: 접촉 · 탄 대미지
-              B.set("대미지배율", B.mul(DMG_SCALE, B.add(1, B.mul(DMG_GROWTH, B.sub(B.v("웨이브"), 1))))),
+              B.set("대미지배율", B.mul(TV(B, "접촉배율"), B.add(1, B.mul(TV(B, "접촉증가"), B.sub(B.v("웨이브"), 1))))),
               // 웨이브 띠 (보스 웨이브는 빨강, 고른 증강이 있으면 부제)
               B.set("배너보스", 0), ...Object.keys(BOSS_WAVES).map((w) => B.iff(B.cmp(B.v("웨이브"), "=", +w), [B.set("배너보스", 1)])),
               B.set("배너부제", B.v("다음부제")), B.set("다음부제", 0),
@@ -1384,7 +1668,9 @@ function design(sp) {
               // 보스 웨이브: 보스 → 졸개 (웹과 같은 보스 · 같은 수)
               ...Object.entries(BOSS_WAVES).map(([w, list]) => B.iff(B.cmp(B.v("웨이브"), "=", +w), [
                 ...list.flatMap((b) => spawnReqM(T[b].id)), B.wait(1),
-                ...BOSS_MINIONS[w].flatMap((t, i) => [B.waitUntil(fighting(B)), ...spawnReqM(t), ...(i % SPAWN_BATCH === SPAWN_BATCH - 1 ? [B.wait(SPAWN_INTERVAL)] : [])]),
+                B.set("세는수", 0),
+                ...BOSS_MINIONS[w].flatMap((t) => [B.waitUntil(fighting(B)), ...spawnReqM(t),
+                  B.change("세는수", 1), B.iff(B.cmp(B.mod(B.v("세는수"), TV(B, "무리수")), "=", 0), [B.wait(TV(B, "무리간격"))])]),
               ])),
               // 보통 웨이브: 3 + 웨이브 마리 (최대 26), 1.6초마다 3마리. 3웨이브부터 돌격형, 6웨이브부터 사인파형
               B.iff(B.cmp(B.v("배너보스"), "=", 0), [
@@ -1396,7 +1682,7 @@ function design(sp) {
                   B.iff(B.and(B.cmp(B.v("웨이브"), ">=", 3), B.cmp(B.v("뽑기"), "<=", 3)), [B.set("다음종류", T.charger.id)]),
                   B.iff(B.and(B.cmp(B.v("웨이브"), ">=", 6), B.cmp(B.v("뽑기"), ">=", 8)), [B.set("다음종류", T.sine.id)]),
                   ...spawnReqM(B.v("다음종류")),
-                  B.change("세는수", 1), B.iff(B.cmp(B.mod(B.v("세는수"), SPAWN_BATCH), "=", 0), [B.wait(SPAWN_INTERVAL)]),
+                  B.change("세는수", 1), B.iff(B.cmp(B.mod(B.v("세는수"), TV(B, "무리수")), "=", 0), [B.wait(TV(B, "무리간격"))]),
                 ]),
               ]),
               B.waitUntil(B.and(B.cmp(B.v("남은적"), "<=", 0), B.cmp(B.listLen("생성종류"), "=", 0))),
@@ -1404,7 +1690,7 @@ function design(sp) {
               B.send("정리"), B.set("보스1종류", 0), B.set("보스2종류", 0),
               B.iff(B.cmp(B.v("웨이브"), "<", WAVE_COUNT), [
                 // 웨이브 클리어: 최대 체력의 5% 회복, 카드 고르기
-                B.change("체력", B.mul(B.v("최대체력"), WAVE_HEAL_RATIO)),
+                B.change("체력", B.mul(B.v("최대체력"), TV(B, "웨이브회복"))),
                 B.iff(B.cmp(B.v("체력"), ">", B.v("최대체력")), [B.set("체력", B.v("최대체력"))]),
                 B.set("상태", "카드준비"), B.send("카드보이기"),
                 B.waitUntil(fighting(B)),
@@ -1415,12 +1701,23 @@ function design(sp) {
             ...resultScreen("클리어"),
           ]),
           // 체력이 0 이 되면 게임 오버
-          B.when.msg("게임시작", [
+          B.when.msg("감시", [
             B.waitUntil(B.cmp(B.v("체력"), "<=", 0)),
             B.stop("otherThread"),
             B.set("체력", 0),
             ...resultScreen("게임 오버"),
           ]),
+          // 디버그: 웨이브 이동 ([ ] 키 · 보스 선택). 진행 중인 웨이브를 멈추고 적 · 탄 · 카드를 치운 뒤 그 웨이브부터 (증강은 그대로)
+          B.when.msg("웨이브이동", [
+            B.stop("otherThread"),
+            B.set("보스1종류", 0), B.set("보스2종류", 0), B.set("배너시간", 0), B.set("파동있음", 0), B.set("포대있음", 0), B.set("블랙홀있음", 0),
+            B.set("다음부제", 0), B.set("남은적", 0), B.set("무적", 0), B.set("끌림vx", 0), B.set("끌림vy", 0),
+            B.sendWait("정리"), B.sendWait("목록비우기"), B.set("바만듦", 0), B.set("선만듦", 0),
+            B.set("웨이브", B.v("이동웨이브")),
+            B.send("웨이브진행"), B.send("감시"),
+          ]),
+          // 디버그 지급 뒤: 공격력 · 발사 간격 다시 계산
+          B.when.msg("능력갱신", statsRecompute(B)),
           // 리스트마다 따로 (동시에) 비운다
           ...LISTS.filter((l) => !KEEP_LISTS.includes(l)).map((l) => B.when.msg("목록비우기", clearList(B, l))),
           B.when.msg("메뉴로", [B.stop("otherThread"), B.set("보스1종류", 0), B.set("보스2종류", 0), B.set("배너시간", 0), B.set("파동있음", 0), B.set("포대있음", 0), B.set("블랙홀있음", 0),
@@ -1436,9 +1733,7 @@ function design(sp) {
               B.iff(B.cmp(B.v("회복량"), ">", B.mul(B.v("최대체력"), 0.4)), [B.set("회복량", B.mul(B.v("최대체력"), 0.4))]),
               B.change("체력", B.v("회복량")), ...popup(B, playerX(B), B.add(playerY(B), 18), B.v("회복량"), 3)]),
             B.iff(B.cmp(B.v("체력"), ">", B.v("최대체력")), [B.set("체력", B.v("최대체력"))]),
-            B.set("공격력", BASE_DAMAGE), B.repeat(B.v("복리"), [B.set("공격력", B.mul(B.v("공격력"), 1.2))]),
-            B.set("발사간격", FIRE_FRAMES),
-            ...[1, 2, 3].map((lv) => B.iff(B.cmp(B.v("촉매"), "=", lv), [B.set("발사간격", B.mul(FIRE_FRAMES, 1 - CATALYST[lv]))])),
+            ...statsRecompute(B),
             B.set("상태", "전투"),
           ]),
         ];
@@ -1465,11 +1760,21 @@ function spriteSpec() {
     slowRadii: [90, 115, 140],
     ebarRadii: EBAR_RADII,
     menuHint: "Enter · Space 시작  ·  P 일시정지",
+    debug: {
+      settings: SET_UI, tunes: TUNES.map((t) => ({ label: t.label, defText: String(t.def) })),
+      tune: Object.assign({}, TUNE_UI), augs: AUGS.map((a) => ({ name: a.name, max: a.max })), supplies: SUPPLIES.map((x) => ({ name: x.name, formula: x.formula })),
+      give: { w: GIVE_UI.w, h: GIVE_UI.h, cellW: GIVE_UI.cellW, list: GIVE_UI.list, groups: GIVE_UI.groups },
+      boss: { w: BOSS_UI.w, h: BOSS_UI.h, cellW: BOSS_UI.cellW, list: BOSS_UI.list },
+      bosses: Object.entries(BOSS_WAVES).map(([w, list]) => ({ wave: +w, names: list.map((b) => T[b].name).join(" & ") })),
+    },
+    thumb: { cards: [0, 2, 3].map((k) => ({ name: AUGS[k].name, color: AUGS[k].color, formula: AUGS[k].formula })) },
   };
 }
 
 async function build(outFile, extractDir) {
   const sp = await makeSprites(spriteSpec());
+  // 썸네일 그림도 따로 저장 (엔트리 작품 정보에 올릴 때 쓰기 좋게)
+  fs.writeFileSync(path.join(path.dirname(outFile), "썸네일.png"), sp.thumb.png);
   const { project, files } = assemble(design(sp));
   // 엔트리는 변수를 목록 앞에서부터 찾으니, 블록에서 많이 쓰는 변수를 앞에 둔다 (실행이 빨라진다)
   const uses = {};
