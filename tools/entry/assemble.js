@@ -62,7 +62,7 @@ function assemble(design) {
     const id = makeId(4);
     ctx.lists[name] = id;
     variables.push({ name, id, visible: false, value: "0", variableType: "list", isCloud: false, isRealTime: false, cloudDate: false,
-      object: null, x: 0, y: 0, width: 100, height: 120, array: [] });
+      object: null, x: 0, y: 0, width: 100, height: 120, array: ((design.listInit || {})[name] || []).map((v) => ({ data: String(v) })) });
   }
   const messages = design.messages.map((name) => { const id = makeId(4); ctx.msgs[name] = id; return { name, id }; });
   const files = [];
@@ -85,7 +85,7 @@ function assemble(design) {
     if (o.type === "textBox") {
       const w = o.width || 200, h = o.height || 30;
       return Object.assign(base, { objectType: "textBox", text: o.text || "", sprite: { pictures: [], sounds: [] }, selectedPictureId: null,
-        entity: { x: o.x || 0, y: o.y || 0, regX: w / 2, regY: h / 2, scaleX: 1, scaleY: 1, rotation: 0, direction: 90, width: w, height: h,
+        entity: { x: o.x || 0, y: o.y || 0, regX: w / 2, regY: h / 2, scaleX: 1, scaleY: 1, rotation: o.rotation || 0, direction: 90, width: w, height: h,
           font: o.font || "20px NanumGothic", colour: o.colour || "#2B2118", bgColor: o.bgColor || "transparent", text: o.text || "",
           // textAlign: 0 가운데, 1 왼쪽, 2 오른쪽 (엔트리 값). 정렬이 먹으려면 줄바꿈 글상자(크기 고정)여야 한다
           textAlign: o.textAlign ?? 0, lineBreak: o.lineBreak !== false, underLine: false, strike: false, visible: o.visible !== false } });
@@ -94,7 +94,7 @@ function assemble(design) {
     const scale = o.scale ?? 1;
     return Object.assign(base, { objectType: "sprite", selectedPictureId: first.id, sprite: { pictures: o.pictureModels, sounds: [] },
       entity: { x: o.x || 0, y: o.y || 0, regX: first.dimension.width / 2, regY: first.dimension.height / 2, scaleX: scale, scaleY: scale,
-        rotation: 0, direction: 90, width: first.dimension.width, height: first.dimension.height, visible: o.visible !== false } });
+        rotation: o.rotation || 0, direction: 90, width: first.dimension.width, height: first.dimension.height, visible: o.visible !== false } });
   });
   const project = { objects, scenes: [{ id: sceneId, name: design.scene || "장면 1" }], variables, messages, functions: [], tables: [],
     speed: 60, interface: { menuWidth: 280, canvasWidth: 480, object: objects[0].id }, expansionBlocks: [], aiUtilizeBlocks: [],

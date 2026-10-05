@@ -111,6 +111,14 @@ const listSet = (name, idx, val) => blk("change_value_list_index", [need("lists"
 function listItem(name, idx) { return { type: "value_of_index_from_list", params: [null, need("lists", name, "리스트"), null, ex(idx), null] }; }
 function listLen(name) { return { type: "length_of_list", params: [null, need("lists", name, "리스트"), null] }; }
 
+// ---- 글자 ----
+function charAt(str, i) { return { type: "char_at", params: [null, ex(str), null, ex(i), null] }; }   // i 번째 글자 (1부터)
+function strLen(str) { return { type: "length_of_string", params: [null, ex(str), null] }; }
+function indexOf(str, part) { return { type: "index_of_string", params: [null, ex(str), null, ex(part), null] }; }   // 처음 나오는 위치 (없으면 0)
+// 가로만 늘리기: 지금 크기(가로·세로 평균)를 기준으로 가로 배율을 (크기 + val) ÷ 크기 배로
+const stretchW = (val) => blk("stretch_scale_size", ["WIDTH", ex(val), null]);
+const resetSize = () => blk("reset_scale_size", [null]);
+
 // ---- 흐름 블록 (안에 블록 목록을 넣는다) ----
 const forever = (body) => blk("repeat_inf", [null, null], [body]);
 const repeat = (n, body) => blk("repeat_basic", [ex(n), null], [body]);
@@ -132,6 +140,6 @@ module.exports = {
   cmp, and, or, not, key, touching,
   set, change, showVar, hideVar, goXY, setX, setY, moveX, moveY, goTo, rotateTo, rotateToV, show, hide, shape, size,
   effect, clearEffects, front, write, say, unsay, wait, waitUntil, clone, deleteClone, removeAllClones, send, sendWait, stop,
-  shapeV, fontColor, listAdd, listRemove, listSet, listItem, listLen, blk,
+  shapeV, fontColor, listAdd, listRemove, listSet, listItem, listLen, blk, charAt, strLen, indexOf, stretchW, resetSize,
   forever, repeat, repeatUntil, iff, ifElse, when,
 };
