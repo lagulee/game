@@ -1379,4 +1379,25 @@ module.exports = [
       return { ok: ok, detail: "저체력 보장 " + rescueOnly.length + "번 모두 회복 카드 " + rescueOnly.every(Boolean) + " / 나온 보급 " + [...seen].join(",") };
     },
   },
+  {
+    name: "[도감] 적·증강·보급 세 쪽: 버튼 클릭·1/2/3 키로 넘김, 증강 14개·보급 5개가 모두 나오고 글자가 칸 안에 들어감",
+    run: new Function(PRESS + `
+      goToMenu(); openTab("collection");
+      const cr = canvas.getBoundingClientRect();
+      const clickRect = (r) => canvas.dispatchEvent(new MouseEvent("click", { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960,
+        clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 }));
+      clickRect(collectionPageRect(1)); const byClick = collectionPage === "augments"; draw();
+      press("Digit3"); const byKey = collectionPage === "supplies"; draw();
+      press("Digit1"); const back = collectionPage === "enemies"; draw();
+      const counts = [collectionItems("enemies").length, collectionItems("augments").length, collectionItems("supplies").length].join("/");
+      // 가장 작은 글자(12px)로 줄여도 칸을 넘는 글자가 있는지
+      const tooWide = [];
+      const check = (text, size, max, label) => { ctx.font = Math.max(12, fitTextSize(text, size, max)) + "px " + FONT_FAMILY; if (ctx.measureText(text).width > max + 0.5) tooWide.push(label); };
+      AUGMENTS.forEach((a, i) => { const c = collectionCell(i, AUGMENTS.length, 5); check(a.name, 17, c.w - 16, a.name); check(a.formula, 19, c.w - 14, a.formula); check(a.concept, 13, c.w - 12, a.concept); });
+      SUPPLIES.forEach((card, i) => { const c = collectionCell(i, SUPPLIES.length, 5); check(card.formula, 20, c.w - 14, card.formula);
+        if (wrapText(card.desc, c.w - 20, 14).length > 7) tooWide.push(card.name + " 설명 줄 수"); });
+      const ok = byClick && byKey && back && counts === "6/14/5" && tooWide.length === 0;
+      return { ok: ok, detail: "클릭 " + byClick + " / 키 " + byKey + "," + back + " / 항목 수 " + counts + " / 넘치는 글자 " + (tooWide.join(",") || "없음") };
+    `),
+  },
 ];

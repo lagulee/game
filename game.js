@@ -1422,6 +1422,11 @@ function handleLobbyKey(code) {
     const keyToIndex = { Digit1: 0, Digit2: 1, Numpad1: 0, Numpad2: 1 };
     if (code in keyToIndex) { tryBuyUpgrade(keyToIndex[code]); return true; }
   }
+  // 도감 탭: 1, 2, 3 키 = 적 / 증강 / 보급 쪽
+  if (gameState === "collection") {
+    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
+    if (code in keyToPage && COLLECTION_PAGES[keyToPage[code]]) { collectionPage = COLLECTION_PAGES[keyToPage[code]].id; return true; }
+  }
   // 도감·업그레이드 탭: Esc (또는 M) = 전투 탭으로
   if (code === "Escape" || code === "KeyM") { openTab("battle"); return true; }
   return false;
@@ -1470,6 +1475,10 @@ function lobbyButtons() {
     if (!LOBBY_TABS[i].locked) list.push({ id: "tab:" + LOBBY_TABS[i].id, rect: tabRect(i) });
   }
   if (gameState === "menu") list.push({ id: "start", rect: START_BUTTON });
+  if (gameState === "collection") {
+    // 도감 위쪽 쪽 버튼
+    for (let i = 0; i < COLLECTION_PAGES.length; i++) list.push({ id: "col:" + COLLECTION_PAGES[i].id, rect: collectionPageRect(i) });
+  }
   if (gameState === "upgrades") {
     // 업그레이드 카드 전체가 구매 버튼
     for (let i = 0; i < UPGRADES.length; i++) list.push({ id: "buy:" + i, rect: upgradeCardRect(i) });
@@ -1496,6 +1505,7 @@ function runLobbyButton(id) {
   else if (id === "settings:tuning") { closeSettings(); openTuningPanel(); }
   else if (id.startsWith("tab:")) openTab(id.slice(4));
   else if (id.startsWith("buy:")) tryBuyUpgrade(Number(id.slice(4)));
+  else if (id.startsWith("col:")) collectionPage = id.slice(4);
 }
 
 // 로비 화면들의 시간 흐름 (장식 애니메이션, 알림, 초기화 대기, 버튼 효과, 탭 떠오르기)
@@ -3911,13 +3921,36 @@ function drawMenu() {
   drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 62, 15);
 }
 
-// ---- 도감 탭: 왼쪽 적, 오른쪽 증강 ----
+// ---- 도감 탭: 적 / 증강 / 보급 세 쪽 (위쪽 작은 버튼이나 1·2·3 키로 넘긴다) ----
 
 // 도감에 보여 줄 적 종류 (조각·알갱이는 분열형에 포함)
 const COLLECTION_ENEMIES = ["basic", "charger", "sine", "splitter", "chargerKing", "splitterKing"];
-// 도감 두 칸(패널)의 위치
-const COLLECTION_ENEMY_PANEL = { x: 24, y: 78, w: 420, h: 352 };
-const COLLECTION_AUGMENT_PANEL = { x: 460, y: 78, w: 476, h: 352 };
+// 도감의 쪽 목록 (id, 버튼 글자, 버튼 색)
+const COLLECTION_PAGES = [
+  { id: "enemies", label: "적", color: "red" },
+  { id: "augments", label: "증강", color: "purple" },
+  { id: "supplies", label: "보급", color: "green" },
+];
+// 도감 위쪽 쪽 버튼 크기와 높이, 내용 패널 위치
+const COLLECTION_PAGE_BUTTON = { w: 150, h: 34, gap: 14, y: 76 };
+const COLLECTION_PANEL = { x: 24, y: 122, w: 912, h: 314 };
+
+// 지금 보고 있는 도감 쪽
+let collectionPage = "enemies";
+
+// i 번째 쪽 버튼 사각형
+function collectionPageRect(i) {
+  const B = COLLECTION_PAGE_BUTTON, n = COLLECTION_PAGES.length;
+  const total = n * B.w + (n - 1) * B.gap;
+  return { x: (CANVAS_WIDTH - total) / 2 + i * (B.w + B.gap), y: B.y, w: B.w, h: B.h };
+}
+
+// 쪽마다 보여 줄 항목 목록 (그리기와 검사가 함께 쓴다)
+function collectionItems(page) {
+  if (page === "enemies") return COLLECTION_ENEMIES.map(function (id) { return ENEMY_TYPES[id]; });
+  if (page === "augments") return AUGMENTS;
+  return SUPPLIES;
+}
 
 // 글 한 줄을 폭 maxWidth 안에 들어가게 (크기를 줄여서) 쓴다
 function drawFitText(text, x, y, size, maxWidth, color, align) {
@@ -3929,55 +3962,74 @@ function drawFitText(text, x, y, size, maxWidth, color, align) {
   ctx.fillText(text, x, y);
 }
 
+// 칸(cells)을 cols 칸씩 줄 맞춰 놓을 때 i 번째 칸의 사각형 (패널 안쪽 여백 14, 칸 사이 8)
+function collectionCell(i, count, cols) {
+  const P = COLLECTION_PANEL, pad = 14, gap = 8;
+  const rows = Math.ceil(count / cols);
+  const w = (P.w - pad * 2 - gap * (cols - 1)) / cols;
+  const h = (P.h - pad * 2 - gap * (rows - 1)) / rows;
+  return { x: P.x + pad + (w + gap) * (i % cols), y: P.y + pad + (h + gap) * Math.floor(i / cols), w: w, h: h };
+}
+
 function drawCollectionScreen() {
-  // 1) 적 패널: 3칸 × 2줄
-  const E = COLLECTION_ENEMY_PANEL;
-  drawStickerRect(E.x, E.y, E.w, E.h, 22, COLORS.white, 6);
-  drawOutlinedText("적 " + COLLECTION_ENEMIES.length + "종", E.x + 20, E.y + 24, 20, "left", COLORS.red);
-  const cellW = (E.w - 28) / 3, cellH = (E.h - 56) / 2;
-  // 눈이 아래쪽을 보게 플레이어 위치를 화면 아래로 (그림 전용)
-  player.x = CANVAS_WIDTH / 2;
-  player.y = CANVAS_HEIGHT + 200;
-  // 적 종류를 하나씩 칸에 그리는 반복문
-  for (let i = 0; i < COLLECTION_ENEMIES.length; i++) {
-    const id = COLLECTION_ENEMIES[i];
-    const type = ENEMY_TYPES[id];
-    const cx = E.x + 14 + cellW * (i % 3) + cellW / 2;
-    const top = E.y + 46 + cellH * Math.floor(i / 3);
-    roundRectPath(cx - cellW / 2 + 4, top + 4, cellW - 8, cellH - 8, 14);
-    ctx.fillStyle = COLORS.background;
-    ctx.fill();
-    // 보스는 칸에 들어가게 조금 작게 그린다
-    const r = Math.min(type.radius, type.isBoss ? 24 : 20);
-    drawEnemy({
-      type: id, radius: r, x: cx, y: top + 54 + Math.sin(menuTime * 2 + i) * 3,
-      wave: 1, hp: 1, maxHp: 1, hitFlash: 0, dirX: 1, dirY: 0,
+  // 1) 위쪽 쪽 버튼 (지금 쪽은 밝은 색, 나머지는 어두운 색) + 항목 수
+  for (let i = 0; i < COLLECTION_PAGES.length; i++) {
+    const page = COLLECTION_PAGES[i], r = collectionPageRect(i), id = "col:" + page.id;
+    const active = collectionPage === page.id;
+    drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id), function () {
+      drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 17, hoverColor(id, active ? COLORS[page.color] : COLORS.dark), SMALL_OUTLINE_WIDTH);
+      drawOutlinedText((i + 1) + "  " + page.label + " " + collectionItems(page.id).length, r.x + r.w / 2, r.y + r.h / 2 + 1, 18,
+        "center", active ? COLORS.white : COLORS.dim);
     });
-    drawFitText(type.name, cx, top + 100, 17, cellW - 16, COLORS.outline);
-    drawFitText(type.desc || "", cx, top + 122, 13, cellW - 14, COLORS.brown);
   }
 
-  // 2) 증강 패널: 3칸씩 여러 줄
-  const A = COLLECTION_AUGMENT_PANEL;
-  drawStickerRect(A.x, A.y, A.w, A.h, 22, COLORS.white, 6);
-  drawOutlinedText("증강 " + AUGMENTS.length + "종", A.x + 20, A.y + 24, 20, "left", COLORS.purple);
-  const cols = 3, rows = Math.ceil(AUGMENTS.length / cols);
-  const gap = 8;
-  const aw = (A.w - 28 - gap * (cols - 1)) / cols;
-  const ah = (A.h - 58 - gap * (rows - 1)) / rows;
-  // 증강을 하나씩 작은 카드로 그리는 반복문
-  for (let i = 0; i < AUGMENTS.length; i++) {
-    const aug = AUGMENTS[i];
-    const x = A.x + 14 + (aw + gap) * (i % cols);
-    const y = A.y + 46 + (ah + gap) * Math.floor(i / cols);
-    drawOutlinedRoundRect(x, y, aw, ah, 12, COLORS.background, SMALL_OUTLINE_WIDTH);
-    drawOutlinedRoundRect(x, y, aw, 28, 12, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
-    ctx.save();
-    const nameSize = fitTextSize(aug.name, 17, aw - 16);
-    drawOutlinedText(aug.name, x + aw / 2, y + 15, nameSize);
-    ctx.restore();
-    drawFitText(aug.formula, x + aw / 2, y + 28 + (ah - 28) * 0.38, 18, aw - 14, COLORS.outline);
-    drawFitText(aug.concept, x + aw / 2, y + 28 + (ah - 28) * 0.76, 13, aw - 12, COLORS.brown);
+  // 2) 내용 패널
+  const P = COLLECTION_PANEL;
+  drawStickerRect(P.x, P.y, P.w, P.h, 22, COLORS.white, 6);
+  const items = collectionItems(collectionPage);
+
+  if (collectionPage === "enemies") {
+    // 적: 한 줄에 6칸. 위에 그림, 아래 이름과 설명
+    // 눈이 아래쪽을 보게 플레이어 위치를 화면 아래로 (그림 전용)
+    player.x = CANVAS_WIDTH / 2;
+    player.y = CANVAS_HEIGHT + 200;
+    for (let i = 0; i < items.length; i++) {
+      const type = items[i], c = collectionCell(i, items.length, 6), cx = c.x + c.w / 2;
+      roundRectPath(c.x, c.y, c.w, c.h, 14);
+      ctx.fillStyle = COLORS.background;
+      ctx.fill();
+      const r = Math.min(type.radius, type.isBoss ? 30 : 24);     // 보스는 칸에 들어가게 조금 작게
+      drawEnemy({
+        type: COLLECTION_ENEMIES[i], radius: r, x: cx, y: c.y + 100 + Math.sin(menuTime * 2 + i) * 3,
+        wave: 1, hp: 1, maxHp: 1, hitFlash: 0, dirX: 1, dirY: 0,
+      });
+      drawFitText(type.name, cx, c.y + 186, 20, c.w - 14, COLORS.outline);
+      const lines = wrapText(type.desc || "", c.w - 20, 14).slice(0, 2);
+      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 216 + n * 20, 14, c.w - 16, COLORS.brown);
+      if (type.isBoss) drawOutlinedText("보스", cx, c.y + 22, 15, "center", COLORS.red);
+    }
+  } else if (collectionPage === "augments") {
+    // 증강: 한 줄에 5칸. 색 띠(이름) + 수식 + 개념
+    for (let i = 0; i < items.length; i++) {
+      const aug = items[i], c = collectionCell(i, items.length, 5);
+      drawOutlinedRoundRect(c.x, c.y, c.w, c.h, 12, COLORS.background, SMALL_OUTLINE_WIDTH);
+      drawOutlinedRoundRect(c.x, c.y, c.w, 30, 12, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
+      drawOutlinedText(aug.name, c.x + c.w / 2, c.y + 16, fitTextSize(aug.name, 17, c.w - 16));
+      drawFitText(aug.formula, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.38, 19, c.w - 14, COLORS.outline);
+      drawFitText(aug.concept, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.76, 13, c.w - 12, COLORS.brown);
+    }
+  } else {
+    // 보급: 한 줄에 5칸. 색 띠(이름) + 수식 + 개념 + 설명
+    for (let i = 0; i < items.length; i++) {
+      const card = items[i], c = collectionCell(i, items.length, 5), cx = c.x + c.w / 2;
+      drawOutlinedRoundRect(c.x, c.y, c.w, c.h, 14, COLORS.background, SMALL_OUTLINE_WIDTH);
+      drawOutlinedRoundRect(c.x, c.y, c.w, 34, 14, COLORS[card.color], SMALL_OUTLINE_WIDTH);
+      drawOutlinedText(card.name, cx, c.y + 18, fitTextSize(card.name, 19, c.w - 16));
+      drawFitText(card.formula, cx, c.y + 62, 20, c.w - 14, COLORS.outline);
+      drawFitText(card.concept, cx, c.y + 90, 13, c.w - 12, COLORS.brown);
+      const lines = wrapText(card.desc, c.w - 20, 14).slice(0, 7);
+      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 124 + n * 22, 14, c.w - 16, COLORS.outline);
+    }
   }
 }
 
