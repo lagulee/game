@@ -58,7 +58,7 @@
 
 // ---- 사수형 (물리 · 등속 직선 운동): 거리를 두고 조준탄을 쏜다 ----
 const SHOOTER_RANGE = 250;          // 플레이어와 이 거리(px)를 유지하려 한다
-const SHOOTER_RANGE_SLACK = 30;     // ± 이만큼은 괜찮은 거리로 본다 (그 안에서는 옆으로 돈다)
+const SHOOTER_RANGE_SLACK = 30;     // ± 이만큼은 괜찮은 거리로 본다 (그 안에서는 멈춰서 겨눈다)
 const SHOOTER_FIRE_INTERVAL = 2.5;  // 쏘는 간격 (초)
 const SHOOTER_WARN_TIME = 0.5;      // 쏘기 전에 몸이 깜빡이는 시간 (초)
 const SHOOTER_BULLET_DAMAGE = 12;   // 조준탄 기본 대미지 (× 웨이브 접촉 대미지 배율)
@@ -434,7 +434,6 @@ const ENEMY_TYPES = {
 
     init: function (enemy) {
       enemy.fireTimer = SHOOTER_FIRE_INTERVAL;   // 다음 발사까지 남은 시간
-      enemy.strafe = Math.random() < 0.5 ? -1 : 1; // 알맞은 거리에서 옆으로 도는 방향
       enemy.dirX = 1;
       enemy.dirY = 0;
       enemy.chargeFlash = false;
@@ -447,11 +446,9 @@ const ENEMY_TYPES = {
         moveToward(enemy, player.x, player.y, info.speed, dt);          // 멀면 다가간다
       } else if (dist < SHOOTER_RANGE - SHOOTER_RANGE_SLACK) {
         moveToward(enemy, player.x, player.y, -info.speed, dt);         // 가까우면 물러난다
-      } else {
-        // 알맞은 거리: 플레이어 둘레를 천천히 돈다 (바라보는 방향의 수직)
-        enemy.x += -enemy.dirY * enemy.strafe * info.speed * 0.5 * dt;
-        enemy.y += enemy.dirX * enemy.strafe * info.speed * 0.5 * dt;
       }
+      // 알맞은 거리에서는 멈춰 서서 겨누기만 한다.
+      // (옆으로 돌면, 플레이어 총알이 날아가는 동안 늘 같은 만큼 비켜 가서 계속 빗나갈 수 있다)
       // 화면 안에 들어온 뒤에는 화면 밖으로 물러나지 않는다
       const onScreen = enemy.x > 0 && enemy.x < CANVAS_WIDTH && enemy.y > 0 && enemy.y < CANVAS_HEIGHT;
       if (onScreen || enemy.entered) {

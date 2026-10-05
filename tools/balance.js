@@ -8,6 +8,9 @@
 //     - 가까운 적일수록 강하게 피한다
 //     - 돌격형·돌진 대장의 예고선(돌진할 직선) 안에 있으면 선 밖으로 옆걸음
 //     - 벽 가까이 가면 안쪽으로 밀려나서 구석에 몰리지 않는다
+//     - 적 탄환: 1.2초 안에 닿을 것 같은 탄환의 길에서 옆으로 비켜선다
+//     - 방패형: 자동 조준 대상(가장 가까운 적)이 방패형이고 방패가 나를 향하면 옆으로 돌아 들어간다
+//     - 자석형·블랙홀: 더 멀리서부터 피한다
 //   old (예전 봇)
 //     - 가장 가까운 적에게서 멀어지고, 벽에 막히면 가운데를 중심으로 돈다
 //   공통: 카드는 무작위, 화면 없이 update(1/60) 을 직접 불러 실제보다 훨씬 빠르게 돌린다
@@ -142,7 +145,10 @@ function runLevel(opts) {
     for (const e of enemies) {
       const ex = player.x - e.x, ey = player.y - e.y;
       const d = Math.hypot(ex, ey) || 1;
-      const reach = DANGER + e.radius;
+      // 끌어당기는 적(자석형·블랙홀)은 더 멀리서부터 피한다 (블랙홀은 사건의 지평선까지 더해서)
+      const T = enemyType(e);
+      const extra = T.pullOn ? (T.shape === "blackHole" ? BH_HORIZON + 120 : 80) : 0;
+      const reach = DANGER + e.radius + extra;
       if (d < reach) {
         const w = Math.pow(1 - d / reach, 2) * 4;
         fx += (ex / d) * w; fy += (ey / d) * w;
@@ -166,6 +172,37 @@ function runLevel(opts) {
       }
     }
     if (aheadThreat > 0.8 && flipCooldown <= 0) { orbitDir = -orbitDir; flipCooldown = 1.2; }
+
+    // 적 탄환 피하기: 1.2초 안에 가장 가까워지는 순간 닿을 것 같으면 그 탄환의 길에서 옆으로 비켜선다
+    for (const b of enemyBullets) {
+      const sf = b.slowFactor || 1;
+      const vx = b.vx * sf, vy = b.vy * sf, v2 = vx * vx + vy * vy;
+      if (v2 < 1) continue;
+      const rx = player.x - b.x, ry = player.y - b.y;
+      const t = (rx * vx + ry * vy) / v2;               // 가장 가까워지는 시간 (초)
+      if (t < 0 || t > 1.2) continue;
+      let mx = rx - vx * t, my = ry - vy * t;           // 그때 탄환 → 나 방향 (빗나가는 거리)
+      let md = Math.hypot(mx, my);
+      const safe = PLAYER_RADIUS + b.radius + 14;
+      if (md >= safe) continue;
+      if (md < 1e-3) { mx = -vy; my = vx; md = Math.hypot(mx, my); }   // 정면이면 옆으로
+      const urgency = 1 - t / 1.2;
+      const w = (7 * (1 - md / safe) + 2) * urgency;
+      fx += (mx / md) * w; fy += (my / md) * w;
+    }
+
+    // 방패형의 옆 노리기: 가장 가까운 적(= 자동 조준 대상)이 방패형이고 방패가 나를 향하면 옆으로 돈다
+    let target = null, td = Infinity;
+    for (const e of enemies) { const d = distance(player.x, player.y, e.x, e.y); if (d < td) { td = d; target = e; } }
+    if (target && enemyType(target).modifyBulletDamage && target.shieldAngle !== undefined && td < 450) {
+      const toMe = Math.atan2(player.y - target.y, player.x - target.x);
+      const diff = angleDifference(toMe, target.shieldAngle);
+      if (Math.abs(diff) < SHIELD_ARC / 2 + 0.3) {
+        const sign = diff >= 0 ? 1 : -1;                // 방패 끝에서 가까운 쪽으로 돈다
+        const ux = (player.x - target.x) / (td || 1), uy = (player.y - target.y) / (td || 1);
+        fx += -uy * sign * 6; fy += ux * sign * 6;
+      }
+    }
 
     // 벽에서 밀려나기 (구석에 몰리지 않게)
     const push = (dist) => (dist < WALL ? Math.pow(1 - dist / WALL, 2) * 5 : 0);
