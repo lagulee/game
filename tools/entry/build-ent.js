@@ -68,8 +68,8 @@ const TUNE_UI = (() => {
     }
   }
   return { w, h, rowW, rowH, groups, rows, list: { x: -435, y: -150, w: 870, h: 345 },
-    apply: { x: -330, y: 225 }, reset: { x: -157, y: 225 }, lock: { x: -24, y: 225 }, close: { x: 412, y: -219 },
-    help: "줄을 누르고 무대 아래 대답 칸에 새 값을 쓰면 바로 바뀌어요 (다음 웨이브부터). 노란 줄 = 기본값과 다른 값" };
+    apply: { x: -330, y: 225 }, reset: { x: -157, y: 225 }, lock: { x: -24, y: 225 }, close: { x: 412, y: -219 }, saved: { x: 250, y: 225 },
+    help: "줄을 누르고 대답 칸에 새 값을 쓰면 바로 바뀌고 엔트리 서버에 저장돼요 (모든 플레이어 · 다음 실행에도). 노란 줄 = 기본값과 다른 값" };
 })();
 // 디버그 · 지급 (G) 창: 증강 칸 = [레벨 +1 버튼][− 버튼] 3열, 보급 2칸
 const GIVE_UI = (() => {
@@ -298,8 +298,9 @@ const LISTS = ["팝업x", "팝업y", "팝업값", "팝업종류", "슬롯x", "�
 // =============================================================
 function design(sp) {
   const variables = GLOBALS.map((name) => ({ name, value: name === "글자표" ? GLYPH_STR : name === "시작웨이브" ? 1 : name === "디버그글" ? "DEBUG" : name === "알림색" ? "초록" : 0 }));
-  // 숫자 조절판 값 (처음 = 기본값)
-  for (const t of TUNES) variables.push({ name: t.v, value: t.def });
+  // 숫자 조절판 값 (처음 = 기본값). 엔트리 "실시간 변수": 값이 엔트리 서버에 저장되어,
+  //   조절판에서 바꾸면 작품을 다시 열어도 · 다른 사람이 해도 그 값으로 돈다 (온라인에 저장한 작품에서)
+  for (const t of TUNES) variables.push({ name: t.v, value: t.def, realTime: true });
   for (const obj in LOCALS) for (const name of LOCALS[obj]) variables.push({ name, local: obj, value: 0 });
   const listInit = {
     글자폭: GLYPHS.map((g, i) => +sp["adv_" + i].adv.toFixed(2)),
@@ -638,7 +639,7 @@ function design(sp) {
   const TUNE_ST = ["조절", "조절입력"];
   objects.push(button("조절닫기", "html_close", ...uiPos(TUNE_UI.close), TUNE_ST, (B) => [B.set("상태", "설정")], { clickStates: ["조절"] }));
   objects.push(button("조절적용", "tune_apply", ...uiPos(TUNE_UI.apply), TUNE_ST, (B) => [...say(B, "바뀐 값으로 다시 시작해요"), B.send("메뉴로")], { clickStates: ["조절"] }));
-  objects.push(button("조절기본", "tune_reset", ...uiPos(TUNE_UI.reset), TUNE_ST, (B) => [...TUNES.map((t) => B.set(t.v, t.def)), ...say(B, "모두 기본값으로")], { clickStates: ["조절"] }));
+  objects.push(button("조절기본", "tune_reset", ...uiPos(TUNE_UI.reset), TUNE_ST, (B) => [...TUNES.map((t) => B.set(t.v, String(t.def))), ...say(B, "모두 기본값으로")], { clickStates: ["조절"] }));
   objects.push(button("조절잠금", "tune_lock", ...uiPos(TUNE_UI.lock), TUNE_ST, (B) => [B.set("주인확인", 0), B.set("상태", "설정"), ...say(B, "잠갔어요")], { clickStates: ["조절"] }));
   objects.push(cloneButtons("조절줄", TUNES.flatMap((t, i) => [0, 1].map((c) => "tune_row_" + i + "_" + c)), TUNES.length, TUNE_ST, (i) => uiPos(TUNE_UI.rows[i]),
     (B) => [
@@ -1265,7 +1266,7 @@ function design(sp) {
           B.iff(B.cmp(B.answer(), "!=", "취소"), [
             B.ifElse(B.isNumber(B.answer()), [
               B.set("입력값", B.answer()), ...(t.int ? [B.set("입력값", B.mathOp("round", B.v("입력값")))] : []),
-              B.ifElse(B.cmp(B.v("입력값"), "<", t.min), [...say(B, t.min + " 보다 작게는 못 바꿔요", "빨강")], [B.set(t.v, B.v("입력값"))]),
+              B.ifElse(B.cmp(B.v("입력값"), "<", t.min), [...say(B, t.min + " 보다 작게는 못 바꿔요", "빨강")], [B.set(t.v, B.join(B.v("입력값"), ""))]),
             ], [...say(B, "숫자를 넣어 주세요", "빨강")]),
           ]),
         ])),

@@ -415,6 +415,8 @@ function drawAll(spec) {
       htmlPanel(U.w, U.h, "숫자 조절", U.help);
       box(U.list.x, U.list.y, U.list.w, U.list.h, 14, H.list, 3);
       U.groups.forEach((g) => txt(g.name, g.x, g.y, 17, H.group));
+      // 실시간 변수: 바꾼 값은 엔트리 서버에 저장된다
+      txt("실시간 변수 · 엔트리 서버에 저장", U.saved.x, U.saved.y, 14, H.group, "center");
     });
     D.tunes.forEach((t, i) => {
       for (const ch of [0, 1]) shot("tune_row_" + i + "_" + ch, U.rowW + 4, U.rowH + 4, () => {

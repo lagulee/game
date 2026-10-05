@@ -55,7 +55,7 @@ function assemble(design) {
     if (vd.local) (ctx.locals[vd.local] = ctx.locals[vd.local] || {})[vd.name] = id;
     else ctx.vars[vd.name] = id;
     variables.push({ name: vd.name, id, visible: !!vd.visible, value: String(vd.value ?? 0), variableType: "variable",
-      isCloud: false, isRealTime: false, cloudDate: false, object: vd.local ? ctx.objs[vd.local] : null, x: vd.x ?? 0, y: vd.y ?? 0 });
+      isCloud: false, isRealTime: !!vd.realTime, cloudDate: false, object: vd.local ? ctx.objs[vd.local] : null, x: vd.x ?? 0, y: vd.y ?? 0 });
   }
   // 리스트 (모두가 같이 쓰는 리스트만)
   for (const name of design.lists || []) {
