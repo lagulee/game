@@ -73,7 +73,7 @@ const GLOBALS = ["배너글", "배너시간", "조준거리", "상태", "웨이�
   "이동x", "이동y", "카드1", "카드2", "카드3", "뽑기", "가능", "고른카드", "탄x", "탄y", "탄시작각", "보스체력", "보스최대", "증강글",
   ...AUG_VARS];
 const LOCALS = {
-  적: ["복제본", "종류", "적체력", "적최대", "속도", "타이머", "단계", "돌진x", "돌진y", "거리", "느림", "깜빡"],
+  적: ["복제본", "종류", "적체력", "적최대", "속도", "타이머", "단계", "돌진x", "돌진y", "거리", "느림", "깜빡", "회전"],
   총알: ["복제본", "vx", "vy", "나이"],
   보조총알: ["복제본", "vx", "vy", "각", "나이"],
   적탄: ["복제본", "각", "vx", "vy"],
@@ -247,6 +247,11 @@ function design(png) {
               B.moveY(B.add(toward("y", B.mul(B.v("속도"), B.v("느림"))), B.mul(toward("x", SINE_AMP), B.mathOp("cos", B.mul(B.v("타이머"), SINE_FREQ))))),
             ]),
             // 돌격형: 걷기 → 멈춰서 깜빡이며 조준 → 그 방향으로 돌진
+            //   바라보는 각 = atan(dy ÷ dx) (dx 가 음수면 +180°). 엔트리 방향은 시계 방향이 + 라서 − 를 붙인다
+            B.iff(B.and(typeIs(2), B.cmp(B.v("단계"), "!=", 2)), [
+              B.set("회전", B.mathOp("atan_radian", B.div(dy(), B.add(dx(), 0.001)))),
+              B.iff(B.cmp(dx(), "<", 0), [B.change("회전", 180)]),
+              B.rotateToV(B.mul(B.v("회전"), -1))]),
             B.iff(typeIs(2), [
               B.iff(B.cmp(B.v("단계"), "=", 0), [
                 B.moveX(toward("x", B.mul(B.v("속도"), B.v("느림")))), B.moveY(toward("y", B.mul(B.v("속도"), B.v("느림")))),
@@ -350,7 +355,7 @@ function design(png) {
           // 4) 무적이면 깜빡깜빡
           B.ifElse(B.cmp(B.v("무적"), ">", 0), [
             B.change("무적", -1),
-            B.ifElse(B.cmp(B.mod(B.v("무적"), 10), "<", 5), [B.effect("transparency", 60)], [B.effect("transparency", 0)]),
+            B.ifElse(B.cmp(B.mod(B.v("무적"), 10), "<", 5), [B.effect("transparency", 45)], [B.effect("transparency", 0)]),
           ], [B.effect("transparency", 0)]),
         ])])]),
       ];
@@ -360,8 +365,8 @@ function design(png) {
       B.when.run([B.hide(), B.forever([
         B.ifElse(B.cmp(B.v("지연"), ">", 0), [
           B.goTo("플레이어"),
-          // 반지름 = 지연 × 12.5 + 32.5 (45, 57.5, 70). 그림 반지름 140 → 크기 % = 반지름 ÷ 140 × 100
-          B.size(B.mul(B.div(B.add(B.mul(B.v("지연"), 12.5), 32.5), 140), 100)),
+          // 반지름 = 지연 × 12.5 + 32.5 (45, 57.5, 70). 엔트리의 "크기"는 가로·세로 평균 길이라서 지름(반지름 × 2)을 넣는다
+          B.size(B.mul(B.add(B.mul(B.v("지연"), 12.5), 32.5), 2)),
           B.show()], [B.hide()]),
       ])]),
     ] },
