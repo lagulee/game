@@ -927,4 +927,17 @@ const SUPPLIES = [
       addTempEffect("atp");
     },
   },
+  {
+    id: "immune",
+    isSupply: true,
+    name: "면역 반응",
+    concept: "생물 · 면역",
+    formula: "보호막 2회",
+    color: "red",
+    icon: "shield",
+    desc: "항체가 침입자를 막아 낸다. 다음 웨이브 동안 적에게 닿아도 2번까지 대미지를 받지 않는다",
+    apply: function () {
+      addTempEffect("immune", { charges: SUPPLY_IMMUNE_CHARGES });
+    },
+  },
 ];

@@ -1300,10 +1300,10 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 증강 14개·보급 3개, 이름·id 겹침 없음",
+    name: "[증강+] 증강 14개·보급 4개, 이름·id 겹침 없음",
     run: function () {
       const ids = AUGMENTS.map((a) => a.id).concat(SUPPLIES.map((s) => s.id));
-      const ok = AUGMENTS.length === 14 && SUPPLIES.length === 3 && new Set(ids).size === ids.length;
+      const ok = AUGMENTS.length === 14 && SUPPLIES.length === 4 && new Set(ids).size === ids.length;
       return { ok: ok, detail: "증강 " + AUGMENTS.length + "개, 보급 " + SUPPLIES.length + "개 / " + ids.join(",") };
     },
   },
@@ -1323,6 +1323,26 @@ module.exports = [
       const ok = Math.abs(during - base * 0.7) < 1e-12 && Math.abs(withCat - base * 0.8 * 0.7) < 1e-12 && icons === "bolt" &&
         Math.abs(after - base * 0.8) < 1e-12 && player.tempEffects.length === 0;
       return { ok: ok, detail: "간격 " + base + " → " + during.toFixed(3) + " (촉매와 함께 " + withCat.toFixed(3) + ") / 아이콘 " + icons + " / 웨이브 뒤 " + after.toFixed(3) };
+    },
+  },
+  {
+    name: "[보급+] 면역 반응: 다음 웨이브 동안 피격 2회를 대미지 없이 막음, 3번째부터 맞음, 고리·아이콘(남은 횟수), 웨이브를 깨면 끝",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      applySupply(SUPPLIES.find((c) => c.id === "immune"));
+      const hp0 = player.hp, log = [];
+      for (let n = 0; n < 3; n++) {
+        enemies = [createEnemy("basic", player.x, player.y, 1)]; player.invincibleTimer = 0;
+        updatePlayerHit(1 / 60);
+        const sh = getTempEffect("immune");
+        log.push(player.hp + "/" + (sh ? sh.charges : 0));
+        if (n === 0) { draw(); var badge = activeEffectIcons()[0].badge; }
+      }
+      const blockedTwice = log[0] === hp0 + "/1" && log[1] === hp0 + "/0" && player.hp < hp0;
+      applySupply(SUPPLIES.find((c) => c.id === "immune")); spawnQueue = []; enemies = []; checkWaveEnd();
+      const cleared = !getTempEffect("immune");
+      const ok = blockedTwice && badge === "1" && cleared && popups.some((p) => p.text === "막음!");
+      return { ok: ok, detail: "피격 3번: " + log.join(" → ") + " (체력/남은 보호막) / 아이콘 숫자 " + badge + " / 웨이브 뒤 끝 " + cleared };
     },
   },
   {
