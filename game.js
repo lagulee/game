@@ -170,6 +170,10 @@ const AUGMENT_LIST_COMPACT_FROM = 5;
 // 화면 위쪽 보스 체력바의 폭 (왼쪽 위 패널과 오른쪽 위 증강 목록 사이에 들어가게)
 const BOSS_BAR_WIDTH = 300;
 
+// 상태창의 보급 효과 아이콘 반지름과 간격 (px)
+const EFFECT_ICON_RADIUS = 12;
+const EFFECT_ICON_GAP = 30;
+
 // ※ 적 한 마리 처치 점수 = 종류별 score(enemies.js) × 웨이브 번호
 
 // 점수: 클리어했을 때 남은 체력 1 당 보너스 점수
@@ -1107,8 +1111,10 @@ function pickChoices() {
   // 3) 체력이 낮은데 보급 카드가 하나도 없으면, 마지막 카드를 보급 카드로 바꾼다
   const lowHp = player.hp < player.maxHp * LOW_HP_RATIO;
   const hasSupply = picks.some(function (card) { return card.isSupply; });
-  if (lowHp && !hasSupply && SUPPLIES.length > 0) {
-    const supply = SUPPLIES[Math.floor(Math.random() * SUPPLIES.length)];
+  // (회복해 주는 보급(rescue: true) 중에서 고른다)
+  const rescue = SUPPLIES.filter(function (card) { return card.rescue; });
+  if (lowHp && !hasSupply && rescue.length > 0) {
+    const supply = rescue[Math.floor(Math.random() * rescue.length)];
     if (picks.length < CHOICE_COUNT) picks.push(supply);
     else picks[picks.length - 1] = supply;
   }
@@ -1117,7 +1123,28 @@ function pickChoices() {
 
 // 웨이브를 깼을 때 회복하는 양 (함수로 둔 이유: 나중에 증강이나 난이도로 바꾸기 쉽게)
 function waveClearHeal() {
-  return player.maxHp * WAVE_CLEAR_HEAL_RATIO;
+  return player.maxHp * (WAVE_CLEAR_HEAL_RATIO + (player.healBonus || 0));
+}
+
+// ---- 임시 효과 ("다음 웨이브 동안" 만 유지되는 보급 효과) ----
+// player.tempEffects 의 한 칸 = { id, ...그 효과의 값 }. 웨이브를 깨는 순간 모두 사라진다.
+
+// 임시 효과를 더한다 (같은 id 가 있으면 새것으로 바꾼다)
+function addTempEffect(id, data) {
+  player.tempEffects = (player.tempEffects || []).filter(function (e) { return e.id !== id; });
+  player.tempEffects.push(Object.assign({ id: id }, data || {}));
+}
+
+// id 임시 효과 (없으면 null)
+function getTempEffect(id) {
+  const list = player.tempEffects || [];
+  for (const e of list) if (e.id === id) return e;
+  return null;
+}
+
+// id 임시 효과를 지운다
+function removeTempEffect(id) {
+  player.tempEffects = (player.tempEffects || []).filter(function (e) { return e.id !== id; });
 }
 
 // 지금 웨이브가 몇 번째 챕터인지 (1~5 → 1, 6~10 → 2 ...)
@@ -1502,6 +1529,8 @@ function checkWaveEnd() {
 
   // 웨이브를 깼다! 체력을 조금 회복
   healPlayer(waveClearHeal());
+  // "다음 웨이브 동안" 이던 보급 효과는 여기서 끝
+  player.tempEffects = [];
 
   if (wave >= WAVES.length) {
     // 마지막 웨이브였으면 클리어!
@@ -1527,6 +1556,15 @@ function updatePlayerHit(dt) {
   for (const enemy of enemies) {
     if (circlesOverlap(player.x, player.y, PLAYER_RADIUS,
                        enemy.x, enemy.y, enemy.radius)) {
+      // 보급 "면역 반응" 보호막이 남아 있으면 대미지 없이 한 번 막는다
+      const shield = getTempEffect("immune");
+      if (shield && shield.charges > 0) {
+        shield.charges -= 1;
+        if (shield.charges <= 0) removeTempEffect("immune");
+        player.invincibleTimer = PLAYER_INVINCIBLE_TIME;
+        spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "막음!", COLORS.white);
+        break;
+      }
       player.hp -= enemy.contactDamage;                // 체력 감소 (종류·웨이브마다 다름)
       player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
 
@@ -1554,6 +1592,8 @@ function resetGame() {
   player.fireTimer = 0;
   player.invincibleTimer = 0;
   player.facing = 0;
+  player.tempEffects = [];    // "다음 웨이브 동안" 만 유지되는 보급 효과 목록 (ATP 충전, 면역 반응)
+  player.healBonus = 0;       // 광합성: 웨이브 클리어 회복 비율에 더해지는 값 (이번 판 동안)
 
   // 적과 총알을 모두 지운다
   enemies = [];
@@ -1766,6 +1806,8 @@ function fireInterval() {
   forEachOwnedAugment(function (aug, stats) {
     if (aug.modifyFireInterval) interval = aug.modifyFireInterval(interval, stats);
   });
+  // 보급 "ATP 충전" (이번 웨이브 동안)
+  if (getTempEffect("atp")) interval *= 1 - SUPPLY_ATP_REDUCTION;
   return interval;
 }
 
@@ -2668,6 +2710,7 @@ function drawHud() {
     drawOutlinedText(label, p.x + 12, p.y + p.h / 2 + 1, fitTextSize(label, 18, 70), "left");
     drawHpBar(p.x + 86, p.y + 10, hpBarWidth(HUD_WIDTH - 110), 20);
     drawHudArrow();
+    drawEffectIcons(p.x + p.w + 22, p.y + p.h / 2, 1);   // 접은 상태창 오른쪽 바깥에 왼쪽부터
     drawAugmentList();
     return;
   }
@@ -2690,8 +2733,105 @@ function drawHud() {
   drawCoinIcon(p.x + 26, p.y + 112, 10);
   drawOutlinedText(String(Math.floor(runCoins)), p.x + 44, p.y + 112, 20, "left");
 
+  // 남은 보급 효과 아이콘 (코인 줄 오른쪽 끝에서 왼쪽으로)
+  drawEffectIcons(p.x + p.w - 24, p.y + 110, -1);
+
   // ---- 오른쪽 위: 가진 증강 목록 ----
   drawAugmentList();
+}
+
+// ---- 남은 보급 효과 아이콘 (상태창) ----
+// 임시 효과(ATP 충전, 면역 반응)와 이번 판 효과(광합성)를 동그란 아이콘으로 보여 준다.
+// 아이콘 오른쪽 아래 작은 글자: 면역 반응은 남은 횟수, 광합성은 늘어난 회복량
+
+// 지금 보여 줄 효과 목록 [{ icon, color, badge }]
+function activeEffectIcons() {
+  const list = [];
+  for (const e of player.tempEffects || []) {
+    const card = SUPPLIES.find(function (c) { return c.id === e.id; });
+    if (!card) continue;
+    list.push({ icon: card.icon, color: card.color, badge: e.charges !== undefined ? String(e.charges) : "" });
+  }
+  if (player.healBonus > 0) {
+    const photo = SUPPLIES.find(function (c) { return c.id === "photosynthesis"; });
+    list.push({ icon: "leaf", color: photo ? photo.color : "green", badge: "+" + Math.round(player.healBonus * 100) + "%" });
+  }
+  return list;
+}
+
+// (x, y) 부터 dir 방향(1 = 오른쪽으로, −1 = 왼쪽으로) 으로 아이콘을 늘어놓는다
+// 글자(남은 횟수, +N%)는 아이콘 오른쪽에 붙이고, 그 폭만큼 다음 아이콘을 띄운다
+//   dir = 1  : x 가 첫 아이콘의 가운데
+//   dir = −1 : x 가 첫 아이콘(+글자)의 오른쪽 끝 근처
+function drawEffectIcons(x, y, dir) {
+  const list = activeEffectIcons();
+  const r = EFFECT_ICON_RADIUS;
+  ctx.font = "12px " + FONT_FAMILY;
+  let cursor = x;
+  for (const item of list) {
+    const badgeW = item.badge ? ctx.measureText(item.badge).width + 2 : 0;
+    // 아이콘 가운데: 오른쪽으로 늘어놓으면 cursor 가 가운데, 왼쪽으로면 글자 폭만큼 더 왼쪽
+    const cx = dir > 0 ? cursor : cursor - badgeW;
+    drawOutlinedCircle(cx, y, r, COLORS[item.color], SMALL_OUTLINE_WIDTH);
+    drawEffectGlyph(item.icon, cx, y, r * 0.62);
+    if (item.badge) drawOutlinedText(item.badge, cx + r - 2, y + r * 0.7, 12, "left");
+    cursor += dir * (2 * r + badgeW + EFFECT_ICON_GAP - 2 * r);
+  }
+}
+
+// 아이콘 안의 하얀 그림: "bolt" = 번개, "shield" = 방패, "leaf" = 잎
+function drawEffectGlyph(shape, x, y, s) {
+  if (shape === "bolt") {
+    drawOutlinedPolygon([
+      [x + s * 0.2, y - s], [x - s * 0.55, y + s * 0.15], [x - s * 0.05, y + s * 0.15],
+      [x - s * 0.25, y + s], [x + s * 0.55, y - s * 0.2], [x + s * 0.05, y - s * 0.2],
+    ], COLORS.white, SMALL_OUTLINE_WIDTH * 0.6);
+  } else if (shape === "shield") {
+    drawOutlinedPolygon([
+      [x, y - s], [x + s * 0.85, y - s * 0.6], [x + s * 0.7, y + s * 0.35],
+      [x, y + s], [x - s * 0.7, y + s * 0.35], [x - s * 0.85, y - s * 0.6],
+    ], COLORS.white, SMALL_OUTLINE_WIDTH * 0.6);
+  } else {
+    // 잎: 비스듬한 타원 + 가운데 잎맥
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-Math.PI / 4);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s, s * 0.55, 0, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.white;
+    ctx.fill();
+    setOutline(SMALL_OUTLINE_WIDTH * 0.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.8, 0);
+    ctx.lineTo(s * 0.8, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ---- 면역 반응 보호막: 플레이어 둘레의 고리 (남은 횟수만큼 조각) ----
+function drawImmuneRing() {
+  const shield = getTempEffect("immune");
+  if (!shield || shield.charges <= 0 || gameState === "gameover") return;
+  const r = PLAYER_RADIUS + 10;
+  const n = SUPPLY_IMMUNE_CHARGES;
+  const gap = 0.35;                                   // 조각 사이 틈 (라디안)
+  const spin = runTime * 1.5;                         // 천천히 돈다
+  // 남은 횟수만큼 고리 조각을 그리는 반복문 (외곽선 → 하양 순서로 겹쳐 그린다)
+  for (let i = 0; i < shield.charges; i++) {
+    const start = spin + (i * Math.PI * 2) / n + gap / 2;
+    const end = spin + ((i + 1) * Math.PI * 2) / n - gap / 2;
+    ctx.beginPath();
+    ctx.arc(player.x, player.y, r, start, end);
+    setOutline(9);
+    ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.strokeStyle = COLORS.white;
+    ctx.lineWidth = 4;
+    ctx.stroke();
+  }
+  ctx.lineCap = "butt";
 }
 
 // 가진 증강을 한 줄씩 보여 주는 패널 (하나도 없으면 그리지 않는다)
@@ -3982,6 +4122,7 @@ function draw() {
   drawParticles();  // 파티클 (적 아래)
   drawEnemies();    // 적
   drawPlayer();     // 플레이어
+  drawImmuneRing(); // 면역 반응 보호막 고리
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
   drawBossBars();   // 보스 체력바

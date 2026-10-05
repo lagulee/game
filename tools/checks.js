@@ -1300,11 +1300,46 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 증강 14개, 이름·id 겹침 없음",
+    name: "[증강+] 증강 14개·보급 3개, 이름·id 겹침 없음",
     run: function () {
       const ids = AUGMENTS.map((a) => a.id).concat(SUPPLIES.map((s) => s.id));
-      const ok = AUGMENTS.length === 14 && new Set(ids).size === ids.length;
+      const ok = AUGMENTS.length === 14 && SUPPLIES.length === 3 && new Set(ids).size === ids.length;
       return { ok: ok, detail: "증강 " + AUGMENTS.length + "개, 보급 " + SUPPLIES.length + "개 / " + ids.join(",") };
+    },
+  },
+  // ---------------- 보급 카드 3개 ----------------
+  {
+    name: "[보급+] ATP 충전: 다음 웨이브 동안 발사 간격 30% 감소 (촉매와 곱해짐), 웨이브를 깨면 끝, 상태창 아이콘",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const base = fireInterval();
+      const atp = SUPPLIES.find((c) => c.id === "atp");
+      checkWaveEnd(); choices = [atp]; choosingTime = 1; chooseAugment(0);      // 카드로 고르고 다음 웨이브 시작
+      const during = fireInterval(), icons = activeEffectIcons().map((i) => i.icon).join(",");
+      ownedAugments = { catalyst: 1 }; const withCat = fireInterval();
+      draw();
+      spawnQueue = []; enemies = []; checkWaveEnd();                              // 그 웨이브를 깨면 끝
+      const after = fireInterval();
+      const ok = Math.abs(during - base * 0.7) < 1e-12 && Math.abs(withCat - base * 0.8 * 0.7) < 1e-12 && icons === "bolt" &&
+        Math.abs(after - base * 0.8) < 1e-12 && player.tempEffects.length === 0;
+      return { ok: ok, detail: "간격 " + base + " → " + during.toFixed(3) + " (촉매와 함께 " + withCat.toFixed(3) + ") / 아이콘 " + icons + " / 웨이브 뒤 " + after.toFixed(3) };
+    },
+  },
+  {
+    name: "[보급+] 체력이 낮을 때 반드시 나오는 보급은 회복 카드(항상성·세포 분열)만, 보급 모두 카드에 나올 수 있음",
+    run: function () {
+      startGame(); player.hp = 10;
+      const seen = new Set(), rescueOnly = [];
+      for (let i = 0; i < 300; i++) {
+        ownedAugments = {}; const picks = pickChoices();
+        const sup = picks.filter((c) => c.isSupply); if (sup.length) rescueOnly.push(sup.every((c) => c.rescue));
+      }
+      // 증강을 모두 최대로 → 카드 3장이 모두 보급 (5개 중에서 무작위)
+      const maxed = {}; for (const a of AUGMENTS) maxed[a.id] = a.levels.length;
+      player.hp = player.maxHp;
+      for (let i = 0; i < 200; i++) { ownedAugments = maxed; for (const c of pickChoices()) seen.add(c.id); }
+      const ok = rescueOnly.length > 0 && rescueOnly.every(Boolean) && seen.size === SUPPLIES.length;
+      return { ok: ok, detail: "저체력 보장 " + rescueOnly.length + "번 모두 회복 카드 " + rescueOnly.every(Boolean) + " / 나온 보급 " + [...seen].join(",") };
     },
   },
 ];

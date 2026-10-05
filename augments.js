@@ -867,7 +867,11 @@ function timeDilationFactor(playerSpeed, playerMaxSpeed) {
 // 증강 카드가 3장보다 적을 때 남는 자리를 채우고,
 // 체력이 낮으면(최대 체력의 40% 아래) 3장 중 1장은 반드시 나온다.
 //   isSupply: true  → game.js 가 보급 카드로 알아본다
+//   rescue: true    → 체력이 낮을 때 "반드시 1장" 나오는 카드 후보 (회복해 주는 카드)
+//   icon            → 상태창에 남은 효과를 보여 줄 아이콘 ("bolt", "shield", "leaf")
 //   apply()         → 고른 순간 한 번 실행되는 효과
+// "다음 웨이브 동안" 만 유지되는 효과는 addTempEffect(id, 값) 으로 임시 효과 목록에 넣는다.
+// (웨이브를 깨는 순간 game.js 가 목록을 비운다)
 // =============================================================
 
 // 항상성: 최대 체력의 이 비율만큼 회복 (0.4 = 40%)
@@ -875,11 +879,18 @@ const SUPPLY_HEAL_RATIO = 0.4;
 // 세포 분열: 늘어나는 최대 체력과 함께 회복하는 체력
 const SUPPLY_MAX_HP_UP = 20;
 const SUPPLY_DIVISION_HEAL = 20;
+// ATP 충전: 다음 웨이브 동안 발사 간격 감소율 (0.3 = 30% 감소 → 간격 × 0.7)
+const SUPPLY_ATP_REDUCTION = 0.3;
+// 면역 반응: 다음 웨이브 동안 막아 주는 피격 횟수
+const SUPPLY_IMMUNE_CHARGES = 2;
+// 광합성: 이번 판 동안 웨이브 클리어 회복 비율에 더하는 값 (0.05 = +5%p, 여러 번 고르면 쌓인다)
+const SUPPLY_PHOTO_BONUS = 0.05;
 
 const SUPPLIES = [
   {
     id: "homeostasis",
     isSupply: true,
+    rescue: true,
     name: "항상성",
     concept: "생물 · 항상성",
     formula: "체력 +40%",
@@ -892,6 +903,7 @@ const SUPPLIES = [
   {
     id: "cellDivision",
     isSupply: true,
+    rescue: true,
     name: "세포 분열",
     concept: "생물 · 세포 분열",
     formula: "최대 체력 +20",
@@ -900,6 +912,19 @@ const SUPPLIES = [
     apply: function () {
       player.maxHp += SUPPLY_MAX_HP_UP;
       healPlayer(SUPPLY_DIVISION_HEAL);
+    },
+  },
+  {
+    id: "atp",
+    isSupply: true,
+    name: "ATP 충전",
+    concept: "생물 · 세포 호흡",
+    formula: "간격 × 0.7",
+    color: "yellow",
+    icon: "bolt",
+    desc: "세포의 에너지 화폐 ATP 를 가득 채운다. 다음 웨이브 동안 발사 간격이 30% 줄어든다",
+    apply: function () {
+      addTempEffect("atp");
     },
   },
 ];
