@@ -22,6 +22,7 @@ function drawAll(spec) {
   const D2R = Math.PI / 180;
 
   // 가운데를 (0, 0) 으로 두고 draw() 로 그린 뒤 w × h 만큼 잘라 저장
+  const glyphHeight = (size) => Math.ceil(size * 1.4 + 8);
   function shot(key, w, h, draw, extra) {
     w = Math.ceil(w); h = Math.ceil(h);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -153,15 +154,16 @@ function drawAll(spec) {
   particles = [];
 
   // ================= 글자 (테두리 글자 한 글자씩) =================
-  // 40px 로 그린다. adv = 다음 글자까지의 폭
+  // 글자 사이 폭(adv)은 40px 기준으로 잰다 (크기에 비례). 그림은 웹에서 쓰는 글자 크기 그대로 한 벌씩 그린다
+  // (엔트리 WebGL 무대는 그림을 크게 줄이면 테두리가 깨지므로, 줄이지 않고 웹과 같은 크기 · 같은 테두리 두께로)
   ctx.font = "40px " + FONT_FAMILY;
-  spec.glyphs.forEach((ch, gi) => {
-    ctx.font = "40px " + FONT_FAMILY;
-    const adv = ch === " " ? 12 : ctx.measureText(ch).width;
-    spec.glyphColors.forEach(([cn, col]) => {
-      shot("g_" + cn + "_" + gi, adv + 12, 56, () => { if (ch !== " ") drawOutlinedText(ch, 0, 1, 40, "center", col); }, { adv });
-    });
-  });
+  spec.glyphs.forEach((ch, gi) => { out["adv_" + gi] = { adv: ch === " " ? 12 : ctx.measureText(ch).width }; });
+  (spec.glyphSets || []).forEach((set) => set.chars.forEach((gi) => {
+    const ch = spec.glyphs[gi];
+    ctx.font = set.size + "px " + FONT_FAMILY;
+    const adv = ch === " " ? 12 * set.size / 40 : ctx.measureText(ch).width;
+    shot("g_" + set.name + "_" + gi, adv + 12, glyphHeight(set.size), () => { if (ch !== " ") drawOutlinedText(ch, 0, set.size / 40, set.size, "center", set.color); });
+  }));
 
   // ================= 상태창 =================
   shot("hud_panel", HUD_WIDTH + 10, spec.hudHeight + 10, () => drawOutlinedRoundRect(-HUD_WIDTH / 2, -spec.hudHeight / 2, HUD_WIDTH, spec.hudHeight, 14, C.brown));
@@ -345,7 +347,7 @@ async function makeSprites(spec) {
   await browser.close();
   server.close();
   const out = {};
-  for (const k in raw) out[k] = Object.assign({}, raw[k], { png: Buffer.from(raw[k].png.split(",")[1], "base64") });
+  for (const k in raw) out[k] = raw[k].png ? Object.assign({}, raw[k], { png: Buffer.from(raw[k].png.split(",")[1], "base64") }) : raw[k];
   return out;
 }
 

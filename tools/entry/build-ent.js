@@ -77,7 +77,7 @@ const TYPE_TABLES = {
   // 모양 이름 앞부분과 방향 방식 (0: 눈 8방향, 1: 몸 16방향, 2: 분열의 왕 = 분열 단계 + 눈 8방향). 기본 적은 웨이브에 따라 따로
   적표모양: (t) => SHAPE_PREFIX[t.id][0], 적표방향: (t) => SHAPE_PREFIX[t.id][1],
 };
-const KEEP_LISTS = ["글자폭", "글자그림폭", "팝업폭", "필드길이", "필드있음", "필드투명", "필드글", "필드x", "필드y", "필드색", "필드보임", ...Object.keys(TYPE_TABLES)];
+const KEEP_LISTS = ["글자폭", "글자그림폭", "글자그림높이", "팝업폭", "필드길이", "필드있음", "필드투명", "필드글", "필드x", "필드y", "필드색", "필드보임", ...Object.keys(TYPE_TABLES)];
 // 대미지 숫자 폭을 적어 두는 고리 칸 수 (동시에 떠 있는 숫자보다 넉넉히)
 const POPUP_RING = 200;
 // 일반 적 반지름 (엔트리) 종류: 머리 위 체력바 폭을 반지름마다 따로 그린다
@@ -130,6 +130,8 @@ const IN_GAME = ["준비", "전투", "카드준비", "고르기", "멈춤", "재
 // 상태창 글씨가 보이는 상태 (일시정지 중에는 판이 상태창을 덮으니 숨긴다) · 어둡게 깔리는 상태 (글씨도 같이 어둡게)
 const HUD_TEXT = ["준비", "전투", "카드준비", "고르기", "재개", "결과"];
 const DIMMED = ["카드준비", "고르기", "결과"];
+// 체력이 이 비율보다 낮으면 카드에 회복 보급 카드가 꼭 1장 (웹 LOW_HP_RATIO)
+const LOW_HP_RATIO = 0.4;
 const FIGHT_VIEW = ["준비", "전투", "카드준비", "재개"];   // 대미지 숫자 · 파티클이 보이는 상태
 // 결과 창이 기운 각도 (웹 −0.025 rad, 엔트리는 시계 방향이 +)
 const RESULT_ROT = -0.025 * 180 / Math.PI;
@@ -146,9 +148,33 @@ const TEXT_SAMPLES = [
   "생존 0:00 · 잡은 보스 0마리", "증강: 모은 증강 없음", "회복", "최대 체력 +20", "사건의 지평선!", "Lv.",
   ...AUGS.map((a) => a.name),
 ];
-const GLYPHS = [...new Set(TEXT_SAMPLES.join("").split(""))];
-const GLYPH_STR = GLYPHS.join("");
 const GLYPH_COLORS = [["흰", "#F7F4EA"], ["노랑", "#F2C14E"], ["초록", "#6FB04A"], ["빨강", "#D9482B"]];
+// 글자 그림 묶음: 웹과 같은 글자 크기(px) · 색마다 쓰는 글자만 그린다 (숫자와 빈칸은 늘 포함)
+//   엔트리(WebGL)는 그림을 크게 줄이면 테두리가 깨지니, 크기마다 따로 그려서 줄이지 않고 쓴다
+const DIGITS = "0123456789 ";
+// 대미지 숫자 크기 (웹: 16 + √대미지 × 3) → 가장 가까운 묶음을 골라 조금만 늘이거나 줄인다
+const POPUP_SIZES = [18, 22, 27, 33, 40, 50];
+const RECORD_TEXT = "지난 최고 기록: 웨이브 없음  →  이번: 웨이브";
+const GLYPH_SET_DEFS = [
+  ["흰", 20, "챕터 · 웨이브 / 30"], ["흰", 16, " /"], ["노랑", 22, "점수 "], ["노랑", 20, "최고 기록: 웨이브 "],
+  ["흰", 36, "점수 "], ["흰", 18, "최고 점수 생존 0:00 · 잡은 보스 0마리"], ["초록", 19, RECORD_TEXT], ["노랑", 19, RECORD_TEXT],
+  ["흰", 15, "증강: 모은 증강 없음 Lv. · " + AUGS.map((a) => a.name).join(" ")],
+  ...POPUP_SIZES.flatMap((size) => ["흰", "노랑", "빨강"].map((c) => [c, size, "-"])),
+  ["초록", 22, "+ 회복 최대 체력 +20"], ["빨강", 22, "사건의 지평선!"],
+];
+const GLYPHS = [...new Set((TEXT_SAMPLES.join("") + DIGITS + GLYPH_SET_DEFS.map((d) => d[2]).join("")).split(""))];
+const GLYPH_STR = GLYPHS.join("");
+const GLYPH_SETS = (() => {
+  const byName = {};
+  for (const [c, size, sample] of GLYPH_SET_DEFS) {
+    const name = c + size;
+    const set = byName[name] || (byName[name] = { name, size, color: GLYPH_COLORS.find((g) => g[0] === c)[1], chars: new Set() });
+    for (const ch of sample + DIGITS) set.chars.add(GLYPHS.indexOf(ch));
+  }
+  return Object.values(byName).map((x) => Object.assign(x, { chars: [...x.chars].sort((a, b) => a - b) }));
+})();
+const GLYPH_SIZES = [...new Set(GLYPH_SETS.map((x) => x.size))].sort((a, b) => a - b);
+const glyphHeight = (size) => Math.ceil(size * 1.4 + 8);   // sprites.js 와 같은 식
 
 // 웨이브 띠 부제 (증강 이름 Lv.N 획득! / 레벨업!, 보급: 이름: 수식) — 웹과 같다
 const BANNER_SUBS = [];
@@ -174,14 +200,14 @@ const GLOBALS = ["상태", "팝업순번", "웨이브", "체력", "최대체력"
   "배너시간", "배너보스", "배너부제", "다음부제", "배너진행", "배너알파", "조준거리", "무적", "남은적", "다음종류", "대미지배율",
   "후보거리", "후보x", "후보y", "목표x", "목표y", "목표있음", "바라봄",
   "발사타이머", "발사간격", "공격력", "쏠vx", "쏠vy", "이동x", "이동y", "움직임", "끌림vx", "끌림vy",
-  "카드1", "카드2", "카드3", "카드들림1", "카드들림2", "카드들림3", "뽑기", "가능", "생성수", "고른카드", "고르기시간", "멈춤시간", "타이머숨",
+  "카드1", "카드2", "카드3", "카드수", "남은증강", "보급순서", "카드들림1", "카드들림2", "카드들림3", "뽑기", "가능", "생성수", "고른카드", "고르기시간", "멈춤시간", "타이머숨",
   "보스1종류", "보스1체력", "보스1최대", "보스2종류", "보스2체력", "보스2최대",
   "파동x", "파동y", "파동있음", "포대x", "포대y", "포대각", "포대예고", "포대방향", "포대있음", "블랙홀x", "블랙홀y", "블랙홀약점", "블랙홀있음", "블랙홀시간",
   "분산배율", "분산높음", "분산p", "회복량", "바만듦", "선만듦", "글자표", "증강수", "증강글1", "증강글2", "생존글", "체력바길이", "세는수",
   ...AUGS.map((a) => a.v)];
 const LOCALS = {
   글씨: ["복제본", "필드", "칸", "팝업", "글", "이전글", "기준x", "기준y", "이전x", "배율", "색이름", "정렬", "회전", "내글자", "글자번호", "앞폭", "전체폭",
-    "번호j", "폭j", "lx", "나이", "수명", "크기값", "튀김", "값", "종류", "길이", "내팝업", "이전색", "이전투명"],
+    "번호j", "폭j", "lx", "나이", "수명", "크기값", "튀김", "값", "종류", "길이", "내팝업", "이전색", "이전투명", "글크기", "크기칸"],
   적: ["복제본", "종류", "적체력", "적최대", "속도", "단계", "단계시간", "거리", "느림", "번쩍", "번호", "반지름", "맞은대미지", "각", "눈각", "변",
     "모양", "태어난웨이브", "밀기x", "밀기y", "흔들", "남은돌진", "화남", "보스칸", "분열단계", "파동t", "발사", "두번째", "링각", "포대각속", "예고시간", "dx", "dy",
     "돌진x", "돌진y", "새x", "새y", "k", "바위", "모양앞", "방향식"],
@@ -212,13 +238,15 @@ function design(sp) {
   const variables = GLOBALS.map((name) => ({ name, value: name === "글자표" ? GLYPH_STR : 0 }));
   for (const obj in LOCALS) for (const name of LOCALS[obj]) variables.push({ name, local: obj, value: 0 });
   const listInit = {
-    글자폭: GLYPHS.map((g, i) => +sp["g_흰_" + i].adv.toFixed(2)),
-    글자그림폭: GLYPHS.map((g, i) => sp["g_흰_" + i].w),
+    글자폭: GLYPHS.map((g, i) => +sp["adv_" + i].adv.toFixed(2)),
+    // (크기칸 × 글자 수 + 글자 번호) 칸에 그 크기 글자 그림의 폭, 글자그림높이 는 크기마다 그림 높이
+    글자그림폭: GLYPH_SIZES.flatMap((size) => GLYPHS.map((g, i) => { const set = GLYPH_SETS.find((x) => x.size === size && x.chars.includes(i)); return set ? sp["g_" + set.name + "_" + i].w : 0; })),
+    글자그림높이: GLYPH_SIZES.map(glyphHeight),
     팝업폭: Array.from({ length: POPUP_RING }, () => 0),
   };
   const maxId = Math.max(...TYPES.map((t) => t.id));
   for (const [name, f] of Object.entries(TYPE_TABLES)) listInit[name] = Array.from({ length: maxId }, (_, i) => { const t = TYPES.find((x) => x.id === i + 1); return t ? f(t) : 0; });
-  const messages = ["게임시작", "메뉴로", "정리", "목록비우기", "카드보이기", "카드선택", "발사"];
+  const messages = ["게임시작", "메뉴로", "정리", "목록비우기", "도감열기", "카드보이기", "카드선택", "발사"];
   // 그림 하나 → 오브젝트 모양
   const pic = (key, name) => ({ name: name || key, png: sp[key].png, width: sp[key].w, height: sp[key].h });
   const pics = (keys) => keys.map((k) => pic(k));
@@ -237,6 +265,10 @@ function design(sp) {
   ];
   // 보일 상태가 아니면 숨고, 그 상태가 될 때까지 기다리기만 한다 (매 프레임 할 일을 줄여 빠르게)
   const whileIn = (B, states, body) => B.ifElse(stateIn(B, states), body, [B.hide(), B.waitUntil(stateIn(B, states))]);
+  // 오래 남는 복제본은 msg 를 받으면 지우고 원본이 다시 만든다.
+  //   엔트리는 처음 그림 불러오기가 끝날 때 화면 순서를 한 번 다시 정리하는데, 그 전에 ▶ 를 누르면
+  //   그때 있던 복제본이 화면에서 빠진다 (보이지 않게 됨). 웨이브 · 게임 시작 · 메뉴마다 새로 만들어 되살린다
+  const remake = (B, msg, create) => B.when.msg(msg, [B.ifElse(B.cmp(B.v("복제본"), "=", 1), [B.deleteClone()], create)]);
   const isClone = (B) => B.cmp(B.v("복제본"), "=", 1);
   const isOrig = (B) => B.cmp(B.v("복제본"), "=", 0);
   // 각도 (반시계, 0~360): atan(dy ÷ dx), dx 가 음수면 +180
@@ -316,11 +348,16 @@ function design(sp) {
 
   // ================= 글씨 (맨 앞) =================
   objects.push({
-    name: "글씨", pictures: GLYPH_COLORS.flatMap(([cn]) => GLYPHS.map((g, i) => ({ name: cn + (i + 1), png: sp["g_" + cn + "_" + i].png, width: sp["g_" + cn + "_" + i].w, height: 56 }))),
+    // 모양 이름: 색 + 웹 글자 크기 + "_" + 글자 번호 (예: 흰20_5)
+    name: "글씨", pictures: GLYPH_SETS.flatMap((set) => set.chars.map((i) => { const g = sp["g_" + set.name + "_" + i]; return { name: set.name + "_" + (i + 1), png: g.png, width: g.w, height: g.h }; })),
     scale: 0.5, visible: false,
     scripts: (B) => {
       const advOf = (idx) => B.listItem("글자폭", idx);
-      const pngOf = (idx) => B.listItem("글자그림폭", idx);
+      const NG = GLYPHS.length;
+      // 크기칸(0부터)의 글자 그림 폭 · 높이
+      const pngW = (idx) => B.listItem("글자그림폭", B.add(B.mul(B.v("크기칸"), NG), idx));
+      const pngH = () => B.listItem("글자그림높이", B.add(B.v("크기칸"), 1));
+      const glyphShape = () => B.shapeV(B.join(B.v("색이름"), B.join(B.v("글크기"), B.join("_", B.v("글자번호")))));
       const spaceIdx = GLYPHS.indexOf(" ") + 1;
       const glyphIdx = (ch) => B.indexOf(B.v("글자표"), ch);
       // (원본) 팝업 하나 꺼내서 글자마다 복제본 만들기
@@ -336,6 +373,12 @@ function design(sp) {
         B.iff(B.cmp(B.v("종류"), "=", 3), [B.set("글", B.join("+", B.join(B.v("값"), " 회복"))), B.set("색이름", "초록"), B.set("배율", 22 / 40), B.set("수명", 96)]),
         B.iff(B.cmp(B.v("종류"), "=", 4), [B.set("글", "최대 체력 +20"), B.set("색이름", "초록"), B.set("배율", 22 / 40), B.set("수명", 96)]),
         B.iff(B.cmp(B.v("종류"), "=", 5), [B.set("글", "사건의 지평선!"), B.set("색이름", "빨강"), B.set("배율", 22 / 40), B.set("수명", 96)]),
+        // 그릴 글자 묶음: 글자 팝업은 22px, 대미지 숫자는 가장 가까운 크기
+        ...POPUP_SIZES.flatMap((size, i) => {
+          const set = [B.set("글크기", size), B.set("크기칸", GLYPH_SIZES.indexOf(size))];
+          return i === 0 ? set : [B.iff(B.cmp(B.mul(B.v("배율"), 40), ">", (POPUP_SIZES[i - 1] + size) / 2), set)];
+        }),
+        B.iff(B.cmp(B.v("종류"), ">", 2), [B.set("글크기", 22), B.set("크기칸", GLYPH_SIZES.indexOf(22))]),
         // 첫 글자 복제본만 만든다 (다음 글자는 복제본이 이어서 만든다). 전체 폭은 마지막 글자가 고리 칸에 적는다
         B.set("팝업순번", B.add(B.mod(B.v("팝업순번"), POPUP_RING), 1)), B.listSet("팝업폭", B.v("팝업순번"), -1),
         B.set("내팝업", B.v("팝업순번")), B.set("칸", 1), B.set("앞폭", 0),
@@ -351,7 +394,8 @@ function design(sp) {
         B.iff(B.cmp(B.listItem("필드있음", fi + 1), "=", 0), [B.listSet("필드있음", fi + 1, 1), B.set("필드", fi + 1), B.set("칸", 1), B.clone("self")]),
       ], [B.listSet("필드보임", fi + 1, 0), B.listSet("필드있음", fi + 1, 0)]);
       // (복제본) 이 글자가 속한 필드의 크기 · 정렬 · 기울기 (바뀌지 않는 값)
-      const fieldStatic = (f, fi) => B.iff(B.cmp(B.v("필드"), "=", fi + 1), [B.set("배율", f.size / 40), B.set("정렬", f.align), B.set("회전", f.rot || 0)]);
+      const fieldStatic = (f, fi) => B.iff(B.cmp(B.v("필드"), "=", fi + 1), [B.set("배율", f.size / 40), B.set("정렬", f.align), B.set("회전", f.rot || 0),
+        B.set("글크기", f.size), B.set("크기칸", GLYPH_SIZES.indexOf(f.size))]);
       const relayout = [
         B.set("이전글", B.v("글")), B.set("이전x", B.v("기준x")), B.set("이전색", B.v("색이름")),
         B.set("길이", B.strLen(B.v("글"))),
@@ -366,8 +410,8 @@ function design(sp) {
             B.change("전체폭", B.v("폭j"))])),
           // 왼쪽 정렬이면 0, 가운데 0.5, 오른쪽 1 만큼 전체 폭을 뺀다
           B.set("lx", B.mul(B.sub(B.add(B.v("앞폭"), B.div(advOf(B.v("글자번호")), 2)), B.mul(B.v("정렬"), B.v("전체폭"))), B.mul(B.v("배율"), 0.5))),
-          B.shapeV(B.join(B.v("색이름"), B.v("글자번호"))),
-          B.size(B.mul(B.div(B.add(pngOf(B.v("글자번호")), 56), 2), B.mul(B.v("배율"), 0.5))),
+          // 웹과 같은 크기로 그린 그림을 그대로 (크기를 바꾸지 않는다: 오브젝트 기본 50%)
+          glyphShape(),
           B.rotateToV(B.v("회전")),
           // 기울어진 창: 글자 자리도 같은 각도로 돌린다
           B.goXY(B.add(B.v("기준x"), B.mul(B.v("lx"), B.mathOp("cos", B.v("회전")))), B.sub(B.v("기준y"), B.mul(B.v("lx"), B.mathOp("sin", B.v("회전"))))),
@@ -395,8 +439,9 @@ function design(sp) {
             B.hide(), B.waitUntil(B.cmp(B.listItem("팝업폭", B.v("내팝업")), ">=", 0)),
             B.set("전체폭", B.listItem("팝업폭", B.v("내팝업"))),
             B.set("lx", B.mul(B.sub(B.add(B.v("앞폭"), B.div(B.v("폭j"), 2)), B.div(B.v("전체폭"), 2)), B.mul(B.v("배율"), 0.5))),
-            B.set("크기값", B.mul(B.div(B.add(pngOf(B.v("글자번호")), 56), 2), B.mul(B.v("배율"), 0.5))),
-            B.shapeV(B.join(B.v("색이름"), B.v("글자번호"))), B.set("나이", 0),
+            // 묶음 크기(글크기)와 실제 크기(배율 × 40)의 차이만큼만 늘이거나 줄인다
+            B.set("크기값", B.mul(B.div(B.add(pngW(B.v("글자번호")), pngH()), 2), B.mul(0.5, B.div(B.mul(B.v("배율"), 40), B.v("글크기"))))),
+            glyphShape(), B.set("나이", 0),
             B.forever([
               B.change("나이", 1),
               ...bounce(B, "튀김", B.v("나이")),
@@ -426,7 +471,8 @@ function design(sp) {
             ]),
           ]),
         ]),
-        B.when.msg("정리", [B.iff(B.and(isClone(B), B.cmp(B.v("팝업"), "=", 1)), [B.deleteClone()])]),
+        // 정리: 대미지 숫자와 필드 글자를 지운다 (필드 글자는 원본이 다음 프레임에 다시 만든다)
+        B.when.msg("정리", [B.ifElse(isClone(B), [B.deleteClone()], FIELDS.map((f, fi) => B.listSet("필드있음", fi + 1, 0)))]),
       ];
     },
   });
@@ -460,6 +506,7 @@ function design(sp) {
     scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.goXY(ex(615), ey(108)), B.forever([showIn(B, ["멈춤"], B.cmp(B.v("증강수"), "=", 0))])]),
       B.when.run([B.set("칸", 0), B.repeat(AUGS.length, [B.change("칸", 1), B.clone("self")])]),
+      remake(B, "정리", [B.set("칸", 0), B.repeat(AUGS.length, [B.change("칸", 1), B.clone("self")])]),
       B.when.clone([B.set("복제본", 1), B.forever([whileIn(B, ["멈춤"], [
         B.set("앞수", 0),
         ...AUGS.map((a, k) => B.iff(B.and(B.cmp(B.v("칸"), ">", k + 1), B.cmp(B.v(a.v), ">", 0)), [B.change("앞수", 1)])),
@@ -482,6 +529,7 @@ function design(sp) {
   objects.push({
     name: "도감카드", pictures: pics(bookCards), scale: 0.27, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 0), B.repeat(bookCards.length, [B.change("칸", 1), B.clone("self")])]),
+      remake(B, "도감열기", [B.set("칸", 0), B.repeat(bookCards.length, [B.change("칸", 1), B.clone("self")])]),
       B.when.clone([B.set("복제본", 1), B.shapeV(B.v("칸")),
         B.goXY(B.add(-150, B.mul(B.mod(B.sub(B.v("칸"), 1), 4), 100)), 0),
         B.iff(B.cmp(B.v("칸"), ">", 4), [B.setY(-38)]), B.iff(B.cmp(B.v("칸"), "<=", 4), [B.setY(52)]),
@@ -493,7 +541,7 @@ function design(sp) {
   // ================= 메뉴 =================
   objects.push(button("시작버튼", "menu_start", 0, ey(293), ["메뉴"], (B) => [B.send("게임시작")], { pulse: true }));
   objects.push(button("조작법버튼", "mb_help", -68, -104, ["메뉴"], (B) => [B.set("상태", "조작법")]));
-  objects.push(button("도감버튼", "mb_book", 68, -104, ["메뉴"], (B) => [B.set("상태", "도감")]));
+  objects.push(button("도감버튼", "mb_book", 68, -104, ["메뉴"], (B) => [B.send("도감열기"), B.set("상태", "도감")]));
   objects.push(sprite("메뉴안내", ["menu_hint"], 0, ey(400), ["메뉴"]));
   // 제목 스티커: 아주 살짝 흔들흔들 (웹: −0.04 + 0.01·sin(1.5t) rad)
   objects.push(sprite("메뉴제목", ["menu_title"], 0, ey(148), ["메뉴"], (B) => [
@@ -504,6 +552,7 @@ function design(sp) {
     name: "메뉴장식", pictures: [...deco.map(([x, y, v]) => pic("e_basic" + v + "_4_0")), pic("p_gun"), pic("p_body_0")],
     scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 0), B.repeat(5, [B.change("칸", 1), B.clone("self")])]),
+      remake(B, "정리", [B.set("칸", 0), B.repeat(5, [B.change("칸", 1), B.clone("self")])]),
       B.when.clone([B.set("복제본", 1), B.shapeV(B.v("칸")), B.forever([whileIn(B, ["메뉴"], [
         B.show(),
         // 둥실둥실: sin(2t + 1.3i) × 8px (적), sin(2.4t) × 10px (플레이어). 적의 눈은 플레이어 쪽
@@ -514,9 +563,6 @@ function design(sp) {
     ],
   });
 
-  // ================= 화면 어둡게 =================
-  objects.push(sprite("어둡게", ["dim45", "dim55"], 0, 0, ["결과", "멈춤", "조작법", "도감", "고르기", "카드준비"], (B) => [
-    B.ifElse(stateIs(B, "멈춤"), [B.shapeV("dim55")], [B.shapeV("dim45")])]));
 
   // ================= 카드 고르기 =================
   const allCardKeys = cardSpecs().map((c) => c.key);
@@ -527,7 +573,8 @@ function design(sp) {
   objects.push({
     name: "카드번호", pictures: [1, 2, 3].map((i) => pic("card_num" + i)), scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0)]),
-      B.when.msg("카드보이기", [B.iff(isOrig(B), [B.set("칸", 0), B.repeat(3, [B.change("칸", 1), B.clone("self")])])]),
+      // 카드 수는 카드 오브젝트가 정하니, 고르기 상태가 된 다음에 만든다
+      B.when.msg("카드보이기", [B.iff(isOrig(B), [B.waitUntil(stateIs(B, "고르기")), B.set("칸", 0), B.repeat(B.v("카드수"), [B.change("칸", 1), B.clone("self")])])]),
       // 왼쪽 위 번호 배지 (이 번호 키를 눌러도 고를 수 있다): 카드와 같은 등장 · 기울기 · 들림
       B.when.clone([B.set("복제본", 1), B.shapeV(B.v("칸")), B.set("나이", 0), B.set("각", cardRot(B)), B.forever([
         B.change("나이", 1),
@@ -538,7 +585,7 @@ function design(sp) {
         // 카드 왼쪽 위 모서리 (웹: left + 6, top + 6) → 카드 크기 · 기울기를 따라 돌린 자리
         B.set("ox", B.mul(-59.5, B.mul(B.v("배율"), B.add(1, B.mul(0.04, B.v("들림")))))),
         B.set("oy", B.mul(79.5, B.mul(B.v("배율"), B.add(1, B.mul(0.04, B.v("들림")))))),
-        B.goXY(B.add(B.add(-145, B.mul(B.sub(B.v("칸"), 1), 145)), B.add(B.mul(B.v("ox"), B.mathOp("cos", B.v("각"))), B.mul(B.v("oy"), B.mathOp("sin", B.v("각"))))),
+        B.goXY(B.add(B.mul(B.sub(B.v("칸"), B.div(B.add(B.v("카드수"), 1), 2)), 145), B.add(B.mul(B.v("ox"), B.mathOp("cos", B.v("각"))), B.mul(B.v("oy"), B.mathOp("sin", B.v("각"))))),
           B.add(B.add(-15, B.mul(5, B.v("들림"))), B.sub(B.mul(B.v("oy"), B.mathOp("cos", B.v("각"))), B.mul(B.v("ox"), B.mathOp("sin", B.v("각")))))),
         B.size(B.mul(baseSize("card_num1"), B.v("배율"))),
         B.ifElse(B.cmp(B.v("배율"), ">", 0), [B.show()], [B.hide()]),
@@ -553,16 +600,29 @@ function design(sp) {
       // 카드 3장 고르기: 이미 뽑은 카드, 최대 레벨 증강은 다시 뽑는다 (보급 2장은 늘 가능하니 끝난다)
       B.when.msg("카드보이기", [B.iff(isOrig(B), [
         B.set("카드1", 0), B.set("카드2", 0), B.set("카드3", 0), B.set("고르기시간", 0),
-        ...[1, 2, 3].flatMap((k) => [
-          B.set("가능", 0),
-          B.repeatUntil(B.cmp(B.v("가능"), "=", 1), [
-            B.set("뽑기", B.rand(1, AUGS.length + SUPPLIES.length)), B.set("가능", 1),
-            B.iff(B.or(B.cmp(B.v("뽑기"), "=", B.v("카드1")), B.cmp(B.v("뽑기"), "=", B.v("카드2"))), [B.set("가능", 0)]),
-            ...AUGS.map((a, i) => B.iff(B.and(B.cmp(B.v("뽑기"), "=", i + 1), B.cmp(B.v(a.v), ">=", a.max)), [B.set("가능", 0)])),
+        // 웹과 같게: 최대 레벨이 아닌 증강에서 먼저 (서로 다르게) 뽑고, 모자라면 보급 카드로 채운다
+        B.set("남은증강", 0), ...AUGS.map((a) => B.iff(B.cmp(B.v(a.v), "<", a.max), [B.change("남은증강", 1)])),
+        B.set("카드수", B.add(B.v("남은증강"), SUPPLIES.length)), B.iff(B.cmp(B.v("카드수"), ">", 3), [B.set("카드수", 3)]),
+        B.set("보급순서", B.rand(0, 1)),
+        ...[1, 2, 3].map((k) => B.iff(B.cmp(B.v("카드수"), ">=", k), [
+          B.ifElse(B.cmp(B.v("남은증강"), ">=", k), [
+            B.set("가능", 0),
+            B.repeatUntil(B.cmp(B.v("가능"), "=", 1), [
+              B.set("뽑기", B.rand(1, AUGS.length)), B.set("가능", 1),
+              B.iff(B.or(B.cmp(B.v("뽑기"), "=", B.v("카드1")), B.cmp(B.v("뽑기"), "=", B.v("카드2"))), [B.set("가능", 0)]),
+              ...AUGS.map((a, i) => B.iff(B.and(B.cmp(B.v("뽑기"), "=", i + 1), B.cmp(B.v(a.v), ">=", a.max)), [B.set("가능", 0)])),
+            ]),
+          ], [
+            // 보급 카드 (두 장을 섞은 순서대로)
+            B.set("뽑기", B.add(AUGS.length + 1, B.mod(B.add(B.v("보급순서"), B.sub(k, B.add(B.v("남은증강"), 1))), SUPPLIES.length))),
           ]),
           B.set("카드" + k, B.v("뽑기")),
-          B.set("칸", k), B.set("내카드", B.v("뽑기")), B.clone("self"),
-        ]),
+        ])),
+        // 체력이 40% 보다 낮은데 보급 카드가 없으면 마지막 카드를 보급 카드로 (웹과 같다)
+        B.iff(B.and(B.cmp(B.v("체력"), "<", B.mul(B.v("최대체력"), LOW_HP_RATIO)),
+          B.and(B.cmp(B.v("카드1"), "<=", AUGS.length), B.and(B.cmp(B.v("카드2"), "<=", AUGS.length), B.cmp(B.v("카드3"), "<=", AUGS.length)))),
+          [B.set("카드" + 3, B.add(AUGS.length + 1, B.v("보급순서")))]),
+        ...[1, 2, 3].map((k) => B.iff(B.cmp(B.v("카드수"), ">=", k), [B.set("칸", k), B.set("내카드", B.v("카드" + k)), B.clone("self")])),
         B.set("상태", "고르기"),
       ])]),
       B.when.clone([
@@ -579,20 +639,24 @@ function design(sp) {
           // 마우스를 올리면 1.04배 + 10px 들림
           B.set("들림", 0), B.iff(B.and(B.touching("mouse"), B.cmp(B.v("배율"), ">", 0)), [B.set("들림", 1)]),
           B.size(B.mul(cardBase, B.mul(B.v("배율"), B.add(1, B.mul(0.04, B.v("들림")))))),
-          B.goXY(B.add(-145, B.mul(B.sub(B.v("칸"), 1), 145)), B.add(-15, B.mul(5, B.v("들림")))),
+          B.goXY(B.mul(B.sub(B.v("칸"), B.div(B.add(B.v("카드수"), 1), 2)), 145), B.add(-15, B.mul(5, B.v("들림")))),
           B.ifElse(B.cmp(B.v("배율"), ">", 0), [B.show()], [B.hide()]),
           // 번호 배지에게 들림 알려 주기
           ...[1, 2, 3].map((k) => B.iff(B.cmp(B.v("칸"), "=", k), [B.set("카드들림" + k, B.v("들림"))])),
         ]),
       ]),
       B.when.click([B.iff(B.and(isClone(B), B.and(stateIs(B, "고르기"), B.cmp(B.v("고르기시간"), ">=", CHOICE_DELAY))), [B.set("고른카드", B.v("내카드")), B.send("카드선택")])]),
-      ...[1, 2, 3].map((k) => B.when.key(48 + k, [B.iff(B.and(isOrig(B), B.and(stateIs(B, "고르기"), B.cmp(B.v("고르기시간"), ">=", CHOICE_DELAY))), [B.set("고른카드", B.v("카드" + k)), B.send("카드선택")])])),
+      ...[1, 2, 3].map((k) => B.when.key(48 + k, [B.iff(B.and(isOrig(B), B.and(stateIs(B, "고르기"), B.and(B.cmp(B.v("고르기시간"), ">=", CHOICE_DELAY), B.cmp(B.v("카드" + k), ">", 0)))), [B.set("고른카드", B.v("카드" + k)), B.send("카드선택")])])),
       B.when.msg("카드선택", [B.iff(isClone(B), [B.deleteClone()])]),
       B.when.msg("정리", [B.iff(isClone(B), [B.deleteClone()])]),
     ],
   });
   objects.push(sprite("고르기제목", Array.from({ length: WAVE_COUNT }, (_, i) => "choice_t" + (i + 1)), 0, ey(48), ["고르기", "카드준비"], (B) => [B.shapeV(B.join("choice_t", B.v("웨이브")))]));
   objects.push(sprite("고르기부제", ["choice_sub"], 0, ey(88), ["고르기", "카드준비"]));
+
+  // ================= 화면 어둡게 (카드 · 창 · 버튼보다 뒤: 앞에 있으면 엔트리에서 클릭을 막이 가로챈다) =================
+  objects.push(sprite("어둡게", ["dim45", "dim55"], 0, 0, ["결과", "멈춤", "조작법", "도감", "고르기", "카드준비"], (B) => [
+    B.ifElse(stateIs(B, "멈춤"), [B.shapeV("dim55")], [B.shapeV("dim45")])]));
 
   // ================= 웨이브 띠 (위에서 0.2초 동안 내려오고, 마지막 0.3초 동안 흐려진다) =================
   // 웹: 띠 기준점 y = −40 → 상태창 아래 (12 + 104 + 42 = 158) 로 내려온다. 살짝 기울임 (0.02 rad)
@@ -632,6 +696,7 @@ function design(sp) {
     name: "증강줄", pictures: AUGS.flatMap((a, k) => Array.from({ length: a.max }, (_, l) => [pic("aug_row_" + k + "_" + (l + 1)), pic("aug_crow_" + k + "_" + (l + 1))]).flat()),
     scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 0), B.repeat(AUGS.length, [B.change("칸", 1), B.clone("self")])]),
+      remake(B, "정리", [B.set("칸", 0), B.repeat(AUGS.length, [B.change("칸", 1), B.clone("self")])]),
       B.when.clone([B.set("복제본", 1), B.forever([whileIn(B, IN_GAME, [
         B.set("앞수", 0),
         ...AUGS.map((a, k) => B.iff(B.and(B.cmp(B.v("칸"), ">", k + 1), B.cmp(B.v(a.v), ">", 0)), [B.change("앞수", 1)])),
@@ -699,6 +764,7 @@ function design(sp) {
   objects.push({
     name: "보스이름", pictures: BOSS_LIST.map((t, i) => pic("boss_name" + i)), scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 1), B.clone("self"), B.set("칸", 2), B.clone("self")]),
+      remake(B, "정리", [B.set("칸", 1), B.clone("self"), B.set("칸", 2), B.clone("self")]),
       B.when.clone([B.set("복제본", 1), B.goXY(0, B.sub(ey(24), B.mul(25, B.sub(B.v("칸"), 1)))), B.forever([
         ...[1, 2].map((k) => B.iff(B.cmp(B.v("칸"), "=", k), [
           showIn(B, IN_GAME, B.cmp(B.v("보스" + k + "종류"), ">", 0)),
@@ -710,6 +776,7 @@ function design(sp) {
   objects.push({
     name: "보스바", pictures: Array.from({ length: 21 }, (_, lv) => pic("boss_bar_" + lv)), scale: 0.5, visible: false, scripts: (B) => [
       B.when.run([B.hide(), B.set("복제본", 0), B.set("칸", 1), B.clone("self"), B.set("칸", 2), B.clone("self")]),
+      remake(B, "정리", [B.set("칸", 1), B.clone("self"), B.set("칸", 2), B.clone("self")]),
       B.when.clone([B.set("복제본", 1), B.goXY(0, B.sub(ey(47), B.mul(25, B.sub(B.v("칸"), 1)))), B.forever([
         ...[1, 2].map((k) => B.iff(B.cmp(B.v("칸"), "=", k), [
           showIn(B, IN_GAME, B.cmp(B.v("보스" + k + "종류"), ">", 0)),
@@ -1385,7 +1452,7 @@ function design(sp) {
 // =============================================================
 function spriteSpec() {
   return {
-    glyphs: GLYPHS, glyphColors: GLYPH_COLORS, hudHeight: HUD_H, hpWidths: HP_WIDTHS,
+    glyphs: GLYPHS, glyphSets: GLYPH_SETS, hudHeight: HUD_H, hpWidths: HP_WIDTHS,
     augs: AUGS.map((a) => ({ name: a.name, color: a.color, max: a.max, formula: a.formula, levelDesc: a.levelDesc })),
     bosses: BOSS_LIST.map((t) => t.name), waveCount: WAVE_COUNT, bannerSubs: BANNER_SUBS, cards: cardSpecs(),
     controls: [["이동", "WASD / 방향키"], ["발사", "가장 가까운 적에게 자동"], ["일시정지", "P / Esc"], ["카드 고르기", "클릭 또는 1 · 2 · 3"], ["결과 화면", "R 다시 · M 메뉴"]],
