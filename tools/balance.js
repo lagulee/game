@@ -24,6 +24,8 @@
 //   (게임 파일은 그대로 두고, 측정할 때만 파일 글자를 바꿔 끼운다 → tools/serve.js)
 //   레벨들은 브라우저 탭 여러 개에서 동시에 돌린다 (--parallel 4)
 //   다른 판들로 다시 재기: --seed 1 (운에 따른 차이를 볼 때. 0 이 기본)
+//   발동 스킬 비교: --skills none,dash,shockwave,absoluteZero --levels 6,10,20 --runs 40
+//     (스킬을 산 상태로 시작. 봇은 위험할 때 스킬을 쓴다 → runLevel 의 inDanger)
 //   증강 기여도: --contrib 10 --runs 20  (레벨 (10,10) 에서 증강마다 "첫 카드로 얻는 판" vs "안 나오는 판")
 // =============================================================
 
@@ -93,6 +95,28 @@ function runLevel(opts) {
     if (mx < -0.38) keys.KeyA = true;
     if (my > 0.38) keys.KeyS = true;
     if (my < -0.38) keys.KeyW = true;
+  }
+
+  // ---- 스킬을 쓸 "위험한 순간" (스킬 비교 모드에서만) ----
+  const DANGER_GAP = 45;        // 적 몸과 내 몸 사이가 이만큼 안이면 위험
+  const DANGER_BULLET_TIME = 0.4; // 적 탄환이 이 시간 안에 내 몸에 닿을 것 같으면 위험
+  const CROWD_RADIUS = 200, CROWD_COUNT = 4;   // 이 거리 안에 적이 이만큼 이상이면 위험
+  function inDanger() {
+    let crowd = 0;
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const d = distance(player.x, player.y, e.x, e.y);
+      if (d - e.radius - PLAYER_RADIUS < DANGER_GAP) return true;
+      if (d < CROWD_RADIUS) crowd++;
+    }
+    if (crowd >= CROWD_COUNT) return true;
+    for (const b of enemyBullets) {
+      // 탄환이 지금 속도로 날아올 때 가장 가까워지는 시각과 거리
+      const rx = b.x - player.x, ry = b.y - player.y, vv = b.vx * b.vx + b.vy * b.vy;
+      const t = vv > 0 ? Math.max(0, Math.min(DANGER_BULLET_TIME, -(rx * b.vx + ry * b.vy) / vv)) : 0;
+      if (Math.hypot(rx + b.vx * t, ry + b.vy * t) < (b.radius || 6) + PLAYER_RADIUS + 6) return true;
+    }
+    return false;
   }
 
   // ---- 예전 봇: 가장 가까운 적에게서 멀어지기 + 벽에서 돌기 ----
@@ -243,6 +267,7 @@ function runLevel(opts) {
     __reseed(1000 + run * 7919 + seedLevel * 104729 + opts.seed * 15485863);
     saveData = defaultSave();
     saveData.upgrades = { vitality: opts.v, power: opts.p };
+    if (opts.skill) { saveData.ownedSkills = [opts.skill]; saveData.equippedSkill = opts.skill; }
     orbitDir = 1; flipCooldown = 0;
     startGame();
     let frames = 0;
@@ -264,6 +289,7 @@ function runLevel(opts) {
         continue;
       }
       if (opts.bot === "old") oldBot(); else newBot(1 / 60);
+      if (opts.skill && skillState.cooldown <= 0 && inDanger()) tryUseSkill();
       update(1 / 60);
       frames++;
     }
@@ -300,6 +326,42 @@ function runLevel(opts) {
       console.log(name + " | " + row.forced.toFixed(2) + " | " + row.banned.toFixed(2) + " | " + (row.diff >= 0 ? "+" : "") + row.diff.toFixed(2));
     }
     console.log("JSON " + JSON.stringify(rows));
+    await browser.close();
+    server.close();
+    return;
+  }
+
+ // ---- 발동 스킬 비교 모드: --skills none,dash,... ----
+  if (args.skills !== undefined) {
+    const skills = args.skills.split(",");
+    const jobs = [];
+    for (const level of LEVELS) for (const sk of skills) jobs.push({ level, sk });
+    const avgs = {};
+    let nextJob = 0;
+    async function skillWorker() {
+      const page = await browser.newPage();
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.addInitScript(initScript);
+      await page.goto(server.url + "index.html");
+      while (nextJob < jobs.length) {
+        const job = jobs[nextJob++];
+        const r = await page.evaluate(runLevel, { v: job.level.v, p: job.level.p, runs: RUNS, bot: BOT, seed: SEED, skill: job.sk === "none" ? null : job.sk });
+        avgs[job.level.label + "|" + job.sk] = r.reduce((a, x) => a + x.wave, 0) / r.length;
+      }
+      await page.close();
+    }
+    await Promise.all(Array.from({ length: PARALLEL }, skillWorker));
+    console.log("발동 스킬 비교: 봇 " + BOT + " / 판 수 " + RUNS + " / 씨앗 " + SEED + " (같은 레벨은 스킬마다 같은 판들)");
+    console.log("레벨 | " + skills.join(" | "));
+    for (const level of LEVELS) {
+      const base = avgs[level.label + "|none"];
+      console.log("(" + level.v + "," + level.p + ") | " + skills.map(function (sk) {
+        const a = avgs[level.label + "|" + sk];
+        return a.toFixed(1) + (sk !== "none" && base !== undefined ? " (" + (a - base >= 0 ? "+" : "") + (a - base).toFixed(1) + ")" : "");
+      }).join(" | "));
+    }
+    if (errors.length) console.log("페이지 오류: " + errors.slice(0, 3).join(" / "));
+    console.log("JSON " + JSON.stringify(avgs));
     await browser.close();
     server.close();
     return;

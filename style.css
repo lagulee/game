@@ -394,6 +394,25 @@ body {
   display: block;
 }
 
+/* 스킬 버튼: 전투 중 오른쪽 아래 (스킬을 장착했을 때만) */
+.mobile-skill {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 7;
+  display: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  font-size: 20px;
+  background: #4E8FC6;
+  color: #F7F4EA;
+}
+
+#mobile-controls.fighting.has-skill .mobile-skill {
+  display: block;
+}
+
 /* 디버그 버튼 묶음: 오른쪽 가운데.
    만든 사람 비밀번호(설정 → 숫자 조절)를 인증해야만 보인다 (#mobile-controls.owner) */
 .mobile-debug {

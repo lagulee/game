@@ -2007,4 +2007,211 @@ module.exports = [
         " / 나가면 1 " + hudOut + " / 적 → 증강 목록 " + augIn + " / 적 탄환 → 상태창 " + bulletIn + " / 보스 체력바 " + bossIn + " / 크기 · 자리 그대로 " + sameRects + (sameRects ? "" : " " + hud0 + aug0 + " → " + JSON.stringify(hudPanelRect()) + JSON.stringify(augmentListRect())) };
     },
   },
+  // ---------------- 의견 C: 발동 스킬 ----------------
+  {
+    name: "[스킬] 스킬이 없으면 Space · 오른쪽 클릭을 아무리 눌러도 게임 진행은 한 글자도 같다 (예전 그대로)",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      const pattern = [["KeyD"], ["KeyS"], ["KeyA", "KeyW"], [], ["KeyW"], ["KeyA"]];
+      const cr = canvas.getBoundingClientRect();
+      const rightClick = () => canvas.dispatchEvent(new MouseEvent("mousedown", { button: 2, clientX: cr.left + 480, clientY: cr.top + 270 }));
+      const runOnce = (mash) => {
+        __reseed(4242); saveData.ownedSkills = []; saveData.equippedSkill = null; startGame(); debugMode = true; debugInvincible = true;
+        const out = [];
+        for (let f = 0; f < 3600 && gameState !== "gameover"; f++) {
+          for (const k in keys) keys[k] = false; for (const k of pattern[Math.floor(f / 80) % pattern.length]) keys[k] = true;
+          if (mash && f % 20 === 0) { press("Space"); rightClick(); for (const k of pattern[Math.floor(f / 80) % pattern.length]) keys[k] = true; }
+          if (gameState === "choosing") { choosingTime = 1; chooseAugment(0); }
+          update(1 / 60);
+          if (f % 10 === 0) draw();
+          if (f % 30 === 0) out.push([wave, Math.round(player.x * 100), Math.round(player.y * 100), player.hp, enemies.map((e) => Math.round(e.x) + "," + Math.round(e.y) + "," + Math.round(e.hp)).join(";")].join("|"));
+        }
+        for (const k in keys) keys[k] = false;
+        return out.join("\n");
+      };
+      const a = runOnce(false), b = runOnce(true);
+      debugMode = false; debugInvincible = false;
+      return { ok: a === b && a.length > 1000, detail: "누름 / 안 누름 기록 " + (a === b ? "같음" : "다름") + " (" + a.split("\n").length + "줄)" };
+    },
+  },
+  {
+    name: "[스킬] 관성 질주: 누르는 방향으로 180px 를 0.15초에, 그동안 무적, 안 누르면 대포 방향, 쿨타임 6초",
+    run: function () {
+      const DT = 1 / 60;
+      saveData.ownedSkills = ["dash"]; saveData.equippedSkill = "dash";
+      startGame(); spawnQueue = []; bannerTimer = 0; enemies = []; enemyBullets = [];
+      const keeper = createEnemy("basic", 900, 500, 1); keeper.speed = 0; enemies = [keeper];
+      player.x = 300; player.y = 270; player.vx = player.vy = 0;
+      for (const k in keys) keys[k] = false;
+      keys["KeyD"] = true;
+      const x0 = player.x, used = tryUseSkill();
+      const cool = skillState.cooldown;
+      // 돌진 중 적 탄환이 몸에 닿아도 체력 그대로
+      let invOk = true;
+      for (let i = 0; i < 9; i++) {
+        keys["KeyD"] = false;    // 돌진은 처음 방향 그대로 (키를 떼도)
+        const hp = player.hp;
+        enemyBullets = [{ x: player.x, y: player.y, vx: 0, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 30 }];
+        player.fireTimer = 1e9; update(DT);
+        if (player.hp !== hp) invOk = false;
+      }
+      enemyBullets = [];
+      const moved = player.x - x0, dyOk = Math.abs(player.y - 270) < 1e-6;
+      // 키를 안 누르면 대포 방향 (위쪽)
+      skillState.cooldown = 0; player.x = 480; player.y = 400; player.vx = player.vy = 0; player.facing = -Math.PI / 2;
+      tryUseSkill(); for (let i = 0; i < 9; i++) { player.fireTimer = 1e9; player.facing = -Math.PI / 2; update(DT); }
+      const up = 400 - player.y;
+      return { ok: used && Math.abs(moved - 180) < 1 && dyOk && invOk && cool === 6 && Math.abs(up - 180) < 1,
+        detail: "오른쪽 " + moved.toFixed(1) + "px (9프레임 = 0.15초), 무적 " + invOk + ", 쿨타임 " + cool + " / 키 없음 → 위로 " + up.toFixed(1) + "px" };
+    },
+  },
+  {
+    name: "[스킬] 충격파: 반경 160 안의 적에게 기본 대미지 × 2, 바깥으로 밀침 (보스는 안 밀림), 반경 안의 적 탄환만 지움, 쿨타임 12초",
+    run: function () {
+      saveData.ownedSkills = ["shockwave"]; saveData.equippedSkill = "shockwave";
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      player.x = 480; player.y = 270;
+      const near = createEnemy("basic", 580, 270, 1); near.hp = near.maxHp = 1000;
+      const far = createEnemy("basic", 480 + 200, 270, 1); far.hp = far.maxHp = 1000;
+      const boss = createEnemy("chargerKing", 480, 270 - 120, 5); boss.hp = boss.maxHp = 1000;
+      enemies = [near, far, boss];
+      enemyBullets = [{ x: 480 - 100, y: 270, vx: 0, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 1 },
+                      { x: 480 - 300, y: 270, vx: 0, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 1 }];
+      const kb0 = boss.knockVx || 0, kbY0 = boss.knockVy || 0;
+      tryUseSkill();
+      const dmg = 1000 - near.hp, expect = player.damage * 2;
+      const pushOut = (near.knockVx || 0) > 0 && Math.abs(near.knockVy || 0) < 1e-9;
+      const farSame = far.hp === 1000 && !(far.knockVx);
+      const bossOk = boss.hp < 1000 && (boss.knockVx || 0) === kb0 && (boss.knockVy || 0) === kbY0;
+      const bullets = enemyBullets.length === 1 && enemyBullets[0].x === 180;
+      return { ok: Math.abs(dmg - expect) < 1e-9 && pushOut && farSame && bossOk && bullets && skillState.cooldown === 12,
+        detail: "대미지 " + dmg + " (기대 " + expect + ") / 밀침 " + pushOut + " / 바깥 적 그대로 " + farSame + " / 보스 맞지만 안 밀림 " + bossOk + " / 탄환 안쪽만 지움 " + bullets + " / 쿨타임 " + skillState.cooldown };
+    },
+  },
+  {
+    name: "[스킬] 절대 영도: 3초 동안 적 · 적 탄환 30%, 보스 60%, 끝나면 원래대로, 쿨타임 20초",
+    run: function () {
+      const DT = 1 / 60;
+      saveData.ownedSkills = ["absoluteZero"]; saveData.equippedSkill = "absoluteZero";
+      let cool = 0;
+      const measure = (freeze) => {
+        startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+        player.x = 100; player.y = 270;
+        const e = createEnemy("basic", 600, 270, 1), boss = createEnemy("chargerKing", 600, 100, 5);
+        boss.update = null;
+        enemies = [e, boss];
+        enemyBullets = [{ x: 800, y: 450, vx: -100, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 1 }];
+        if (freeze) { tryUseSkill(); cool = skillState.cooldown; }
+        const ex = e.x, by = boss.x, bx = enemyBullets[0].x;
+        player.fireTimer = 1e9; update(DT);
+        return { e: ex - e.x, boss: Math.hypot(boss.x - by, 0), b: bx - enemyBullets[0].x, eObj: e };
+      };
+      const plain = measure(false), frozen = measure(true);
+      const re = frozen.e / plain.e, rb = frozen.b / plain.b;
+      // 보스 배율은 slowFactor 로 (움직임이 패턴마다 달라서)
+      const boss = enemies.find((x) => enemyType(x).isBoss), basic = enemies.find((x) => !enemyType(x).isBoss);
+      const bossFactor = boss.slowFactor, basicFactor = basic.slowFactor;
+      // 3초 뒤 끝남
+      for (let i = 0; i < 181; i++) { player.fireTimer = 1e9; player.x = 100; player.y = 270; update(DT); }
+      const ended = skillState.freezeTime === 0 && basic.slowFactor === 1;
+      debugMode = false; debugInvincible = false;
+      return { ok: Math.abs(re - 0.3) < 1e-6 && Math.abs(rb - 0.3) < 1e-6 && Math.abs(bossFactor - 0.6) < 1e-9 && Math.abs(basicFactor - 0.3) < 1e-9 && ended && cool === 20,
+        detail: "적 " + re.toFixed(3) + "배, 적 탄환 " + rb.toFixed(3) + "배, 보스 " + bossFactor + "배 / 3초 뒤 원래대로 " + ended + " / 쿨타임 " + cool };
+    },
+  },
+  {
+    name: "[스킬] 쿨타임은 전투 중에만 흐르고 (일시정지 · 카드 고르기 중엔 멈춤) 웨이브가 바뀌어도 그대로, 새 판은 바로, 준비되면 아이콘이 한 번 튐, 아직이면 안 써짐",
+    run: function () {
+      const DT = 1 / 60;
+      saveData.ownedSkills = ["absoluteZero"]; saveData.equippedSkill = "absoluteZero";
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      const keeper = createEnemy("basic", 900, 500, 1); keeper.speed = 0; enemies = [keeper];
+      tryUseSkill();
+      for (let i = 0; i < 60; i++) { player.fireTimer = 1e9; update(DT); }
+      const after1 = skillState.cooldown;                    // 19
+      const again = tryUseSkill();                           // 아직 → false
+      pauseGame(); for (let i = 0; i < 120; i++) update(DT); const whilePaused = skillState.cooldown;
+      resumeGame(); resumeTimer = 0;
+      // 웨이브 끝 → 카드 고르기 (멈춤) → 다음 웨이브 (그대로)
+      enemies = []; spawnQueue = []; bossQueue = []; pendingSpawns = []; update(DT);
+      const choosing = gameState === "choosing", c0 = skillState.cooldown;
+      for (let i = 0; i < 120; i++) update(DT);
+      const whileChoosing = skillState.cooldown;
+      choosingTime = 1; chooseAugment(0);
+      const nextWave = skillState.cooldown;
+      // 준비되면 튐
+      skillState.cooldown = DT / 2; player.fireTimer = 1e9; update(DT);
+      const bounce = skillState.cooldown === 0 && skillState.bounce > 0;
+      // 새 판은 바로
+      skillState.cooldown = 10; resetGame(); const fresh = skillState.cooldown === 0;
+      debugMode = false; debugInvincible = false;
+      const ok = Math.abs(after1 - 19) < 1e-6 && !again && whilePaused === after1 && choosing && whileChoosing === c0 && nextWave === c0 && bounce && fresh;
+      return { ok: ok, detail: "1초 뒤 " + after1.toFixed(2) + " / 아직이면 안 써짐 " + !again + " / 일시정지 2초 " + whilePaused.toFixed(2) +
+        " / 카드 고르기 2초 " + c0.toFixed(2) + "→" + whileChoosing.toFixed(2) + " / 다음 웨이브 " + nextWave.toFixed(2) + " / 튐 " + bounce + " / 새 판 " + fresh };
+    },
+  },
+  {
+    name: "[스킬] 업그레이드 탭 능력치 / 스킬 구역: 구매 (코인 부족이면 흔들림) · 장착 · 해제가 저장됨, 하나만 장착, Tab · 숫자 키, 로비에 장착 스킬, 도감 스킬 쪽",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      goToMenu(); openTab("upgrades"); upgradeSection = "stats"; draw();
+      clickRect(upgradeSectionRect(1)); const toSkills = upgradeSection === "skills"; draw();
+      // 코인 부족
+      saveData.coins = 100; clickRect(skillCardRect(0)); const poor = !skillOwned("dash") && skillShake[0] > 0;
+      // 사면 바로 장착
+      saveData.coins = 2000; clickRect(skillCardRect(0));
+      const bought = skillOwned("dash") && saveData.equippedSkill === "dash" && saveData.coins === 1700;
+      // 두 번째 스킬: 사도 장착은 그대로, 한 번 더 누르면 바뀜 (하나만)
+      press("Digit2"); const second = skillOwned("shockwave") && saveData.equippedSkill === "dash" && saveData.coins === 1100;
+      press("Digit2"); const swapped = saveData.equippedSkill === "shockwave";
+      press("Digit2"); const unequipped = saveData.equippedSkill === null;
+      press("Digit1"); draw();
+      const saved = loadSave(); const persist = saved.ownedSkills.join() === "dash,shockwave" && saved.equippedSkill === "dash";
+      press("Tab"); const tabBack = upgradeSection === "stats"; draw();
+      // 로비에 장착 스킬 (장착했을 때만 그림이 달라짐)
+      goToMenu(); draw(); const withSkill = canvas.toDataURL();
+      saveData.equippedSkill = null; draw(); const without = canvas.toDataURL(); saveData.equippedSkill = "dash";
+      const lobby = withSkill !== without;
+      // 도감 스킬 쪽 (4 키)
+      openTab("collection"); press("Digit4"); draw();
+      const col = collectionPage === "skills" && collectionItems("skills").length === SKILLS.length;
+      goToMenu();
+      const ok = toSkills && poor && bought && second && swapped && unequipped && persist && tabBack && lobby && col;
+      return { ok: ok, detail: "스킬 구역 " + toSkills + " / 부족 흔들림 " + poor + " / 구매 → 장착 " + bought + " / 둘째 구매 (장착 그대로) " + second +
+        " / 바꾸기 " + swapped + " / 해제 " + unequipped + " / 저장 " + persist + " / Tab " + tabBack + " / 로비 표시 " + lobby + " / 도감 " + col };
+    },
+  },
+  {
+    name: "[스킬] 전투 중 Space · 오른쪽 클릭으로 발동 (오른쪽 클릭 메뉴는 안 뜸), 디버그 K = 모든 스킬 해금 + 쿨타임 없음 (켜고 끄기)",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      const cr = canvas.getBoundingClientRect();
+      saveData.ownedSkills = ["shockwave"]; saveData.equippedSkill = "shockwave";
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      const keeper = createEnemy("basic", 900, 500, 1); keeper.speed = 0; enemies = [keeper];
+      press("Space"); const bySpace = skillState.cooldown === 12;
+      skillState.cooldown = 0;
+      canvas.dispatchEvent(new MouseEvent("mousedown", { button: 2, clientX: cr.left + 300, clientY: cr.top + 200 }));
+      const byRight = skillState.cooldown === 12;
+      const ev = new MouseEvent("contextmenu", { cancelable: true, clientX: cr.left + 300, clientY: cr.top + 200 });
+      canvas.dispatchEvent(ev); const noMenu = ev.defaultPrevented;
+      // 디버그 K
+      saveData.ownedSkills = []; saveData.equippedSkill = "absoluteZero";
+      const lockedBefore = equippedSkill() === null;
+      debugMode = true; press("KeyK");
+      const unlocked = debugSkillCheat && SKILLS.every((sk) => skillOwned(sk.id)) && equippedSkill() && equippedSkill().id === "absoluteZero";
+      tryUseSkill(); const noCool = skillState.cooldown === 0 && skillState.freezeTime > 0;
+      press("KeyK"); const off = !debugSkillCheat && equippedSkill() === null;
+      debugMode = false; saveData.equippedSkill = null;
+      return { ok: bySpace && byRight && noMenu && lockedBefore && unlocked && noCool && off,
+        detail: "Space " + bySpace + " / 오른쪽 클릭 " + byRight + " (메뉴 막음 " + noMenu + ") / K: 해금 " + unlocked + ", 쿨타임 0 " + noCool + ", 끄면 원래대로 " + off };
+    },
+  },
 ];

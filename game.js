@@ -347,6 +347,7 @@ window.addEventListener("keydown", function (event) {
   if (event.code === "Tab") {
     event.preventDefault();
     if ((gameState === "playing" && !paused) || gameState === "choosing") toggleHud();
+    else if (gameState === "upgrades" && !settingsOpen) switchUpgradeSection();
     return;
   }
 
@@ -354,6 +355,13 @@ window.addEventListener("keydown", function (event) {
   if (gameState === "playing" && (event.code === "KeyP" || event.code === "Escape")) {
     if (paused) resumeGame();
     else pauseGame();
+    event.preventDefault();
+    return;
+  }
+
+  // 전투 중 Space: 장착한 스킬 쓰기
+  if (gameState === "playing" && event.code === "Space") {
+    tryUseSkill();
     event.preventDefault();
     return;
   }
@@ -406,11 +414,13 @@ window.addEventListener("keydown", function (event) {
 // Shift+0  : 체력 가득 채우기
 // Shift+C  : 코인 +1000
 // I        : 무적 켜기/끄기
+// K        : 스킬 전부 해금 + 쿨타임 없애기 켜기/끄기
 // 디버그 모드가 꺼져 있으면 아래 기능은 전부 아무 영향이 없다.
 // =============================================================
 
 let debugMode = false;       // 디버그 모드가 켜져 있는지
 let debugInvincible = false; // 디버그 무적이 켜져 있는지 (디버그 모드일 때만 효과)
+let debugSkillCheat = false; // 디버그 K: 스킬 전부 해금 + 쿨타임 없음 (디버그 모드일 때만 효과)
 let debugMessage = "";       // 화면 구석에 잠깐 보여 줄 디버그 알림
 let debugMessageTimer = 0;   // 알림이 남은 시간 (초)
 
@@ -479,6 +489,14 @@ function handleDebugKey(event) {
   if (event.code === "KeyG" && !event.shiftKey) {
     if (inGame) openDebugGivePanel();
     else debugSay("증강 지급은 전투 중에만");
+    return true;
+  }
+
+  // K : 스킬 전부 해금 + 쿨타임 없애기 토글 (저장은 바꾸지 않는다)
+  if (event.code === "KeyK") {
+    debugSkillCheat = !debugSkillCheat;
+    if (debugSkillCheat) skillState.cooldown = 0;
+    debugSay("스킬 전부 해금 · 쿨타임 없음 " + (debugSkillCheat ? "ON" : "OFF"));
     return true;
   }
 
@@ -738,7 +756,15 @@ canvas.addEventListener("mousemove", function (event) {
 });
 
 // 마우스 버튼을 누르는 순간: 로비 버튼이면 "꾹" 작아지는 효과를 시작한다 (실행은 click 에서)
+// 마우스 오른쪽 버튼: 전투 중 스킬 쓰기 (게임 화면 위에서는 브라우저 오른쪽 클릭 메뉴를 띄우지 않는다)
+canvas.addEventListener("contextmenu", function (event) {
+  event.preventDefault();
+});
 canvas.addEventListener("mousedown", function (event) {
+  if (event.button === 2) {
+    if (gameState === "playing") tryUseSkill();
+    return;
+  }
   if (!isLobbyState()) return;
   const pos = getMousePos(event);
   const id = lobbyButtonAt(pos.x, pos.y);
@@ -881,6 +907,17 @@ let hpFlashTimer = 0;
 
 // 창마다 지금 투명도 (1 = 보통, HUD_FADE_ALPHA = 반투명). 그림 전용 값 (게임 진행에는 쓰지 않는다)
 let hudFade = { hud: 1, aug: 1, boss: 1 };
+
+// 발동 스킬 (skills.js) 의 이번 판 상태
+//   cooldown  : 다시 쓸 수 있을 때까지 남은 시간 (초, 0 이면 준비됨)
+//   bounce    : 준비됐을 때 아이콘이 튀어 오르는 남은 시간 (초)
+//   deny      : 쿨타임 중에 눌렀을 때 아이콘이 흔들리는 남은 시간 (초)
+//   dashTime · dashVx · dashVy · trail : 관성 질주 (남은 돌진 시간, 돌진 속도, 잔상 자리)
+//   rings     : 충격파 그림 (퍼지는 고리) / freezeTime : 절대 영도 남은 시간 (초)
+function newSkillState() {
+  return { cooldown: 0, bounce: 0, deny: 0, dashTime: 0, dashVx: 0, dashVy: 0, trail: [], rings: [], freezeTime: 0 };
+}
+let skillState = newSkillState();
 
 // 이번 판의 코인을 이미 저장했는지 (두 번 저장하지 않으려고)
 let runCommitted = false;
@@ -1046,9 +1083,18 @@ function updatePlayer(dt) {
   player.pullVx = ((player.pullVx || 0) + pull.ax * dt) * keep;
   player.pullVy = ((player.pullVy || 0) + pull.ay * dt) * keep;
 
-  // 위치 = 위치 + (조종 속도 + 끌려가는 속도) × 시간
-  player.x += (player.vx + player.pullVx) * dt;
-  player.y += (player.vy + player.pullVy) * dt;
+  if (skillState.dashTime > 0) {
+    // 관성 질주: 돌진하는 동안은 돌진 속도로만 움직인다 (정해진 거리를 정해진 시간에)
+    const step = Math.min(dt, skillState.dashTime);
+    skillState.trail.push({ x: player.x, y: player.y });
+    player.x += skillState.dashVx * step;
+    player.y += skillState.dashVy * step;
+    skillState.dashTime -= step;
+  } else {
+    // 위치 = 위치 + (조종 속도 + 끌려가는 속도) × 시간
+    player.x += (player.vx + player.pullVx) * dt;
+    player.y += (player.vy + player.pullVy) * dt;
+  }
 
   // 화면 밖으로 나가지 않게 가둔다 (몸의 반지름만큼 안쪽까지만 허용)
   const clampedX = clamp(player.x, PLAYER_RADIUS, CANVAS_WIDTH - PLAYER_RADIUS);
@@ -1059,6 +1105,19 @@ function updatePlayer(dt) {
   if (clampedY !== player.y) { player.vy = 0; player.pullVy = 0; }
   player.x = clampedX;
   player.y = clampedY;
+}
+
+// 지금 누르고 있는 이동 방향 { x, y } (길이 1, 안 누르면 0, 0). 키보드 · 모바일 조이스틱 (관성 질주 방향)
+function moveInputDir() {
+  let x = 0, y = 0;
+  if (keys["KeyA"] || keys["ArrowLeft"]) x -= 1;
+  if (keys["KeyD"] || keys["ArrowRight"]) x += 1;
+  if (keys["KeyW"] || keys["ArrowUp"]) y -= 1;
+  if (keys["KeyS"] || keys["ArrowDown"]) y += 1;
+  const stick = Math.hypot(touchStick.x, touchStick.y);
+  if (touchStick.active && stick > TOUCH_STICK_DEADZONE) { x = touchStick.x; y = touchStick.y; }
+  const len = Math.hypot(x, y);
+  return len > 0 ? { x: x / len, y: y / len } : { x: 0, y: 0 };
 }
 
 // 화면 가장자리(위·아래·왼쪽·오른쪽 중 하나)에 typeId 종류의 적 하나를 만든다
@@ -1686,14 +1745,18 @@ function handleLobbyKey(code) {
     return false;
   }
 
-  // 업그레이드 탭: 1, 2 키 = 구매
+  // 업그레이드 탭: 숫자 키 = 구매 (능력치 1 · 2, 스킬 1 · 2 · 3), Tab = 구역 바꾸기
   if (gameState === "upgrades") {
-    const keyToIndex = { Digit1: 0, Digit2: 1, Numpad1: 0, Numpad2: 1 };
-    if (code in keyToIndex) { tryBuyUpgrade(keyToIndex[code]); return true; }
+    const keyToIndex = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
+    if (code in keyToIndex) {
+      if (upgradeSection === "skills") tryPressSkill(keyToIndex[code]);
+      else tryBuyUpgrade(keyToIndex[code]);
+      return true;
+    }
   }
   // 도감 탭: 1, 2, 3 키 = 적 / 증강 / 보급 쪽
   if (gameState === "collection") {
-    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 };
+    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3 };
     if (code in keyToPage && COLLECTION_PAGES[keyToPage[code]]) { collectionPage = COLLECTION_PAGES[keyToPage[code]].id; return true; }
   }
   // 도감·업그레이드 탭: Esc (또는 M) = 전투 탭으로
@@ -1752,8 +1815,13 @@ function lobbyButtons() {
     for (let i = 0; i < COLLECTION_PAGES.length; i++) list.push({ id: "col:" + COLLECTION_PAGES[i].id, rect: collectionPageRect(i) });
   }
   if (gameState === "upgrades") {
-    // 업그레이드 카드 전체가 구매 버튼
-    for (let i = 0; i < UPGRADES.length; i++) list.push({ id: "buy:" + i, rect: upgradeCardRect(i) });
+    // 위쪽 구역 버튼 + 지금 구역의 카드 (카드 전체가 버튼)
+    for (let i = 0; i < UPGRADE_SECTIONS.length; i++) list.push({ id: "sec:" + UPGRADE_SECTIONS[i].id, rect: upgradeSectionRect(i) });
+    if (upgradeSection === "skills") {
+      for (let i = 0; i < SKILLS.length; i++) list.push({ id: "skill:" + i, rect: skillCardRect(i) });
+    } else {
+      for (let i = 0; i < UPGRADES.length; i++) list.push({ id: "buy:" + i, rect: upgradeCardRect(i) });
+    }
   }
   return list;
 }
@@ -1779,6 +1847,8 @@ function runLobbyButton(id) {
   else if (id === "settings:tuning") { closeSettings(); openTuningPanel(); }
   else if (id.startsWith("tab:")) openTab(id.slice(4));
   else if (id.startsWith("buy:")) tryBuyUpgrade(Number(id.slice(4)));
+  else if (id.startsWith("sec:")) switchUpgradeSection(id.slice(4));
+  else if (id.startsWith("skill:")) tryPressSkill(Number(id.slice(6)));
   else if (id.startsWith("col:")) collectionPage = id.slice(4);
 }
 
@@ -1789,6 +1859,7 @@ function updateLobby(dt) {
   for (let i = 0; i < upgradeShake.length; i++) {
     upgradeShake[i] = Math.max(0, upgradeShake[i] - dt);
   }
+  for (let i = 0; i < skillShake.length; i++) skillShake[i] = Math.max(0, skillShake[i] - dt);
   lobbyToastTimer = Math.max(0, lobbyToastTimer - dt);
   resetArmTimer = Math.max(0, resetArmTimer - dt);
   pressTimer = Math.max(0, pressTimer - dt);
@@ -1874,6 +1945,7 @@ function updateEnemyBullets(dt) {
     // 시간 지연 범위 안이면 적처럼 느려진다 (증강의 modifyEnemySpeed 를 그대로 쓴다)
     const dist = distance(b.x, b.y, player.x, player.y);
     b.slowFactor = enemySpeedFactor(b, dist);
+    if (skillState.freezeTime > 0) b.slowFactor *= SKILL_FREEZE_ENEMY;   // 스킬 "절대 영도"
     b.x += b.vx * b.slowFactor * dt;
     b.y += b.vy * b.slowFactor * dt;
     b.age += dt;
@@ -1915,6 +1987,7 @@ function updatePlayerHit(dt) {
 // 게임을 처음 상태로 되돌리는 함수 (R 키로 다시 시작할 때 사용)
 function resetGame() {
   hudFade = { hud: 1, aug: 1, boss: 1 };   // 창 투명도도 처음처럼
+  skillState = newSkillState();            // 스킬은 새 판마다 바로 쓸 수 있다
   // 플레이어를 가운데로, 체력은 가득, 타이머는 0으로
   player.x = CANVAS_WIDTH / 2;
   player.y = CANVAS_HEIGHT / 2;
@@ -1994,6 +2067,8 @@ function updateEnemies(dt) {
     // 보스처럼 timeScaleMin 이 있는 적은 그보다 더 느려지지 않는다
     const timeScaleMin = enemyType(enemy).timeScaleMin;
     if (timeScaleMin !== undefined) enemy.slowFactor = Math.max(enemy.slowFactor, timeScaleMin);
+    // 스킬 "절대 영도": 그 위에 한 번 더 (보스는 덜)
+    if (skillState.freezeTime > 0) enemy.slowFactor *= enemyType(enemy).isBoss ? SKILL_FREEZE_BOSS : SKILL_FREEZE_ENEMY;
 
     // 종류별 행동 함수(enemies.js)에게 움직임을 맡긴다
     //   speed     : 기본 속도 × 배율 (이동에 사용)
@@ -2405,6 +2480,7 @@ function update(dt) {
     updateParticles(dt);  // 9) 파티클 날아가기
     updateCoins(dt);      // 10) 생존 시간과 코인 (전투 중에만)
     updateHudFade(dt);    // 11) 상태창 · 증강 목록 · 보스 체력바 반투명 (그림 전용)
+    updateSkills(dt);     // 12) 발동 스킬 쿨타임 · 효과 시간 (전투 중에만 흐른다)
 
     // 게임 오버가 아니라면 웨이브가 끝났는지 검사
     if (gameState === "playing") {
@@ -3568,6 +3644,153 @@ function drawBossBars() {
   ctx.restore();
 }
 
+// ---- 발동 스킬 (skills.js) ----
+// 화면 아래 가운데 스킬 아이콘 자리와 크기
+const SKILL_ICON_X = CANVAS_WIDTH / 2;
+const SKILL_ICON_Y = CANVAS_HEIGHT - 44;
+const SKILL_ICON_R = 28;
+// 충격파 고리가 퍼지는 시간 (초)
+const SKILL_RING_TIME = 0.35;
+
+// 매 프레임 (전투 중에만 불린다 → 일시정지 · 카드 고르기 중에는 쿨타임이 멈춘다)
+function updateSkills(dt) {
+  if (skillState.cooldown > 0) {
+    skillState.cooldown = Math.max(0, skillState.cooldown - dt);
+    if (skillState.cooldown === 0) skillState.bounce = SKILL_READY_BOUNCE_TIME;   // 준비됨 → 한 번 튀어 오른다
+  }
+  if (debugMode && debugSkillCheat) skillState.cooldown = 0;                      // 디버그 K: 쿨타임 없음
+  skillState.bounce = Math.max(0, skillState.bounce - dt);
+  skillState.deny = Math.max(0, skillState.deny - dt);
+  skillState.freezeTime = Math.max(0, skillState.freezeTime - dt);
+  for (const r of skillState.rings) r.age += dt;
+  skillState.rings = skillState.rings.filter(function (r) { return r.age < SKILL_RING_TIME; });
+  if (skillState.dashTime <= 0 && skillState.trail.length) skillState.trail.shift();   // 잔상이 하나씩 사라진다
+}
+
+// 장착한 스킬을 쓴다 (Space · 오른쪽 클릭 · 모바일 스킬 버튼). 쓰면 true
+function tryUseSkill() {
+  if (gameState !== "playing" || paused || resumeTimer > 0) return false;
+  const skill = equippedSkill();
+  if (!skill) return false;
+  if (skillState.cooldown > 0) {
+    skillState.deny = 0.25;          // 아직이면 아이콘이 살짝 흔들린다
+    return false;
+  }
+  skill.activate();
+  skillState.cooldown = debugMode && debugSkillCheat ? 0 : skill.cooldown;
+  return true;
+}
+
+// 스킬 아이콘 그림 ("dash" = 화살표 돌진, "wave" = 동심원 파동, "snow" = 눈송이). s = 크기
+function drawSkillIcon(shape, x, y, s, color) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (shape === "dash") {
+    // 오른쪽으로 달리는 화살표 + 뒤쪽 속도선 세 줄
+    setOutline(SMALL_OUTLINE_WIDTH);
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(-s * 0.95, -s * 0.35 + i * s * 0.35); ctx.lineTo(-s * 0.45, -s * 0.35 + i * s * 0.35); ctx.stroke(); }
+    drawOutlinedPolygon([[-s * 0.25, -s * 0.55], [s * 0.9, 0], [-s * 0.25, s * 0.55], [0, 0]], color || COLORS.white, SMALL_OUTLINE_WIDTH);
+  } else if (shape === "wave") {
+    // 가운데 점 + 퍼지는 고리 두 개
+    for (const r of [0.9, 0.58]) {
+      ctx.beginPath(); ctx.arc(0, 0, s * r, 0, Math.PI * 2);
+      setOutline(SMALL_OUTLINE_WIDTH * 2.2); ctx.stroke();
+      ctx.strokeStyle = color || COLORS.white; ctx.lineWidth = SMALL_OUTLINE_WIDTH; ctx.stroke();
+    }
+    drawOutlinedCircle(0, 0, s * 0.24, color || COLORS.white, SMALL_OUTLINE_WIDTH);
+  } else {
+    // 눈송이: 가지 6개 (가지마다 작은 갈래)
+    for (const pass of [0, 1]) {
+      if (pass === 0) setOutline(SMALL_OUTLINE_WIDTH * 2.4); else { ctx.strokeStyle = color || COLORS.white; ctx.lineWidth = SMALL_OUTLINE_WIDTH; ctx.lineCap = "round"; }
+      for (let k = 0; k < 6; k++) {
+        const a = (k * Math.PI) / 3, c = Math.cos(a), sn = Math.sin(a);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(c * s * 0.9, sn * s * 0.9);
+        const bx = c * s * 0.55, by = sn * s * 0.55, b2 = a + 0.6, b3 = a - 0.6;
+        ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(b2) * s * 0.28, by + Math.sin(b2) * s * 0.28);
+        ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(b3) * s * 0.28, by + Math.sin(b3) * s * 0.28);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+// 스킬 효과 그림 (전투 화면): 관성 질주 잔상, 충격파 고리, 절대 영도의 푸른 서리
+function drawSkillEffects() {
+  // 관성 질주 잔상: 지나온 자리에 옅은 플레이어 동그라미
+  for (let i = 0; i < skillState.trail.length; i++) {
+    const p = skillState.trail[i];
+    ctx.save();
+    ctx.globalAlpha = 0.12 + 0.3 * (i + 1) / skillState.trail.length;
+    drawOutlinedCircle(p.x, p.y, PLAYER_RADIUS, COLORS.blue, SMALL_OUTLINE_WIDTH);
+    ctx.restore();
+  }
+  // 충격파: 반경까지 빠르게 퍼지며 흐려지는 고리
+  for (const r of skillState.rings) {
+    const t = r.age / SKILL_RING_TIME;
+    ctx.save();
+    ctx.globalAlpha = 1 - t;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, SKILL_SHOCK_RADIUS * (0.25 + 0.75 * Math.sqrt(t)), 0, Math.PI * 2);
+    setOutline(10); ctx.stroke();
+    ctx.strokeStyle = COLORS.purple; ctx.lineWidth = 5; ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// 절대 영도: 화면 가장자리에 푸른 서리 (마지막 0.5초 동안 흐려진다)
+function drawFreezeOverlay() {
+  if (skillState.freezeTime <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = 0.35 * Math.min(1, skillState.freezeTime / 0.5);
+  const g = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_HEIGHT * 0.35, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62);
+  g.addColorStop(0, "rgba(120, 190, 255, 0)");
+  g.addColorStop(1, "rgba(120, 190, 255, 1)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+}
+
+// 화면 아래 가운데 스킬 아이콘: 쿨타임은 시계 방향으로 차오르고, 준비되면 한 번 튀어 오른다
+function drawSkillHud() {
+  const skill = equippedSkill();
+  if (!skill) return;
+  const x = SKILL_ICON_X, y = SKILL_ICON_Y, r = SKILL_ICON_R;
+  const ready = skillState.cooldown <= 0;
+  // 튀어 오르기 (준비됨) · 흔들기 (아직)
+  const b = skillState.bounce > 0 ? Math.sin(Math.PI * (1 - skillState.bounce / SKILL_READY_BOUNCE_TIME)) : 0;
+  const dx = skillState.deny > 0 ? Math.sin(skillState.deny * 70) * 4 : 0;
+  ctx.save();
+  ctx.translate(x + dx, y - b * 12);
+  ctx.scale(1 + b * 0.18, 1 + b * 0.18);
+  // 바탕 (어두운 원) + 차오른 만큼 스킬 색 부채꼴 (12시에서 시계 방향)
+  drawOutlinedCircle(0, 0, r, COLORS.dark);
+  const fill = ready ? 1 : 1 - skillState.cooldown / skill.cooldown;
+  if (fill > 0) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, r - 2, -Math.PI / 2, -Math.PI / 2 + fill * Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = ready ? COLORS[skill.color] : lightenColor(COLORS[skill.color], 0.15);
+    ctx.globalAlpha = ready ? 1 : 0.75;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  setOutline(); ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
+  drawSkillIcon(skill.icon, 0, 0, r * 0.62, ready ? COLORS.white : COLORS.dim);
+  // 남은 초 (쿨타임 중)
+  if (!ready) drawOutlinedText(String(Math.ceil(skillState.cooldown)), 0, 1, 22, "center", COLORS.white);
+  ctx.restore();
+  // 키 안내 (아이콘 오른쪽)
+  drawOutlinedText(ready ? "Space · 우클릭" : skill.name, x + r + 10, y + 1, 14, "left", ready ? COLORS.yellow : COLORS.white);
+  // 절대 영도 남은 시간: 아이콘 둘레의 하늘색 고리
+  if (skillState.freezeTime > 0) {
+    ctx.beginPath();
+    ctx.arc(x, y, r + 6, -Math.PI / 2, -Math.PI / 2 + (skillState.freezeTime / SKILL_FREEZE_TIME) * Math.PI * 2);
+    ctx.strokeStyle = "rgb(120, 190, 255)"; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.stroke();
+  }
+}
+
 // ---- 적 등장 예고 ----
 // 설정에서 끌 수 있다 (꺼도 자리는 똑같이 미리 정한다 → 켜고 끄기가 게임 진행을 바꾸지 않는다)
 function spawnWarnOn() {
@@ -3815,6 +4038,7 @@ const CONTROLS_HELP = [
   ["일시정지", "P / Esc / 상태창 클릭"],
   ["상태창 접기", "Tab / 화살표 버튼"],
   ["카드 고르기", "클릭 또는 1 · 2 · 3"],
+  ["스킬", "Space / 오른쪽 클릭"],
   ["결과 화면", "R 다시 · U 업그레이드 · M 메뉴"],
 ];
 
@@ -4086,12 +4310,23 @@ function resultButtonAt(x, y) {
 // 업그레이드 화면 상태
 let upgradeShake = [];        // 카드마다 흔들림이 남은 시간 (코인이 모자랄 때)
 let resetArmTimer = 0;        // 설정 창 "한 번 더 누르면 초기화" 가 남은 시간 (0 이면 평소 상태)
+let upgradeSection = "stats"; // 업그레이드 탭에서 보고 있는 구역 ("stats" 능력치 / "skills" 스킬)
+let skillShake = [];          // 스킬 카드마다 흔들림이 남은 시간 (코인이 모자랄 때)
 
 // 업그레이드 카드 크기와 위치 (카드 아래 끝이 탭 바 위에서 끝나야 한다)
 const UPGRADE_CARD_WIDTH = 300;
 const UPGRADE_CARD_HEIGHT = 290;
 const UPGRADE_CARD_GAP = 40;
-const UPGRADE_CARD_TOP = 92;
+const UPGRADE_CARD_TOP = 112;
+// "능력치 / 스킬" 구역 버튼 (카드 위쪽 가운데. 도감의 쪽 버튼과 같은 모양)
+const UPGRADE_SECTIONS = [
+  { id: "stats", label: "능력치", color: "green" },
+  { id: "skills", label: "스킬", color: "blue" },
+];
+const UPGRADE_SECTION_BUTTON = { w: 170, h: 32, gap: 14, y: 68 };
+// 스킬 카드 크기 (3장이 한 줄에 놓인다. 높이와 위쪽은 업그레이드 카드와 같다)
+const SKILL_CARD_WIDTH = 270;
+const SKILL_CARD_GAP = 30;
 // 업그레이드 화면 아래쪽 안내 글자의 높이 (카드와 탭 바 사이)
 const UPGRADE_HELP_Y = 418;
 // 저장 초기화: 두 번째 누름을 기다리는 시간 (초)
@@ -4101,6 +4336,7 @@ const RESET_CONFIRM_TIME = 3;
 function openUpgrades() {
   gameState = "upgrades";
   upgradeShake = UPGRADES.map(function () { return 0; });
+  skillShake = SKILLS.map(function () { return 0; });
   lobbyToast = "";
   lobbyToastTimer = 0;
 }
@@ -4118,6 +4354,39 @@ function upgradeCardRect(i) {
   return { x: p.x, y: p.y, w: UPGRADE_CARD_WIDTH, h: UPGRADE_CARD_HEIGHT };
 }
 
+// i 번째 구역 버튼 사각형
+function upgradeSectionRect(i) {
+  const B = UPGRADE_SECTION_BUTTON, n = UPGRADE_SECTIONS.length;
+  const total = n * B.w + (n - 1) * B.gap;
+  return { x: (CANVAS_WIDTH - total) / 2 + i * (B.w + B.gap), y: B.y, w: B.w, h: B.h };
+}
+
+// i 번째 스킬 카드 전체의 사각형 (카드 어디를 눌러도 구매 / 장착)
+function skillCardRect(i) {
+  const n = SKILLS.length;
+  const total = n * SKILL_CARD_WIDTH + (n - 1) * SKILL_CARD_GAP;
+  return { x: (CANVAS_WIDTH - total) / 2 + i * (SKILL_CARD_WIDTH + SKILL_CARD_GAP), y: UPGRADE_CARD_TOP, w: SKILL_CARD_WIDTH, h: UPGRADE_CARD_HEIGHT };
+}
+
+// 능력치 ↔ 스킬 구역 바꾸기
+function switchUpgradeSection(id) {
+  upgradeSection = id || (upgradeSection === "stats" ? "skills" : "stats");
+}
+
+// i 번째 스킬 카드를 눌렀을 때 (사기 / 장착 / 해제, 결과는 알림으로)
+function tryPressSkill(i) {
+  const skill = SKILLS[i];
+  if (!skill) return;
+  const result = pressSkill(skill);
+  if (result === "bought") showLobbyToast(skill.name + " 구매!" + (saveData.equippedSkill === skill.id ? "  바로 장착했어요" : "  카드를 한 번 더 누르면 장착"));
+  else if (result === "equipped") showLobbyToast(skill.name + " 장착! 전투 중 Space · 오른쪽 클릭");
+  else if (result === "unequipped") showLobbyToast(skill.name + " 장착 해제");
+  else {
+    skillShake[i] = 0.35;
+    showLobbyToast("코인이 모자라요! (" + skill.price + " 필요)");
+  }
+}
+
 // i 번째 카드의 구매 버튼 사각형
 function upgradeBuyRect(i) {
   const p = upgradeCardPos(i);
@@ -4133,6 +4402,8 @@ function insideRect(x, y, r) {
 function anyUpgradeAffordable() {
   return UPGRADES.some(function (up) {
     return upgradeLevel(up) < up.maxLevel && saveData.coins >= upgradeCost(up);
+  }) || SKILLS.some(function (skill) {
+    return !skillOwned(skill.id) && saveData.coins >= skill.price;
   });
 }
 
@@ -4263,14 +4534,89 @@ function drawUpgradeCard(up, i) {
 
 // 업그레이드 화면 전체 (위쪽 줄과 탭 바는 drawLobby 가 그린다)
 function drawUpgradeScreen() {
-  // 업그레이드 카드들
-  for (let i = 0; i < UPGRADES.length; i++) {
-    drawUpgradeCard(UPGRADES[i], i);
+  // 위쪽 구역 버튼 (지금 구역은 밝은 색, 나머지는 어두운 색)
+  for (let i = 0; i < UPGRADE_SECTIONS.length; i++) {
+    const sec = UPGRADE_SECTIONS[i], r = upgradeSectionRect(i), id = "sec:" + sec.id;
+    const active = upgradeSection === sec.id;
+    drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id), function () {
+      drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 16, hoverColor(id, active ? COLORS[sec.color] : COLORS.dark), SMALL_OUTLINE_WIDTH);
+      drawOutlinedText(sec.label, r.x + r.w / 2, r.y + r.h / 2 + 1, 18, "center", active ? COLORS.white : COLORS.dim);
+    });
+  }
+  if (upgradeSection === "skills") {
+    for (let i = 0; i < SKILLS.length; i++) drawSkillCard(SKILLS[i], i);
+  } else {
+    // 업그레이드 카드들
+    for (let i = 0; i < UPGRADES.length; i++) {
+      drawUpgradeCard(UPGRADES[i], i);
+    }
   }
   // 아래쪽 안내 (알림이 떠 있으면 drawLobbyToast 가 같은 자리에 대신 그린다)
   if (lobbyToastTimer <= 0) {
-    drawOutlinedText("카드를 클릭하거나 1 · 2 키로 구매 · ←→ 탭 이동 · Esc 전투 탭", CANVAS_WIDTH / 2, UPGRADE_HELP_Y, 17);
+    const help = upgradeSection === "skills"
+      ? "카드나 1 · 2 · 3 키로 구매 · 장착 (하나만) · Tab 능력치 · Esc 전투 탭"
+      : "카드를 클릭하거나 1 · 2 키로 구매 · Tab 스킬 · ←→ 탭 이동 · Esc 전투 탭";
+    drawOutlinedText(help, CANVAS_WIDTH / 2, UPGRADE_HELP_Y, 17);
   }
+}
+
+// 스킬 카드 한 장 (띠: 아이콘 + 이름, 개념, 쿨타임, 설명, 가격, 버튼)
+function drawSkillCard(skill, i) {
+  const r = skillCardRect(i), w = r.w, h = r.h, id = "skill:" + i;
+  const owned = skillOwned(skill.id);
+  const equipped = owned && saveData.equippedSkill === skill.id;
+  const canBuy = !owned && saveData.coins >= skill.price;
+
+  ctx.save();
+  const shake = skillShake[i] > 0 ? Math.sin(skillShake[i] * 60) * 7 * (skillShake[i] / 0.35) : 0;
+  ctx.translate(r.x + shake, r.y);
+  const press = buttonScale(id);
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(press, press);
+  ctx.translate(-w / 2, -h / 2);
+
+  // 그림자 + 몸통 (장착 중이면 노란 몸통)
+  roundRectPath(7, 7, w, h, 22);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(0, 0, w, h, 22, equipped ? lightenColor(COLORS.yellow, 0.55) : COLORS.white);
+
+  // 위쪽 색 띠: 아이콘 + 이름
+  drawOutlinedRoundRect(12, 12, w - 24, 60, 16, COLORS[skill.color]);
+  drawOutlinedCircle(44, 42, 21, COLORS.dark, SMALL_OUTLINE_WIDTH);
+  drawSkillIcon(skill.icon, 44, 42, 14, COLORS.white);
+  drawOutlinedText(skill.name, w / 2 + 18, 42, fitTextSize(skill.name, 28, w - 110));
+
+  // 번호 배지
+  drawOutlinedCircle(4, 4, 17, COLORS.outline);
+  drawOutlinedText(String(i + 1), 4, 5, 19, "center", COLORS.yellow);
+
+  // 개념, 쿨타임
+  drawFitText(skill.concept, w / 2, 90, 15, w - 30, COLORS.brown);
+  drawOutlinedText("쿨타임 " + skill.cooldown + "초", w / 2, 118, 20, "center", COLORS[skill.color]);
+
+  // 설명 (여러 줄)
+  const lines = wrapText(skill.desc, w - 34, 14).slice(0, 4);
+  for (let n = 0; n < lines.length; n++) drawFitText(lines[n], w / 2, 146 + n * 20, 14, w - 28, COLORS.outline);
+
+  // 가격 (아직 없을 때만)
+  if (!owned) {
+    ctx.font = "22px " + FONT_FAMILY;
+    const costText = String(skill.price);
+    const tw = ctx.measureText(costText).width;
+    drawCoinIcon(w / 2 - tw / 2 - 14, 210, 10);
+    drawOutlinedText(costText, w / 2 + 6, 210, 22, "center", canBuy ? COLORS.yellow : COLORS.gray);
+  } else {
+    drawOutlinedText(equipped ? "전투에서 Space · 오른쪽 클릭" : "가지고 있음", w / 2, 210, 15, "center", equipped ? COLORS.green : COLORS.white);
+  }
+
+  // 버튼: 구매(초록/회색) · 장착(파랑) · 장착 중(노랑)
+  const bx = 34, by = h - 66, bw = w - 68, bh = 48;
+  const color = equipped ? COLORS.yellow : owned ? COLORS.blue : (canBuy ? COLORS.green : COLORS.gray);
+  drawOutlinedRoundRect(bx, by, bw, bh, 22, hoverColor(id, color));
+  drawOutlinedText(equipped ? "장착 중" : owned ? "장착" : "구매", bx + bw / 2, by + bh / 2 + 1, 24);
+
+  ctx.restore();
 }
 
 // =============================================================
@@ -4579,6 +4925,18 @@ function drawMenu() {
   // 4) 시작 버튼 아래: 최고 기록과 조작 안내
   drawOutlinedText("최고 기록: 웨이브 " + saveData.bestWave, CANVAS_WIDTH / 2, B.y + B.h + 30, 20, "center", COLORS.yellow);
   drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 62, 15);
+
+  // 5) 장착한 스킬 (장착했을 때만 작게)
+  const skill = equippedSkill();
+  if (skill) {
+    const text = "장착 스킬: " + skill.name;
+    ctx.font = "16px " + FONT_FAMILY;
+    const tw = ctx.measureText(text).width;
+    const y = B.y + B.h + 92, x0 = CANVAS_WIDTH / 2 - (tw + 30) / 2;
+    drawOutlinedCircle(x0 + 10, y, 12, COLORS[skill.color], SMALL_OUTLINE_WIDTH);
+    drawSkillIcon(skill.icon, x0 + 10, y, 8, COLORS.white);
+    drawOutlinedText(text, x0 + 30, y + 1, 16, "left");
+  }
 }
 
 // ---- 도감 탭: 적 / 증강 / 보급 세 쪽 (위쪽 작은 버튼이나 1·2·3 키로 넘긴다) ----
@@ -4591,6 +4949,7 @@ const COLLECTION_PAGES = [
   { id: "enemies", label: "적", color: "red" },
   { id: "augments", label: "증강", color: "purple" },
   { id: "supplies", label: "보급", color: "green" },
+  { id: "skills", label: "스킬", color: "blue" },
 ];
 // 도감 위쪽 쪽 버튼 크기와 높이, 내용 패널 위치
 const COLLECTION_PAGE_BUTTON = { w: 150, h: 34, gap: 14, y: 76 };
@@ -4610,6 +4969,7 @@ function collectionPageRect(i) {
 function collectionItems(page) {
   if (page === "enemies") return COLLECTION_ENEMIES.map(function (id) { return ENEMY_TYPES[id]; });
   if (page === "augments") return AUGMENTS;
+  if (page === "skills") return SKILLS;
   return SUPPLIES;
 }
 
@@ -4678,6 +5038,20 @@ function drawCollectionScreen() {
       drawOutlinedText(aug.name, c.x + c.w / 2, c.y + 16, fitTextSize(aug.name, 17, c.w - 16));
       drawFitText(aug.formula, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.38, 19, c.w - 14, COLORS.outline);
       drawFitText(aug.concept, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.76, 13, c.w - 12, COLORS.brown);
+    }
+  } else if (collectionPage === "skills") {
+    // 스킬: 한 줄에 3칸. 색 띠(아이콘 + 이름) + 개념 + 쿨타임 · 가격 + 설명
+    for (let i = 0; i < items.length; i++) {
+      const skill = items[i], c = collectionCell(i, items.length, 3), cx = c.x + c.w / 2;
+      drawOutlinedRoundRect(c.x, c.y, c.w, c.h, 14, COLORS.background, SMALL_OUTLINE_WIDTH);
+      drawOutlinedRoundRect(c.x, c.y, c.w, 46, 14, COLORS[skill.color], SMALL_OUTLINE_WIDTH);
+      drawSkillIcon(skill.icon, c.x + 34, c.y + 23, 14, COLORS.white);
+      drawOutlinedText(skill.name, cx + 10, c.y + 24, 24);
+      drawFitText(skill.concept, cx, c.y + 72, 16, c.w - 20, COLORS.brown);
+      drawFitText("쿨타임 " + skill.cooldown + "초 · 가격 " + skill.price + " 코인", cx, c.y + 104, 17, c.w - 20, COLORS.outline);
+      const lines = wrapText(skill.desc, c.w - 40, 16).slice(0, 5);
+      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 146 + n * 26, 16, c.w - 30, COLORS.outline);
+      if (skillOwned(skill.id)) drawOutlinedText(saveData.equippedSkill === skill.id ? "장착 중" : "가짐", c.x + c.w - 14, c.y + c.h - 18, 15, "right", COLORS.green);
     }
   } else {
     // 보급: 한 줄에 5칸. 색 띠(이름) + 수식 + 개념 + 설명
@@ -4830,8 +5204,8 @@ function drawDebug() {
   if (!debugMode) return;
   const x = 14;
   const y = CANVAS_HEIGHT - 18;
-  drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : ""), x, y, 16, "left", COLORS.yellow);
-  drawOutlinedText("[ ] 웨이브  G 지급  B 보스  Shift+0 체력  Shift+C 코인  I 무적  F2 끄기", x, y - 22, 13, "left");
+  drawOutlinedText("DEBUG" + (debugInvincible ? " · 무적" : "") + (debugSkillCheat ? " · 스킬" : ""), x, y, 16, "left", COLORS.yellow);
+  drawOutlinedText("[ ] 웨이브  G 지급  B 보스  Shift+0 체력  Shift+C 코인  I 무적  K 스킬  F2 끄기", x, y - 22, 13, "left");
   if (debugMessageTimer > 0 && debugMessage) {
     drawOutlinedText(debugMessage, x, y - 44, 15, "left", COLORS.green);
   }
@@ -4860,9 +5234,12 @@ function draw() {
   drawEnemyBullets(); // 적 탄환 (적 위에, 잘 보이게)
   drawPlayer();     // 플레이어
   drawImmuneRing(); // 면역 반응 보호막 고리
+  drawSkillEffects(); // 발동 스킬 효과 (잔상, 충격파 고리)
+  drawFreezeOverlay(); // 절대 영도 푸른 서리
   drawSpawnWarnings(); // 적 등장 예고 (화면 가장자리의 빨간 세모 느낌표)
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
+  drawSkillHud();   // 장착한 스킬 아이콘 (화면 아래 가운데, 쿨타임)
   drawBossBars();   // 보스 체력바
   drawEnrageWarning(); // "과열!" 경고 (웨이브가 너무 길어지면)
   drawBanner();     // 웨이브 시작 안내 띠

@@ -27,6 +27,7 @@ const MOBILE_DEBUG_BUTTONS = [
   ["무적", "KeyI", false, false],
   ["체력", "Digit0", true, true],
   ["코인", "KeyC", true, false],
+  ["스킬", "KeyK", false, false],
 ];
 
 // ---- 화면 요소 만들기 ----
@@ -36,6 +37,7 @@ mobileRoot.innerHTML =
   '<div class="stick-zone"></div>' +
   '<div class="stick-base"><div class="stick-knob"></div></div>' +
   '<button class="mobile-btn mobile-pause" title="일시정지">⏸</button>' +
+  '<button class="mobile-btn mobile-skill" title="스킬">스킬</button>' +
   '<div class="mobile-debug">' +
   '  <button class="mobile-btn mobile-debug-toggle">디버그</button>' +
   '  <div class="mobile-debug-list"></div>' +
@@ -46,6 +48,7 @@ const stickZone = mobileRoot.querySelector(".stick-zone");
 const stickBase = mobileRoot.querySelector(".stick-base");
 const stickKnob = mobileRoot.querySelector(".stick-knob");
 const pauseButton = mobileRoot.querySelector(".mobile-pause");
+const skillButton = mobileRoot.querySelector(".mobile-skill");
 const debugToggle = mobileRoot.querySelector(".mobile-debug-toggle");
 const debugList = mobileRoot.querySelector(".mobile-debug-list");
 
@@ -67,6 +70,11 @@ for (const [label, code, shift] of MOBILE_DEBUG_BUTTONS) {
 debugToggle.addEventListener("click", function () { mobilePressKey("F2"); });
 pauseButton.addEventListener("click", function () {
   if (gameState === "playing" && !paused) pauseGame();
+});
+// 스킬 버튼: 장착한 스킬 쓰기 (키보드 Space 와 같다)
+skillButton.addEventListener("pointerdown", function (event) {
+  event.preventDefault();
+  tryUseSkill();
 });
 
 // ---- 조이스틱 ----
@@ -137,11 +145,13 @@ function updateMobileControls() {
   const on = saveData.mobileMode === true;
   const fighting = gameState === "playing" && !paused && !isOverlayOpen() && !isDebugGiveOpen() && !isDebugBossOpen();
   const inGame = gameState === "playing" || gameState === "choosing";
-  const key = [on, fighting, debugMode, inGame, ownerUnlocked].join(",");
+  const hasSkill = equippedSkill() !== null;
+  const key = [on, fighting, debugMode, inGame, ownerUnlocked, hasSkill].join(",");
   if (key === mobileShownKey) return;
   mobileShownKey = key;
   mobileRoot.classList.toggle("on", on);
   mobileRoot.classList.toggle("fighting", fighting);
+  mobileRoot.classList.toggle("has-skill", hasSkill);   // 스킬을 장착했을 때만 스킬 버튼
   mobileRoot.classList.toggle("debug-on", debugMode);
   mobileRoot.classList.toggle("owner", ownerUnlocked);   // 비밀번호를 인증해야 디버그 버튼이 보인다
   debugToggle.textContent = debugMode ? "디버그 끄기" : "디버그";
