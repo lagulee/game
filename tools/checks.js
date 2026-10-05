@@ -1170,7 +1170,7 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 20/30/40), 앞으로는 그대로, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
+    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 20/30/40, 처음 0.25초는 0→A), 앞으로는 그대로, 늘 같은 거리의 적도 맞음, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
     run: function () {
       const aug = AUGMENTS.find((a) => a.id === "fourier");
       const res = [];
@@ -1181,7 +1181,7 @@ module.exports = [
         for (let i = 0; i < 30; i++) {
           updateBullets(1 / 60);
           const dev = b.y - 270;                           // 옆(세로)으로 벗어난 거리
-          const want = -aug.levels[lv - 1].amplitude * Math.sin(FOURIER_OMEGA * b.age);   // 옆 방향 = 진행 방향을 90° 돌린 쪽
+          const want = -fourierOffset(aug.levels[lv - 1].amplitude, b.age);   // 옆 방향 = 진행 방향을 90° 돌린 쪽 (처음 0.25초는 진폭이 커지는 중)
           maxDev = Math.max(maxDev, Math.abs(dev)); worst = Math.max(worst, Math.abs(Math.abs(dev) - Math.abs(want)));
         }
         const forward = (b.x - 100) / b.age;               // 앞으로 간 평균 속도
@@ -1194,9 +1194,18 @@ module.exports = [
       enemies = es.slice(); createBullet(1, 0, { x: 120, y: 270, fromAugment: true });
       for (let i = 0; i < 40; i++) updateBullets(1 / 60);
       const hits = es.map((e) => e.hp < 1000 ? 1 : 0).join("");
+      // 늘 같은 거리(물결 꼭대기 근처 70~110px)에 있는 작은 적도 맞힐 수 있어야 한다 (예전에는 모두 빗나가 웨이브가 끝나지 않았다)
+      const near = [];
+      for (const d of [70, 90, 110]) {
+        startGame(); spawnQueue = []; ownedAugments = { fourier: 1 };
+        const g = createEnemy("splitterGrandchild", 400 - d, 270, 1); g.hp = g.maxHp = 1000; enemies = [g];
+        const shot = createBullet(-1, 0, { x: 400, y: 270, fromAugment: true });
+        for (let i = 0; i < 30 && !shot.dead; i++) updateBullets(1 / 60);
+        near.push(g.hp < 1000 ? 1 : 0);
+      }
       const ok = res.every((r, i) => Math.abs(r.maxDev - [20, 30, 40][i]) < 1.5 && r.worst < 3 && Math.abs(r.forward - BULLET_SPEED) < 2 &&
-        r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === [0, 0, 1][i]) && hits === "110";
-      return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits };
+        r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === [0, 0, 1][i]) && hits === "110" && near.join("") === "111";
+      return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits + " / 70·90·110px 작은 적 맞음 " + near.join("") };
     },
   },
   {

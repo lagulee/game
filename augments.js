@@ -160,6 +160,10 @@ const FOURIER_OMEGA = 12;
 const FOURIER_RADIUS_BONUS = [3, 5, 7];
 // 푸리에 탄환: 레벨별 관통 수 (1 이면 적 1마리를 뚫고 지나간다)
 const FOURIER_PIERCE = [0, 0, 1];
+// 푸리에 탄환: 쏜 뒤 이 시간(초) 동안 진폭이 0 에서 A 까지 커진다.
+//   처음부터 A 로 흔들리면, 적이 늘 같은 거리(물결의 꼭대기)에서 쫓아올 때 모든 총알이 빗나갈 수 있다.
+//   가까운 적에게는 거의 곧게, 먼 적에게는 크게 물결치며 날아간다.
+const FOURIER_RAMP_TIME = 0.25;
 
 // 중력 렌즈: 레벨별 끌어당기는 반경 R (px). 총알에서 R 안에 있는 가장 가까운 적 쪽으로 휜다
 const GRAVITY_RANGE = [80, 110, 140];
@@ -595,7 +599,7 @@ const AUGMENTS = [
     levels: [
       {
         amplitude: FOURIER_AMPLITUDE[0], radiusBonus: FOURIER_RADIUS_BONUS[0], pierce: FOURIER_PIERCE[0],
-        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다. 진폭 20px, 충돌 반지름 +3px",
+        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다 (멀리 갈수록 크게). 진폭 20px, 충돌 반지름 +3px",
       },
       {
         amplitude: FOURIER_AMPLITUDE[1], radiusBonus: FOURIER_RADIUS_BONUS[1], pierce: FOURIER_PIERCE[1],
@@ -612,8 +616,9 @@ const AUGMENTS = [
     //   옆으로 벗어난 거리를 y(t) = A·sin(ωt) 로 만들고 싶다.
     //   위치를 시간으로 미분하면 속도: y'(t) = A·ω·cos(ωt)
     //   게임은 1/60초씩 끊어서 움직이므로, 미분 대신 "이번 프레임 동안 옆으로 가야 할 거리"
-    //   A·sin(ωt) − A·sin(ω(t − dt)) 를 dt 로 나눈 값을 옆 속도로 쓴다 (평균 변화율).
-    //   그러면 총알이 쌓아 가는 옆 거리가 정확히 A·sin(ωt) 가 된다.
+    //   y(t) − y(t − dt) 를 dt 로 나눈 값을 옆 속도로 쓴다 (평균 변화율).
+    //   그러면 총알이 쌓아 가는 옆 거리가 정확히 y(t) 가 된다.
+    //   (쏜 직후 0.25초 동안은 진폭이 0 → A 로 커진다. 아래 fourierOffset 참고)
     //   (앞으로 가는 속도는 그대로 두고, 옆 속도만 따로 더했다가 다음 프레임에 뺀다.
     //    그래서 중력 렌즈처럼 앞 방향을 휘게 하는 증강과 함께 써도 된다)
     // =========================================================
@@ -632,9 +637,7 @@ const AUGMENTS = [
       const px = -fy / len, py = fx / len;
       // 옆 속도 = 이번 프레임의 옆 거리 변화 ÷ dt  (bullet.age 는 이미 이번 프레임만큼 늘어 있다)
       const t = bullet.age;
-      const lateral = dt > 0
-        ? stats.amplitude * (Math.sin(FOURIER_OMEGA * t) - Math.sin(FOURIER_OMEGA * (t - dt))) / dt
-        : 0;
+      const lateral = dt > 0 ? (fourierOffset(stats.amplitude, t) - fourierOffset(stats.amplitude, t - dt)) / dt : 0;
       f.latX = px * lateral;
       f.latY = py * lateral;
       bullet.vx = fx + f.latX;
@@ -830,6 +833,17 @@ const AUGMENTS = [
     },
   },
 ];
+
+
+// =============================================================
+// 푸리에 탄환이 쏜 뒤 t 초에 옆으로 벗어난 거리
+//   y(t) = A × (진폭 키우기) × sin(ωt)
+//   진폭 키우기 = t ÷ FOURIER_RAMP_TIME (1 을 넘으면 1) → 0.25초 뒤부터는 A·sin(ωt) 그대로
+// =============================================================
+function fourierOffset(amplitude, t) {
+  const ramp = Math.min(1, Math.max(0, t) / FOURIER_RAMP_TIME);
+  return amplitude * ramp * Math.sin(FOURIER_OMEGA * t);
+}
 
 
 // =============================================================
