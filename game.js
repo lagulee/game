@@ -172,6 +172,44 @@ const canvas = document.getElementById("game");
 // 캔버스에 그림을 그릴 수 있게 해 주는 "붓" 객체
 const ctx = canvas.getContext("2d");
 
+// ---- 화면 크게 보기 ----
+// 게임 안의 좌표는 언제나 960 × 540 이다. (게임 로직과 회귀 검사는 이 좌표만 쓴다)
+// 화면에 보이는 크기만 창에 맞춰 16:9 로 최대한 키우고,
+// 캔버스의 실제 픽셀 수는 "보이는 크기 × devicePixelRatio" 로 맞춰서 글자와 선이 흐려지지 않게 한다.
+// 그림을 그릴 때는 ctx 변환(확대)으로 960 × 540 좌표를 실제 픽셀에 맞춘다.
+
+// 창 가장자리에 남길 여백 (px)
+const SCREEN_MARGIN = 16;
+// 캔버스 외곽선 두께 (style.css 의 border 와 같아야 한다)
+const CANVAS_BORDER = 4;
+
+// 게임 좌표 1 이 실제 픽셀 몇 개인지 (그릴 때 ctx 에 곱하는 확대 배율)
+let renderScale = 1;
+
+// 창 크기에 맞춰 캔버스 크기를 다시 정하는 함수
+function fitCanvas() {
+  // 쓸 수 있는 공간 = 창 크기 − 양쪽 여백 − 양쪽 외곽선
+  const availW = document.documentElement.clientWidth - SCREEN_MARGIN * 2 - CANVAS_BORDER * 2;
+  const availH = document.documentElement.clientHeight - SCREEN_MARGIN * 2 - CANVAS_BORDER * 2;
+  // 16:9 를 지키면서 들어가는 가장 큰 배율 (가로·세로 중 더 빡빡한 쪽에 맞춘다)
+  const scale = Math.max(0.2, Math.min(availW / CANVAS_WIDTH, availH / CANVAS_HEIGHT));
+  const cssW = Math.floor(CANVAS_WIDTH * scale);
+  const cssH = Math.floor(CANVAS_HEIGHT * scale);
+  canvas.style.width = cssW + "px";
+  canvas.style.height = cssH + "px";
+
+  // 실제 픽셀 수 = 보이는 크기 × 화면 밀도 (고해상도 화면은 2 이상)
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  renderScale = canvas.width / CANVAS_WIDTH;
+
+  buildBackground(); // 배경도 새 해상도로 다시 그려 둔다
+}
+
+// 창 크기가 바뀌거나(화면 확대·축소 포함) 하면 다시 맞춘다
+window.addEventListener("resize", fitCanvas);
+
 
 // =============================================================
 // 3. 키보드 입력
@@ -337,15 +375,16 @@ window.addEventListener("keyup", function (event) {
 // 3-2. 마우스 입력 (증강 카드 고르기)
 // =============================================================
 
-// 마우스 이벤트의 화면 좌표를 "캔버스 안의 좌표"로 바꾸는 함수
-// 창이 작아서 캔버스가 줄어들어 보여도 정확한 위치를 계산한다.
+// 마우스 이벤트의 화면 좌표를 "게임 좌표(960 × 540)"로 바꾸는 함수
+// 캔버스가 크게 또는 작게 보여도 정확한 위치를 계산한다.
 function getMousePos(event) {
-  const rect = canvas.getBoundingClientRect();   // 캔버스가 화면에 그려진 위치와 크기
-  const scaleX = canvas.width / rect.width;      // 실제 크기 ÷ 보이는 크기
-  const scaleY = canvas.height / rect.height;
+  const rect = canvas.getBoundingClientRect();     // 외곽선까지 포함한 캔버스 위치
+  // 외곽선 안쪽(그림 영역)의 왼쪽 위와 크기
+  const left = rect.left + canvas.clientLeft;
+  const top = rect.top + canvas.clientTop;
   return {
-    x: (event.clientX - rect.left) * scaleX,
-    y: (event.clientY - rect.top) * scaleY,
+    x: (event.clientX - left) * (CANVAS_WIDTH / canvas.clientWidth),
+    y: (event.clientY - top) * (CANVAS_HEIGHT / canvas.clientHeight),
   };
 }
 
@@ -1605,12 +1644,14 @@ function drawOutlinedText(text, x, y, size, align = "center", fill = COLORS.whit
 // 배경은 매번 똑같으므로, 처음에 한 번만 "보이지 않는 캔버스"에 그려 두고
 // 매 프레임에는 그 그림을 통째로 복사해서 붙인다 (훨씬 빠르다).
 const backgroundCanvas = document.createElement("canvas");
-backgroundCanvas.width = CANVAS_WIDTH;
-backgroundCanvas.height = CANVAS_HEIGHT;
 
 // 배경 그림을 한 번 만드는 함수: 크림색 바탕 + 연한 모눈선 + 십자 표시
 function buildBackground() {
+  // 보이지 않는 캔버스도 실제 캔버스와 같은 해상도로 만들고, 같은 배율로 확대해서 그린다
+  backgroundCanvas.width = canvas.width;
+  backgroundCanvas.height = canvas.height;
   const bg = backgroundCanvas.getContext("2d"); // 보이지 않는 캔버스의 붓
+  bg.setTransform(renderScale, 0, 0, renderScale, 0, 0);
 
   // 1) 크림색으로 전체 칠하기
   bg.fillStyle = COLORS.background;
@@ -1650,11 +1691,12 @@ function buildBackground() {
   }
   bg.globalAlpha = 1; // 투명도를 원래대로
 }
-buildBackground(); // 시작할 때 한 번 만들어 둔다
+// (배경은 fitCanvas() 가 캔버스 크기를 정할 때마다 다시 만든다)
 
 // 미리 만든 배경을 화면에 붙이는 함수
 function drawBackground() {
-  ctx.drawImage(backgroundCanvas, 0, 0);
+  // 배경 그림을 게임 좌표 960 × 540 크기로 붙인다 (지금 ctx 확대 배율이 실제 픽셀에 맞춰 준다)
+  ctx.drawImage(backgroundCanvas, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 }
 
 // ---- 플레이어 ----
@@ -2802,6 +2844,8 @@ function drawDebug() {
 
 // ---- 화면 전체 그리기 ----
 function draw() {
+  // 매 프레임 처음에: 게임 좌표 960 × 540 → 실제 픽셀로 확대하는 변환을 정한다
+  ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
 
   // 메뉴 화면은 따로 그리고 끝낸다
@@ -2860,6 +2904,7 @@ if (document.fonts) {
   document.fonts.load("20px 'Black Han Sans'");
 }
 
-// 메뉴 화면에서 시작하고, 게임 루프를 돌린다!
+// 캔버스를 창 크기에 맞추고, 메뉴 화면에서 시작해서 게임 루프를 돌린다!
+fitCanvas();
 goToMenu();
 requestAnimationFrame(gameLoop);

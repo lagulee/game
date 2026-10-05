@@ -14,11 +14,10 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 게임이 그려질 도화지(캔버스). 크기는 960 x 540 픽셀 -->
+  <!-- 게임이 그려질 도화지(캔버스). 게임 안의 좌표는 960 x 540,
+       화면에 보이는 크기는 game.js 의 fitCanvas() 가 창 크기에 맞춰 키운다 -->
   <canvas id="game" width="960" height="540"></canvas>
 
-  <!-- 조작법 안내 문구 -->
-  <p class="help">이동: WASD 또는 방향키 · 증강 선택: 마우스 클릭 또는 1/2/3 · 다시 시작: R · 메뉴: M · 업그레이드: U</p>
 
   <!-- 영구 저장 장치 (코인, 업그레이드 레벨) -->
   <script src="save.js"></script>

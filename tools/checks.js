@@ -718,4 +718,26 @@ module.exports = [
         " / 초기화 대기 " + armed + ", 3초 지나 취소 " + notYet + ", 두 번이면 초기화 " + cleared + " / Shift+C 꺼짐 무시 " + offNoCoin + ", 켜면 +1000 " + debugCoin };
     `),
   },
+  // ---------------- 화면 / UI ----------------
+  {
+    name: "[화면] 캔버스는 16:9로 창에 맞춤, 실제 픽셀 = 보이는 크기 × devicePixelRatio, 마우스 좌표는 960×540 으로 정확히 변환",
+    run: function () {
+      fitCanvas();
+      const ratio = canvas.clientWidth / canvas.clientHeight;
+      const dpr = window.devicePixelRatio || 1;
+      const pxOk = canvas.width === Math.round(canvas.clientWidth * dpr) && Math.abs(renderScale - canvas.width / 960) < 1e-12;
+      const r = canvas.getBoundingClientRect();
+      // 게임 좌표 몇 곳을 화면 좌표로 바꿨다가 getMousePos 로 되돌려 본다
+      let worst = 0;
+      for (const [gx, gy] of [[0, 0], [480, 270], [959, 539], [123, 456]]) {
+        const ev = { clientX: r.left + canvas.clientLeft + gx * canvas.clientWidth / 960,
+                     clientY: r.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        const p = getMousePos(ev);
+        worst = Math.max(worst, Math.abs(p.x - gx), Math.abs(p.y - gy));
+      }
+      const ok = Math.abs(ratio - 16 / 9) < 0.01 && pxOk && worst < 0.01;
+      return { ok: ok, detail: "보이는 크기 " + canvas.clientWidth + "×" + canvas.clientHeight + " (비율 " + ratio.toFixed(3) +
+        "), 실제 픽셀 " + canvas.width + "×" + canvas.height + ", 마우스 변환 최대 오차 " + worst.toFixed(4) + "px" };
+    },
+  },
 ];

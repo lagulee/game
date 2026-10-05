@@ -1,40 +1,30 @@
 /* =============================================================
    style.css : 웹페이지 꾸밈 (스티커 카툰 스타일)
    색은 game.js 의 COLORS 팔레트와 같은 색만 쓴다.
+   캔버스 크기는 game.js 의 fitCanvas() 가 창 크기에 맞춰 정한다.
    ============================================================= */
 
-/* 페이지 전체: 갈색 바탕, 내용은 화면 가운데에 세로로 쌓는다 */
+/* 페이지 전체: 게임 배경과 같은 크림색, 캔버스를 화면 한가운데에 */
+html,
 body {
+  height: 100%;                  /* 창 높이만큼 꽉 채우기 */
   margin: 0;                     /* 브라우저 기본 여백 없애기 */
-  min-height: 100vh;             /* 화면 높이만큼 꽉 채우기 */
-  background: #C98A4B;           /* 팔레트 갈색 */
-  color: #F7F4EA;                /* 팔레트 하양 */
+}
+
+body {
+  background: #E9E6D8;           /* 팔레트 배경색 (게임 배경과 같은 크림색) */
+  display: flex;                 /* 가운데 정렬 기능을 쓰기 위해 flex 사용 */
+  align-items: center;           /* 세로 가운데 */
+  justify-content: center;       /* 가로 가운데 */
+  overflow: hidden;              /* 스크롤바가 생기지 않게 */
   /* Jua → Black Han Sans → (인터넷이 안 되면) 기본 고딕 */
   font-family: "Jua", "Black Han Sans", sans-serif;
-  display: flex;                 /* 아래 정렬 기능을 쓰기 위해 flex 사용 */
-  flex-direction: column;        /* 위에서 아래로 쌓기 */
-  align-items: center;           /* 가로 가운데 정렬 */
-  justify-content: center;       /* 세로 가운데 정렬 */
-  padding-inline: 16px;          /* 좁은 화면(휴대폰)에서도 양옆 여백 16px */
-  box-sizing: border-box;        /* 여백을 포함해서 크기를 계산 */
 }
 
-/* 게임 캔버스: 두꺼운 외곽선 + 번지지 않는 그림자로 "붙인 스티커"처럼 */
+/* 게임 캔버스: 두꺼운 외곽선만 (그림자 없음) */
 #game {
-  border: 4px solid #2B2118;         /* 팔레트 외곽선 색, 4px */
-  border-radius: 18px;               /* 모서리를 둥글게 */
-  box-shadow: 8px 8px 0 #2B2118;     /* 흐림 없는(0) 그림자 = 카툰 느낌 */
-  max-width: 100%;                   /* 창이 작으면 캔버스도 줄어들게 */
-  height: auto;                      /* 줄어들 때 가로세로 비율 유지 */
-  box-sizing: border-box;
-}
-
-/* 조작법 안내 문구: 하얀 글자에 어두운 외곽선 */
-.help {
-  font-size: 18px;
-  margin-top: 20px;
-  text-align: center;                /* 줄이 바뀌어도 가운데 정렬 */
-  /* 글자 외곽선 (크롬·엣지·사파리 지원) */
-  -webkit-text-stroke: 5px #2B2118;
-  paint-order: stroke fill;          /* 외곽선을 먼저, 채우기를 나중에 */
+  display: block;                /* 아래쪽에 생기는 빈 줄 없애기 */
+  border: 4px solid #2B2118;     /* 팔레트 외곽선 색, 4px */
+  border-radius: 18px;           /* 모서리를 둥글게 */
+  box-sizing: content-box;       /* width/height 는 그림 영역, 외곽선은 그 바깥에 */
 }
