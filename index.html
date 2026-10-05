@@ -3,6 +3,8 @@
 <head>
   <!-- 글자가 깨지지 않도록 문자 인코딩을 UTF-8로 정한다 -->
   <meta charset="UTF-8">
+  <!-- 휴대폰에서 화면 폭에 맞추고, 두 손가락 확대·두 번 탭 확대를 막는다 (게임 조작과 겹치지 않게) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <!-- 브라우저 탭에 보일 제목 -->
   <title>증강 선택형 2D 슈팅</title>
   <!-- Google Fonts에서 귀여운 한글 글꼴 Jua, Black Han Sans를 불러온다 -->
@@ -33,5 +35,7 @@
   <script src="upgrades.js"></script>
   <!-- 게임 본체 -->
   <script src="game.js"></script>
+  <!-- 모바일 모드: 조이스틱, 일시정지·디버그 터치 버튼 (설정에서 켠다) -->
+  <script src="mobile.js"></script>
 </body>
 </html>

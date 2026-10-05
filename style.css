@@ -12,6 +12,11 @@ body {
 }
 
 body {
+  touch-action: none;            /* 휴대폰: 화면을 끌어도 페이지가 움직이거나 확대되지 않게 */
+  -webkit-user-select: none;     /* 길게 눌러도 글자가 선택되지 않게 */
+  user-select: none;
+  -webkit-touch-callout: none;   /* 길게 눌러도 메뉴가 뜨지 않게 (아이폰) */
+  -webkit-tap-highlight-color: transparent;
   background: #E9E6D8;           /* 팔레트 배경색 (게임 배경과 같은 크림색) */
   display: flex;                 /* 가운데 정렬 기능을 쓰기 위해 flex 사용 */
   align-items: center;           /* 세로 가운데 */
@@ -285,4 +290,145 @@ body {
   font-size: 13px;
   padding: 3px 10px;
   border-width: 3px;
+}
+
+/* ---- 모바일 모드 (mobile.js) : 화면 위에 겹쳐 뜨는 터치 버튼 ---- */
+#mobile-controls {
+  display: none;                 /* 모바일 모드를 켜야 보인다 */
+}
+
+#mobile-controls.on {
+  display: block;
+}
+
+/* 조이스틱을 놓을 수 있는 구역: 화면 왼쪽 아래 (전투 중에만) */
+.stick-zone {
+  position: fixed;
+  left: 0;
+  top: 35%;
+  width: 50%;
+  bottom: 0;
+  z-index: 5;
+  display: none;
+  touch-action: none;
+}
+
+/* 조이스틱 바탕 (평소에는 왼쪽 아래, 누르면 누른 자리로) */
+.stick-base {
+  position: fixed;
+  left: 110px;
+  top: calc(100% - 110px);
+  width: 136px;
+  height: 136px;
+  margin: -68px 0 0 -68px;       /* left, top 이 가운데가 되게 */
+  border-radius: 50%;
+  border: 4px solid #2B2118;
+  background: rgba(247, 244, 234, 0.45);
+  box-sizing: border-box;
+  pointer-events: none;          /* 누르기는 구역(.stick-zone)이 받는다 */
+  z-index: 6;
+  display: none;
+  opacity: 0.6;
+}
+
+.stick-base.held {
+  opacity: 1;
+}
+
+/* 조이스틱 손잡이 */
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 60px;
+  height: 60px;
+  margin: -30px 0 0 -30px;
+  border-radius: 50%;
+  border: 4px solid #2B2118;
+  background: #6FB04A;           /* 플레이어와 같은 초록 */
+  box-sizing: border-box;
+  box-shadow: inset 0 6px 0 rgba(247, 244, 234, 0.6);   /* 위쪽 하이라이트 */
+}
+
+#mobile-controls.fighting .stick-zone,
+#mobile-controls.fighting .stick-base {
+  display: block;
+}
+
+/* 터치 버튼 공통 */
+.mobile-btn {
+  font-family: "Jua", "Black Han Sans", sans-serif;
+  font-size: 16px;
+  min-width: 52px;
+  min-height: 44px;              /* 손가락으로 누르기 좋은 크기 */
+  padding: 6px 12px;
+  border: 4px solid #2B2118;
+  border-radius: 16px;
+  background: #F7F4EA;
+  color: #2B2118;
+  box-shadow: 4px 4px 0 #2B2118;
+  touch-action: manipulation;
+}
+
+.mobile-btn:active {
+  transform: translate(2px, 2px) scale(0.96);
+  box-shadow: 2px 2px 0 #2B2118;
+}
+
+.mobile-btn:disabled {
+  opacity: 0.4;
+}
+
+/* 일시정지 버튼: 전투 중 오른쪽 위 */
+.mobile-pause {
+  position: fixed;
+  right: 14px;
+  top: 14px;
+  z-index: 7;
+  display: none;
+  font-size: 22px;
+  background: #F2C14E;
+}
+
+#mobile-controls.fighting .mobile-pause {
+  display: block;
+}
+
+/* 디버그 버튼 묶음: 오른쪽 가운데 */
+.mobile-debug {
+  position: fixed;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  opacity: 0.85;
+}
+
+.mobile-debug-toggle {
+  background: #8A63B8;
+  color: #F7F4EA;
+  font-size: 14px;
+  min-height: 36px;
+}
+
+.mobile-debug-list {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#mobile-controls.debug-on .mobile-debug-list {
+  display: flex;
+}
+
+.mobile-debug-btn {
+  font-size: 13px;
+  min-height: 34px;
+  padding: 3px 8px;
+  border-width: 3px;
+  box-shadow: 3px 3px 0 #2B2118;
 }

@@ -10,6 +10,7 @@
 // 저장 형식 (SAVE_VERSION = 1)
 //   { version: 1, coins: 120, upgrades: { vitality: 3, power: 2 }, bestWave: 7, hudCollapsed: false }
 //   (hudCollapsed: 상태창을 접어 두었는지. 다음 판에도 그대로)
+//   (mobileMode: 모바일 모드(조이스틱·터치 버튼)를 켰는지)
 // =============================================================
 
 // localStorage 안에서 쓰는 이름표
@@ -20,7 +21,7 @@ const SAVE_VERSION = 1;
 
 // 기본 저장 데이터 (처음 하는 사람, 또는 데이터가 깨졌을 때)
 function defaultSave() {
-  return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWave: 0, hudCollapsed: false };
+  return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWave: 0, hudCollapsed: false, mobileMode: false };
 }
 
 // 0 이상의 정수만 통과시키는 도우미 (이상한 값이면 기본값)
@@ -51,6 +52,7 @@ function loadSave() {
   data.coins = cleanCount(parsed.coins, 0);
   data.bestWave = cleanCount(parsed.bestWave, 0);
   data.hudCollapsed = parsed.hudCollapsed === true;  // true 가 아니면 펼친 상태
+  data.mobileMode = parsed.mobileMode === true;      // true 가 아니면 꺼짐
   if (parsed.upgrades && typeof parsed.upgrades === "object") {
     // 업그레이드 이름표를 하나씩 보며 레벨이 올바른 숫자인 것만 담는 반복문
     for (const id in parsed.upgrades) {

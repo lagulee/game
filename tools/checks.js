@@ -1774,4 +1774,67 @@ module.exports = [
       return { ok: formulaOk && early && late, detail: "공식 " + formulaOk + " / 일차식 대비 " + gain.join(", ") + " / 1~5웨이브 적 수 그대로 " + early + ", 6웨이브부터 × " + WAVE_COUNT_MULT_LATE + " " + late };
     },
   },
+  // ---------------- 모바일 모드 ----------------
+  {
+    name: "[모바일] 설정 버튼으로 켜고 끄기(저장), 켜야만 터치 버튼이 보이고 조이스틱은 전투 중에만, 조이스틱 세기만큼 이동, ⏸ 일시정지, 디버그 버튼은 비밀번호 후 지급·보스·웨이브",
+    run: new Function(PRESS + FIND_PIN + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); lockOwner(); debugMode = false;
+      const defaultOff = saveData.mobileMode === false;
+      const root = document.getElementById("mobile-controls");
+      const shown = (sel) => getComputedStyle(root.querySelector(sel)).display !== "none" && getComputedStyle(root).display !== "none";
+      const cr = canvas.getBoundingClientRect();
+      const clickRect = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960,
+        clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      // 꺼져 있으면 전투 중에도 아무것도 안 보임
+      startGame(); draw(); const hiddenWhenOff = !shown(".stick-zone") && !shown(".mobile-debug-toggle");
+      // 설정 창에서 켜기
+      goToMenu(); openSettings(); draw(); clickRect(settingsMobileRect());
+      const turnedOn = saveData.mobileMode === true && loadSave().mobileMode === true; draw();
+      const lobbyOk = shown(".mobile-debug-toggle") && !shown(".stick-zone") && !shown(".mobile-pause");
+      closeSettings();
+      // 전투: 조이스틱 구역과 ⏸ 가 보임
+      // 웨이브가 끝나지 않게 멀리(화면 위 2000px) 적 하나를 세워 둔다
+      startGame(); spawnQueue = []; const parked = createEnemy("basic", 480, -2000, 1); parked.speed = 0; enemies = [parked]; draw();
+      const fightOk = shown(".stick-zone") && shown(".mobile-pause");
+      // 조이스틱: 오른쪽으로 끝까지 → 최고 속도, 절반 → 절반 속도
+      const zone = root.querySelector(".stick-zone"), zr = zone.getBoundingClientRect();
+      const sx = zr.left + 100, sy = zr.bottom - 100;
+      const pe = (type, x, y) => zone.dispatchEvent(new PointerEvent(type, { pointerId: 7, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      const speedWith = (dx) => { player.x = 480; player.y = 270; player.vx = player.vy = 0;
+        pe("pointerdown", sx, sy); pe("pointermove", sx + dx, sy);
+        for (let i = 0; i < 60; i++) { player.fireTimer = 1e9; update(1 / 60); }
+        const v = player.vx; pe("pointerup", sx + dx, sy); return v; };
+      const full = speedWith(STICK_RADIUS * 2), half = speedWith(STICK_RADIUS / 2);
+      const released = !touchStick.active && touchStick.x === 0;
+      const stickOk = Math.abs(full - PLAYER_SPEED) < 1 && Math.abs(half - PLAYER_SPEED / 2) < 1 && released;
+      // ⏸ 버튼
+      root.querySelector(".mobile-pause").click(); draw();
+      const pauseOk = paused && !shown(".stick-zone");
+      resumeGame(); resumeTimer = 0; draw();
+      // 디버그 버튼: 비밀번호 창 → 맞히면 디버그 모드, 디버그 버튼 목록이 보임
+      root.querySelector(".mobile-debug-toggle").click();
+      const asked = !debugMode && document.querySelector(".pin-input") !== null;
+      document.querySelector(".pin-input").value = findPin(); document.querySelector(".pin-ok").click();
+      resumeTimer = 0; draw();
+      const debugOn = asked && debugMode && shown(".mobile-debug-list");
+      const btn = (label) => [...root.querySelectorAll(".mobile-debug-btn")].find((b) => b.textContent === label);
+      const w0 = wave; btn("웨이브 ▶").click(); const waveOk = wave === w0 + 1;
+      btn("지급").click(); const giveOk = isDebugGiveOpen(); draw(); const stickHiddenInPanel = !shown(".stick-zone");
+      press("KeyG"); resumeTimer = 0;
+      btn("보스").click(); const bossOk = isDebugBossOpen(); press("KeyB"); resumeTimer = 0;
+      btn("무적").click(); const invOk = debugInvincible === true; btn("무적").click();
+      // 디버그 끄기, 모바일 모드 끄기
+      root.querySelector(".mobile-debug-toggle").click(); draw();
+      const debugOff = !debugMode && !shown(".mobile-debug-list");
+      goToMenu(); toggleMobileMode(); draw();
+      const offOk = saveData.mobileMode === false && loadSave().mobileMode === false && !shown(".mobile-debug-toggle");
+      lockOwner();
+      const ok = defaultOff && hiddenWhenOff && turnedOn && lobbyOk && fightOk && stickOk && pauseOk && debugOn && waveOk && giveOk && stickHiddenInPanel && bossOk && invOk && debugOff && offOk;
+      return { ok: ok, detail: "기본 꺼짐 " + defaultOff + " / 꺼지면 숨김 " + hiddenWhenOff + " / 설정에서 켜기·저장 " + turnedOn + " / 로비: 디버그만 " + lobbyOk + " / 전투: 조이스틱·⏸ " + fightOk +
+        " / 속도 끝까지 " + full.toFixed(0) + ", 절반 " + half.toFixed(0) + " (최고 " + PLAYER_SPEED + "), 떼면 0 " + released + " / ⏸ " + pauseOk + " / 디버그: 비밀번호 후 켜짐 " + debugOn +
+        " / 웨이브▶ " + waveOk + " 지급 " + giveOk + " (조이스틱 숨김 " + stickHiddenInPanel + ") 보스 " + bossOk + " 무적 " + invOk + " / 디버그 끄기 " + debugOff + " / 모바일 끄기 " + offOk };
+    `),
+  },
 ];

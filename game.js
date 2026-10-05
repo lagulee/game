@@ -297,6 +297,12 @@ window.addEventListener("resize", fitCanvas);
 // 예: keys["KeyW"] 가 true 이면 W 키가 눌려 있다는 뜻.
 const keys = {};
 
+// 모바일 조이스틱의 입력 (mobile.js 가 채운다). x, y 는 −1 ~ 1, active 는 손가락이 닿아 있는지
+//   조이스틱을 끝까지 밀면 최고 속도, 반만 밀면 절반 속도로 움직인다
+const touchStick = { x: 0, y: 0, active: false };
+// 조이스틱을 이만큼(0.15)보다 덜 밀면 멈춘 것으로 본다 (손가락이 살짝 떨리는 것 무시)
+const TOUCH_STICK_DEADZONE = 0.15;
+
 // 키를 누르는 순간 실행되는 함수를 등록한다
 window.addEventListener("keydown", function (event) {
   // 숫자 조절판·비밀번호 창(tuning.js), 디버그 지급 창이 떠 있으면 키는 그 창 몫이다
@@ -974,6 +980,14 @@ function updatePlayer(dt) {
     dirY = dirY / length;
   }
 
+  // 모바일 조이스틱을 쓰고 있으면 그 방향과 세기(0 ~ 1)를 그대로 쓴다
+  const stick = Math.hypot(touchStick.x, touchStick.y);
+  if (touchStick.active && stick > TOUCH_STICK_DEADZONE) {
+    const power = Math.min(1, stick);
+    dirX = (touchStick.x / stick) * power;
+    dirY = (touchStick.y / stick) * power;
+  }
+
   // 가고 싶은 속도(목표 속도) = 방향 × 최고 속도
   const targetVx = dirX * PLAYER_SPEED;
   const targetVy = dirY * PLAYER_SPEED;
@@ -1604,11 +1618,15 @@ function settingsCloseRect() {
 }
 function settingsHudRect() {
   const P = SETTINGS_PANEL;
-  return { x: P.x + 372, y: P.y + 122, w: 218, h: 46 };
+  return { x: P.x + 372, y: P.y + 98, w: 218, h: 40 };
+}
+function settingsMobileRect() {
+  const P = SETTINGS_PANEL;
+  return { x: P.x + 372, y: P.y + 196, w: 218, h: 40 };
 }
 function settingsResetRect() {
   const P = SETTINGS_PANEL;
-  return { x: P.x + 372, y: P.y + 274, w: 218, h: 46 };
+  return { x: P.x + 372, y: P.y + 294, w: 218, h: 40 };
 }
 function settingsTuningRect() {
   const P = SETTINGS_PANEL;
@@ -1623,6 +1641,7 @@ function lobbyButtons() {
     return [
       { id: "settings:close", rect: settingsCloseRect() },
       { id: "settings:hud", rect: settingsHudRect() },
+      { id: "settings:mobile", rect: settingsMobileRect() },
       { id: "settings:reset", rect: settingsResetRect() },
       { id: "settings:tuning", rect: settingsTuningRect() },
     ];
@@ -1660,6 +1679,7 @@ function runLobbyButton(id) {
   else if (id === "gear") openSettings();
   else if (id === "settings:close") closeSettings();
   else if (id === "settings:hud") toggleHud();
+  else if (id === "settings:mobile") toggleMobileMode();
   else if (id === "settings:reset") pressResetSave();
   else if (id === "settings:tuning") { closeSettings(); openTuningPanel(); }
   else if (id.startsWith("tab:")) openTab(id.slice(4));
@@ -4505,27 +4525,36 @@ function drawSettingsOverlay() {
 
   // 5) 오른쪽 위: 상태창 접기 (켜고 끄기 버튼)
   const rx = P.x + 372;
-  drawOutlinedText("전투 중 상태창", rx, P.y + 98, 18, "left", COLORS.brown);
+  drawOutlinedText("전투 중 상태창", rx, P.y + 82, 18, "left", COLORS.brown);
   const hud = settingsHudRect();
   const folded = hudCollapsed();
   drawScaled(hud.x + hud.w / 2, hud.y + hud.h / 2, buttonScale("settings:hud"), function () {
-    drawOutlinedRoundRect(hud.x, hud.y, hud.w, hud.h, 22, hoverColor("settings:hud", folded ? COLORS.gray : COLORS.green));
-    drawOutlinedText(folded ? "접어서 보기" : "펼쳐서 보기", hud.x + hud.w / 2, hud.y + hud.h / 2 + 1, 20);
+    drawOutlinedRoundRect(hud.x, hud.y, hud.w, hud.h, 20, hoverColor("settings:hud", folded ? COLORS.gray : COLORS.green));
+    drawOutlinedText(folded ? "접어서 보기" : "펼쳐서 보기", hud.x + hud.w / 2, hud.y + hud.h / 2 + 1, 19);
   });
-  drawFitText("누를 때마다 바뀌어요.", rx, hud.y + hud.h + 20, 13, 218, COLORS.outline, "left");
-  drawFitText("전투 중에는 Tab 키로도 바꿀 수 있어요.", rx, hud.y + hud.h + 40, 13, 218, COLORS.outline, "left");
+  drawFitText("전투 중에는 Tab 키 · 화살표로도 바꿔요.", rx, hud.y + hud.h + 16, 13, 218, COLORS.outline, "left");
+
+  // 모바일 모드 (조이스틱 · 터치 버튼)
+  drawOutlinedText("모바일 모드", rx, P.y + 180, 18, "left", COLORS.brown);
+  const mob = settingsMobileRect();
+  const mobileOn = saveData.mobileMode === true;
+  drawScaled(mob.x + mob.w / 2, mob.y + mob.h / 2, buttonScale("settings:mobile"), function () {
+    drawOutlinedRoundRect(mob.x, mob.y, mob.w, mob.h, 20, hoverColor("settings:mobile", mobileOn ? COLORS.blue : COLORS.gray));
+    drawOutlinedText(mobileOn ? "켜짐 (조이스틱)" : "꺼짐", mob.x + mob.w / 2, mob.y + mob.h / 2 + 1, 19);
+  });
+  drawFitText("조이스틱 · 일시정지 · 디버그 버튼이 생겨요.", rx, mob.y + mob.h + 16, 13, 218, COLORS.outline, "left");
 
   // 6) 오른쪽 아래: 저장 초기화 (두 번 눌러야 실행)
-  drawOutlinedText("저장 데이터", rx, P.y + 250, 18, "left", COLORS.brown);
+  drawOutlinedText("저장 데이터", rx, P.y + 278, 18, "left", COLORS.brown);
   const reset = settingsResetRect();
   const armed = resetArmTimer > 0;
   drawScaled(reset.x + reset.w / 2, reset.y + reset.h / 2, buttonScale("settings:reset"), function () {
-    drawOutlinedRoundRect(reset.x, reset.y, reset.w, reset.h, 22, hoverColor("settings:reset", armed ? COLORS.red : COLORS.gray));
+    drawOutlinedRoundRect(reset.x, reset.y, reset.w, reset.h, 20, hoverColor("settings:reset", armed ? COLORS.red : COLORS.gray));
     const label = armed ? "한 번 더 누르면 초기화 (" + Math.ceil(resetArmTimer) + ")" : "저장 초기화";
     drawOutlinedText(label, reset.x + reset.w / 2, reset.y + reset.h / 2 + 1, fitTextSize(label, 20, reset.w - 24));
   });
-  drawFitText("코인 · 업그레이드 · 최고 웨이브가 지워져요", rx, reset.y + reset.h + 20, 13, 218, COLORS.outline, "left");
-  drawFitText("(3초 안에 한 번 더 눌러야 실행)", rx, reset.y + reset.h + 40, 13, 218, COLORS.outline, "left");
+  drawFitText("코인 · 업그레이드 · 최고 웨이브가 지워져요", rx, reset.y + reset.h + 16, 13, 218, COLORS.outline, "left");
+  drawFitText("(3초 안에 한 번 더 눌러야 실행)", rx, reset.y + reset.h + 34, 13, 218, COLORS.outline, "left");
 
   // 7) 왼쪽 아래: 숫자 조절판 (tuning.js, 상수를 바꿔 시험해 보기)
   const tr = settingsTuningRect();
@@ -4582,6 +4611,8 @@ function drawDebug() {
 
 // ---- 화면 전체 그리기 ----
 function draw() {
+  // 모바일 모드 터치 버튼을 지금 화면에 맞게 보이고 숨긴다 (mobile.js)
+  if (typeof updateMobileControls === "function") updateMobileControls();
   // 매 프레임 처음에: 게임 좌표 960 × 540 → 실제 픽셀로 확대하는 변환을 정한다
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
