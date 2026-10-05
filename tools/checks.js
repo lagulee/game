@@ -437,7 +437,7 @@ module.exports = [
     `),
   },
   {
-    name: "[Lv.3] 증강 9개 모두 3레벨, Lv.3 수치가 요청대로",
+    name: "[Lv.3] 증강 모두 3레벨, Lv.3 수치가 요청대로",
     run: function () {
       const L3 = {}; for (const a of AUGMENTS) L3[a.id] = a.levels[2];
       const allThree = AUGMENTS.every((a) => a.levels.length === 3);
@@ -1167,6 +1167,36 @@ module.exports = [
       AUGMENTS.pop();
       const ok = pierceOk && radiusOk && kills.join(",") === "총알,폭발" && scored && c.dead && enemyUpdates > 0;
       return { ok: ok, detail: "관통 1: 맞은 적 " + hits + " / 반지름 5 빗나감 " + missed + ", 15 맞음 " + radiusOk + " / onKill " + kills.join(",") + " / 폭발 처치 점수 " + scored };
+    },
+  },
+  {
+    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 20/30/40), 앞으로는 그대로, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
+    run: function () {
+      const aug = AUGMENTS.find((a) => a.id === "fourier");
+      const res = [];
+      for (let lv = 1; lv <= 3; lv++) {
+        startGame(); spawnQueue = []; enemies = []; ownedAugments = { fourier: lv };
+        const b = createBullet(1, 0, { x: 100, y: 270, fromAugment: true });
+        let maxDev = 0, worst = 0;
+        for (let i = 0; i < 30; i++) {
+          updateBullets(1 / 60);
+          const dev = b.y - 270;                           // 옆(세로)으로 벗어난 거리
+          const want = -aug.levels[lv - 1].amplitude * Math.sin(FOURIER_OMEGA * b.age);   // 옆 방향 = 진행 방향을 90° 돌린 쪽
+          maxDev = Math.max(maxDev, Math.abs(dev)); worst = Math.max(worst, Math.abs(Math.abs(dev) - Math.abs(want)));
+        }
+        const forward = (b.x - 100) / b.age;               // 앞으로 간 평균 속도
+        res.push({ lv, maxDev: +maxDev.toFixed(1), worst: +worst.toFixed(1), forward: Math.round(forward), radius: b.radius, pierce: b.pierce });
+      }
+      // Lv.3 관통: 일렬로 선 적 3마리 중 앞의 2마리
+      startGame(); spawnQueue = []; ownedAugments = { fourier: 3 };
+      // (총알이 크게 흔들리므로 적을 촘촘히 세운다: 흔들림이 충돌 거리보다 작은 구간)
+      const es = [0, 1, 2].map((i) => { const e = createEnemy("basic", 135 + i * 10, 270, 1); e.hp = e.maxHp = 1000; return e; });
+      enemies = es.slice(); createBullet(1, 0, { x: 120, y: 270, fromAugment: true });
+      for (let i = 0; i < 40; i++) updateBullets(1 / 60);
+      const hits = es.map((e) => e.hp < 1000 ? 1 : 0).join("");
+      const ok = res.every((r, i) => Math.abs(r.maxDev - [20, 30, 40][i]) < 1.5 && r.worst < 3 && Math.abs(r.forward - BULLET_SPEED) < 2 &&
+        r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === [0, 0, 1][i]) && hits === "110";
+      return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits };
     },
   },
 ];

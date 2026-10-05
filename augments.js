@@ -152,6 +152,15 @@ const KNOCKBACK_SPEED = [240, 360, 480];
 //   240 ÷ 6 = 40px, 360 ÷ 6 = 60px, 480 ÷ 6 = 80px
 const KNOCKBACK_DECAY = 6;
 
+// 푸리에 탄환: 레벨별 진폭 A (px). 총알이 진행 방향의 옆으로 A·sin(ωt) 만큼 흔들린다
+const FOURIER_AMPLITUDE = [20, 30, 40];
+// 푸리에 탄환: 각속도 ω (rad/초). 한 번 출렁이는 데 2π/ω ≈ 0.52초 (그동안 약 250px 날아간다)
+const FOURIER_OMEGA = 12;
+// 푸리에 탄환: 레벨별 충돌 반지름 증가 (px)
+const FOURIER_RADIUS_BONUS = [3, 5, 7];
+// 푸리에 탄환: 레벨별 관통 수 (1 이면 적 1마리를 뚫고 지나간다)
+const FOURIER_PIERCE = [0, 0, 1];
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -544,6 +553,61 @@ const AUGMENTS = [
       const len = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
       // 총알 진행 방향(길이 1) × 처음 속도
       pushEnemy(info.enemy, (b.vx / len) * stats.speed, (b.vy / len) * stats.speed);
+    },
+  },
+  {
+    id: "fourier",
+    name: "푸리에 탄환",
+    concept: "수학 · 삼각함수",
+    formula: "A·sin(ωt)",
+    color: "purple",
+    levels: [
+      {
+        amplitude: FOURIER_AMPLITUDE[0], radiusBonus: FOURIER_RADIUS_BONUS[0], pierce: FOURIER_PIERCE[0],
+        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다. 진폭 20px, 충돌 반지름 +3px",
+      },
+      {
+        amplitude: FOURIER_AMPLITUDE[1], radiusBonus: FOURIER_RADIUS_BONUS[1], pierce: FOURIER_PIERCE[1],
+        desc: "물결이 커진다! 진폭 20 → 30px, 충돌 반지름 +5px",
+      },
+      {
+        amplitude: FOURIER_AMPLITUDE[2], radiusBonus: FOURIER_RADIUS_BONUS[2], pierce: FOURIER_PIERCE[2],
+        desc: "진폭 40px, 충돌 반지름 +7px, 그리고 적 1마리를 뚫고 지나간다!",
+      },
+    ],
+
+    // =========================================================
+    // 물결치는 총알의 원리
+    //   옆으로 벗어난 거리를 y(t) = A·sin(ωt) 로 만들고 싶다.
+    //   위치를 시간으로 미분하면 속도: y'(t) = A·ω·cos(ωt)
+    //   게임은 1/60초씩 끊어서 움직이므로, 미분 대신 "이번 프레임 동안 옆으로 가야 할 거리"
+    //   A·sin(ωt) − A·sin(ω(t − dt)) 를 dt 로 나눈 값을 옆 속도로 쓴다 (평균 변화율).
+    //   그러면 총알이 쌓아 가는 옆 거리가 정확히 A·sin(ωt) 가 된다.
+    //   (앞으로 가는 속도는 그대로 두고, 옆 속도만 따로 더했다가 다음 프레임에 뺀다.
+    //    그래서 중력 렌즈처럼 앞 방향을 휘게 하는 증강과 함께 써도 된다)
+    // =========================================================
+    onBulletUpdate: function (bullet, stats, dt) {
+      // 처음 한 번: 충돌 반지름을 키우고 관통 수를 정한다
+      if (!bullet.fourier) {
+        bullet.fourier = { latX: 0, latY: 0 };       // 지난 프레임에 더한 옆 속도
+        bullet.radius = bulletRadius(bullet) + stats.radiusBonus;
+        bullet.pierce = Math.max(bullet.pierce || 0, stats.pierce);
+      }
+      const f = bullet.fourier;
+      // 지난번에 더한 옆 속도를 빼면 "앞으로 가는" 속도만 남는다
+      const fx = bullet.vx - f.latX, fy = bullet.vy - f.latY;
+      const len = Math.sqrt(fx * fx + fy * fy) || 1;
+      // 진행 방향을 90° 돌린 방향 = 옆 방향 (길이 1)
+      const px = -fy / len, py = fx / len;
+      // 옆 속도 = 이번 프레임의 옆 거리 변화 ÷ dt  (bullet.age 는 이미 이번 프레임만큼 늘어 있다)
+      const t = bullet.age;
+      const lateral = dt > 0
+        ? stats.amplitude * (Math.sin(FOURIER_OMEGA * t) - Math.sin(FOURIER_OMEGA * (t - dt))) / dt
+        : 0;
+      f.latX = px * lateral;
+      f.latY = py * lateral;
+      bullet.vx = fx + f.latX;
+      bullet.vy = fy + f.latY;
     },
   },
 ];
