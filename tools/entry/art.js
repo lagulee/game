@@ -84,4 +84,57 @@ const ART = {
   },
 };
 
+
+// ---- 공통 도우미 ----
+// 스티커 사각형: 오른쪽 아래로 밀린 진한 그림자 + 채우기 + 외곽선
+function sticker(x, y, w, h, r, fill, depth) {
+  return '<rect x="' + (x + depth) + '" y="' + (y + depth) + '" width="' + w + '" height="' + h + '" rx="' + r + '" fill="' + C.outline + '"/>' +
+    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + r + '" fill="' + fill + '" stroke="' + C.outline + '" stroke-width="' + OL + '"/>';
+}
+// 외곽선 글자 (게임의 drawOutlinedText 와 같다: 진한 테두리 + 색 채우기)
+function otext(str, x, y, size, fill, anchor, font, stroke) {
+  return '<text x="' + x + '" y="' + y + '" text-anchor="' + (anchor || "middle") + '" dominant-baseline="central" font-family="' + (font || FONT) + '" font-size="' + size +
+    '" fill="' + (fill || C.white) + '" stroke="' + C.outline + '" stroke-width="' + (stroke ?? 6) + '" stroke-linejoin="round" paint-order="stroke">' + esc(str) + "</text>";
+}
+// 체력바 (하얀 바탕 → 비율만큼 채우기 → 외곽선). 게임의 drawBar 와 같다
+function bar(x, y, w, h, ratio, fill, ol) {
+  let s = '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + h / 2 + '" fill="' + C.white + '"/>';
+  if (ratio > 0) s += '<rect x="' + x + '" y="' + y + '" width="' + Math.max(h, w * ratio) + '" height="' + h + '" rx="' + h / 2 + '" fill="' + fill + '"/>';
+  return s + '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + h / 2 + '" fill="none" stroke="' + C.outline + '" stroke-width="' + (ol || OL) + '"/>';
+}
+
+Object.assign(ART, {
+  // 대미지 숫자 글자 하나 (28 × 40): 0~9, +, −  /  색: 흰(보통) 노랑(큰 한 방) 빨강(내가 맞음) 초록(회복)
+  glyph: (ch, color) => svg(28, 40, otext(ch, 14, 21, 36, color, "middle", FONT, 7)),
+  word: (str, color, w) => svg(w, 40, otext(str, w / 2, 21, 30, color, "middle", FONT, 7)),
+  // 상태창 패널 (갈색, 360 × 128)
+  hudPanel: () => svg(368, 136, sticker(2, 2, 358, 126, 26, C.brown, 6)),
+  // 체력바 (300 × 34): 비율 0~20 단계, 30% 이하는 빨강
+  hpBar: (level, red) => svg(304, 38, bar(2, 2, 300, 34, level / 20, red ? C.red : C.green)),
+  // 적 머리 위 작은 체력바 (52 × 16)
+  enemyBar: (level) => svg(54, 18, bar(2, 2, 50, 14, level / 20, C.green, 3)),
+  // 보스 체력바 (화면 위 가운데): "보스" 노란 글자 + 빨간 바
+  bossBar: (level) => svg(304, 80, otext("보스", 152, 18, 28, C.yellow) + bar(2, 44, 300, 32, level / 20, C.red)),
+  // 증강 패널 (오른쪽 위). rows = 줄 수
+  augPanel: (rows) => svg(248, 60 + rows * 38, sticker(2, 2, 238, 50 + rows * 38, 24, C.brown, 6) + otext("증강", 24, 30, 26, C.white, "start")),
+  // 증강 한 줄 (220 × 36): 색 동그라미 + 이름 + Lv
+  augRow: (color, name, lv) => svg(220, 38, '<circle cx="18" cy="19" r="11" fill="' + C[color] + '" stroke="' + C.outline + '" stroke-width="3"/>' +
+    otext(name, 38, 20, 22, C.white, "start", FONT, 5) + otext("Lv." + lv, 212, 20, 22, C.yellow, "end", FONT, 5)),
+  // 메뉴 제목 스티커 (노랑)
+  menuTitle: () => svg(540, 170, sticker(6, 6, 520, 150, 34, C.yellow, 10) + otext("증강 슈터", 266, 64, 70) + otext("수학 · 과학 공식으로 살아남기", 266, 124, 24, C.white, "middle", FONT, 5)),
+  // 버튼 (스티커, 가운데 글자)
+  button: (label, color, w, h, size) => svg(w + 12, h + 12, sticker(3, 3, w, h, h / 2, C[color], 7) + otext(label, w / 2 + 3, h / 2 + 4, size || 28)),
+  // 큰 패널: 크림색 + 위쪽 색 띠 제목 + 글 여러 줄 [글, 색, 크기]
+  panel: (title, color, lines, w, h) => {
+    let s = sticker(4, 4, w, h, 30, C.white, 10);
+    s += sticker(w / 2 - 130, -2 + 22, 260, 64, 22, C[color], 6) + otext(title, w / 2 + 4, 54, 36);
+    (lines || []).forEach((ln) => { s += otext(ln[0], w / 2 + 4, ln[3], ln[2] || 24, ln[1] || C.outline, "middle", FONT, ln[1] && ln[1] !== C.outline ? 6 : 0); });
+    return svg(w + 16, h + 16, s);
+  },
+  // 화면을 어둡게 덮는 반투명 판 (960 × 540)
+  dim: () => svg(960, 540, '<rect width="960" height="540" fill="' + C.outline + '" fill-opacity="0.45"/>'),
+  // 웨이브 시작 띠 (노랑 리본)
+  bannerStrip: () => svg(560, 96, sticker(4, 4, 540, 80, 28, C.yellow, 8)),
+});
+
 module.exports = { ART, C };

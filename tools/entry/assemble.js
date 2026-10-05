@@ -12,14 +12,17 @@ const B = require("./blocks.js");
 
 // 같은 입력이면 늘 같은 아이디가 나오게 (작품을 다시 만들어도 내용이 같도록)
 let idSeed = 1;
+let usedIds = new Set();
 function makeId(len) {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let s = "";
-  for (let i = 0; i < len; i++) {
-    idSeed = (Math.imul(idSeed, 1664525) + 1013904223) >>> 0;
-    s += chars[idSeed % chars.length];
+  for (;;) {
+    let s = "";
+    for (let i = 0; i < len; i++) {
+      idSeed = (Math.imul(idSeed, 1664525) + 1013904223) >>> 0;
+      s += chars[(idSeed >>> 16) % chars.length];   // 아래쪽 비트는 규칙적이라 위쪽 비트를 쓴다
+    }
+    if (!usedIds.has(s)) { usedIds.add(s); return s; }   // 이미 쓴 아이디면 다시 (겹치면 변수끼리 섞인다)
   }
-  return s;
 }
 
 // 블록에 아이디·좌표를 붙인다 (엔트리가 저장할 때 붙이는 기본 항목)
@@ -41,9 +44,10 @@ function finishBlock(b) {
 // 결과: { project, files: [{ path, data }] }
 function assemble(design) {
   idSeed = 1;
+  usedIds = new Set();
   const sceneId = makeId(4);
   // locals: { 오브젝트 이름: { 변수 이름: id } } — 같은 이름의 지역 변수가 여러 오브젝트에 있을 수 있다
-  const ctx = { vars: {}, msgs: {}, objs: {}, pics: {}, locals: {}, localVars: {} };
+  const ctx = { vars: {}, lists: {}, msgs: {}, objs: {}, pics: {}, locals: {}, localVars: {} };
   for (const o of design.objects) { o.id = makeId(4); ctx.objs[o.name] = o.id; }
   const variables = [];
   for (const vd of design.variables) {
@@ -52,6 +56,13 @@ function assemble(design) {
     else ctx.vars[vd.name] = id;
     variables.push({ name: vd.name, id, visible: !!vd.visible, value: String(vd.value ?? 0), variableType: "variable",
       isCloud: false, isRealTime: false, cloudDate: false, object: vd.local ? ctx.objs[vd.local] : null, x: vd.x ?? 0, y: vd.y ?? 0 });
+  }
+  // 리스트 (모두가 같이 쓰는 리스트만)
+  for (const name of design.lists || []) {
+    const id = makeId(4);
+    ctx.lists[name] = id;
+    variables.push({ name, id, visible: false, value: "0", variableType: "list", isCloud: false, isRealTime: false, cloudDate: false,
+      object: null, x: 0, y: 0, width: 100, height: 120, array: [] });
   }
   const messages = design.messages.map((name) => { const id = makeId(4); ctx.msgs[name] = id; return { name, id }; });
   const files = [];

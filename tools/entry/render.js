@@ -13,11 +13,13 @@ const FONTS = '<html><head><link rel="stylesheet" href="https://fonts.googleapis
 async function svgToPng(items) {
   const browser = await chromium.launch();
   const page = await browser.newPage({ deviceScaleFactor: 1 });
+  // 글꼴은 처음에 한 번만 불러 두고, 그림마다 내용만 바꿔 찍는다
+  await page.setContent(FONTS + '<body style="margin:0;background:transparent"><div id="art"></div></body></html>', { waitUntil: "networkidle" });
+  await page.evaluate(async () => { try { await document.fonts.load("20px Jua"); await document.fonts.load('20px "Black Han Sans"'); } catch (e) {} await document.fonts.ready; });
   const out = [];
   for (const it of items) {
     await page.setViewportSize({ width: it.width, height: it.height });
-    await page.setContent(FONTS + '<body style="margin:0;background:transparent">' + it.svg + "</body></html>", { waitUntil: "networkidle" });
-    await page.evaluate(async () => { try { await document.fonts.load("20px Jua"); await document.fonts.load('20px "Black Han Sans"'); } catch (e) {} await document.fonts.ready; });
+    await page.evaluate((svg) => { document.getElementById("art").innerHTML = svg; }, it.svg);
     out.push(await page.screenshot({ omitBackground: true, clip: { x: 0, y: 0, width: it.width, height: it.height } }));
   }
   await browser.close();

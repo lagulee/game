@@ -8,7 +8,7 @@
 //   (이름 → 아이디 표는 ctx 에 들어 있다)
 // =============================================================
 
-let ctx = null;   // { vars: {이름: id}, msgs: {이름: id}, objs: {이름: id}, pics: {"오브젝트/모양": id} }
+let ctx = null;   // { vars: {이름: id}, lists: {이름: id}, msgs: {이름: id}, objs: {이름: id}, pics: {"오브젝트/모양": id} }
 function setContext(c) { ctx = c; }
 
 function need(table, name, kind) {
@@ -81,7 +81,9 @@ const hide = () => blk("hide", [null]);
 // 모양 바꾸기: obj 오브젝트의 pic 모양 (이름)
 const shape = (obj, pic) => blk("change_to_some_shape", [{ type: "get_pictures", params: [need("pics", obj + "/" + pic, "모양")] }, null]);
 const size = (s) => blk("set_scale_size", [ex(s), null]);
-const effect = (kind, val) => blk("set_effect_amount", [kind, ex(val), null]);   // kind: color, brightness, transparency
+// 효과 "정하기" (kind: color, brightness, transparency). 엔트리 블록 이름이 헷갈린다:
+//   change_effect_amount = 정하기, add_effect_amount = 더하기, set_effect_amount = 옛날 블록(더하기)
+const effect = (kind, val) => blk("change_effect_amount", [kind, ex(val), null]);
 const clearEffects = () => blk("erase_all_effects", [null]);
 const front = () => blk("change_object_index", ["FRONT", null]);
 const write = (val) => blk("text_write", [ex(val), null]);   // 글상자 내용 바꾸기
@@ -96,6 +98,18 @@ const send = (msg) => blk("message_cast", [need("msgs", msg, "신호"), null]);
 const sendWait = (msg) => blk("message_cast_wait", [need("msgs", msg, "신호"), null]);
 // stop: "all" 모두, "thisOnly" 이 오브젝트, "thisThread" 이 코드, "otherThread" 이 오브젝트의 다른 코드
 const stop = (what) => blk("stop_object", [what, null]);
+
+// 모양을 계산 결과로 바꾸기 (번호 또는 모양 이름)
+const shapeV = (val) => blk("change_to_some_shape", [ex(val), null]);
+// 글상자 글자 색 ("#RRGGBB")
+const fontColor = (hex) => blk("text_change_font_color", [{ type: "text_color", params: [hex] }, null]);
+
+// ---- 리스트 (대기열처럼 쓴다: 뒤에 넣고, 1번을 꺼낸다) ----
+const listAdd = (name, val) => blk("add_value_to_list", [ex(val), need("lists", name, "리스트"), null]);
+const listRemove = (name, idx) => blk("remove_value_from_list", [ex(idx), need("lists", name, "리스트"), null]);
+const listSet = (name, idx, val) => blk("change_value_list_index", [need("lists", name, "리스트"), ex(idx), ex(val), null]);
+function listItem(name, idx) { return { type: "value_of_index_from_list", params: [null, need("lists", name, "리스트"), null, ex(idx), null] }; }
+function listLen(name) { return { type: "length_of_list", params: [null, need("lists", name, "리스트"), null] }; }
 
 // ---- 흐름 블록 (안에 블록 목록을 넣는다) ----
 const forever = (body) => blk("repeat_inf", [null, null], [body]);
@@ -118,5 +132,6 @@ module.exports = {
   cmp, and, or, not, key, touching,
   set, change, showVar, hideVar, goXY, setX, setY, moveX, moveY, goTo, rotateTo, rotateToV, show, hide, shape, size,
   effect, clearEffects, front, write, say, unsay, wait, waitUntil, clone, deleteClone, removeAllClones, send, sendWait, stop,
+  shapeV, fontColor, listAdd, listRemove, listSet, listItem, listLen, blk,
   forever, repeat, repeatUntil, iff, ifElse, when,
 };
