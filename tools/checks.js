@@ -740,4 +740,53 @@ module.exports = [
         "), 실제 픽셀 " + canvas.width + "×" + canvas.height + ", 마우스 변환 최대 오차 " + worst.toFixed(4) + "px" };
     },
   },
+  {
+    name: "[일시정지] P·Esc·상태창 클릭·창 포커스 잃음 → 모두 멈춤, 계속하기 0.5초 뒤 재개, 카드 화면에선 안 멈춤, 로비로 가면 코인 저장",
+    run: new Function(PRESS + `
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      runMenuAction(0);
+      for (let i = 0; i < 150; i++) update(1 / 60);              // 적과 총알이 생기도록 2.5초 진행
+      const snap = () => JSON.stringify([runTime, runCoins, waveCoinTime, spawnTimer, bannerTimer, player.x, player.y,
+        enemies.map((e) => [e.x, e.y, e.hp]), bullets.map((b) => [b.x, b.y]), popups.length]);
+      // 1) P 키
+      press("KeyP"); const pP = paused; const s1 = snap();
+      for (let i = 0; i < 120; i++) update(1 / 60);
+      const frozen = snap() === s1;
+      // 2) 계속하기 → 0.5초 동안은 여전히 멈춤, 그 뒤 움직임
+      press("Escape"); const resumedFlag = !paused;
+      for (let i = 0; i < 27; i++) update(1 / 60);               // 0.45초
+      const stillFrozen = snap() === s1;
+      for (let i = 0; i < 6; i++) update(1 / 60);                // 0.55초
+      const moving = snap() !== s1;
+      // 3) 창 포커스 잃음
+      window.dispatchEvent(new Event("blur")); const pBlur = paused; resumeGame(); for (let i = 0; i < 40; i++) update(1 / 60);
+      // 4) 상태창 클릭
+      const r = canvas.getBoundingClientRect(), hp = hudPanelRect();
+      canvas.dispatchEvent(new MouseEvent("click", { clientX: r.left + canvas.clientLeft + (hp.x + 60) * canvas.clientWidth / 960,
+        clientY: r.top + canvas.clientTop + (hp.y + 100) * canvas.clientHeight / 540 }));
+      const pClick = paused;
+      // 5) 일시정지 창 버튼 위치에서 클릭 → 계속하기
+      const br = pauseButtonRect(0);
+      canvas.dispatchEvent(new MouseEvent("click", { clientX: r.left + canvas.clientLeft + (br.x + 20) * canvas.clientWidth / 960,
+        clientY: r.top + canvas.clientTop + (br.y + 20) * canvas.clientHeight / 540 }));
+      const resumedByButton = !paused && resumeTimer > 0;
+      for (let i = 0; i < 40; i++) update(1 / 60);
+      // 6) 카드 선택 화면에서는 P 를 눌러도 안 멈춤
+      openChoiceScreen(); press("KeyP"); const noPauseInCards = !paused;
+      // 7) 일시정지 → 로비로: 코인 저장
+      debugMode = true; debugInvincible = true; // 이 부분은 죽지 않게
+      choosingTime = 1; chooseAugment(0); for (let i = 0; i < 60 * 20; i++) update(1 / 60);
+      debugMode = false;
+      const earned = Math.floor(runCoins); pauseGame();
+      const lb = pauseButtonRect(2);
+      canvas.dispatchEvent(new MouseEvent("click", { clientX: r.left + canvas.clientLeft + (lb.x + 20) * canvas.clientWidth / 960,
+        clientY: r.top + canvas.clientTop + (lb.y + 20) * canvas.clientHeight / 540 }));
+      const toLobby = gameState === "menu" && loadSave().coins === earned && earned > 0;
+      const ok = pP && frozen && resumedFlag && stillFrozen && moving && pBlur && pClick && resumedByButton && noPauseInCards && toLobby;
+      return { ok: ok, detail: "P " + pP + " / 2초 동안 그대로 " + frozen + " / 계속 후 0.45초 멈춤 " + stillFrozen + ", 0.55초 움직임 " + moving +
+        " / 포커스 잃음 " + pBlur + " / 상태창 클릭 " + pClick + " / 계속하기 버튼 " + resumedByButton + " / 카드 화면 안 멈춤 " + noPauseInCards +
+        " / 로비로 코인 저장 " + toLobby + " (" + earned + ")" };
+    `),
+  },
 ];

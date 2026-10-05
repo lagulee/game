@@ -91,6 +91,9 @@ const BOSS_KILL_HEAL_RATIO = 0.5;
 // 챕터 = 웨이브 몇 개 묶음인지 (5 이면 1~5웨이브가 챕터 1)
 const WAVES_PER_CHAPTER = 5;
 
+// 일시정지에서 "계속하기"를 누른 뒤 게임이 다시 움직이기까지 기다리는 시간 (초)
+const RESUME_DELAY = 0.5;
+
 // ---- 코인 (영구 업그레이드를 사는 돈) ----
 // 전투 중 1초마다 버는 코인 = COIN_PER_SECOND × (1 + COIN_WAVE_BONUS × (웨이브 − 1))
 //   1웨이브 1개/초, 5웨이브 1.6개/초, 30웨이브 5.35개/초
@@ -230,6 +233,14 @@ window.addEventListener("keydown", function (event) {
     return;
   }
 
+  // 전투 중: P 나 Esc 로 일시정지 / 계속하기 (카드 선택 화면에서는 일시정지가 필요 없다)
+  if (gameState === "playing" && (event.code === "KeyP" || event.code === "Escape")) {
+    if (paused) resumeGame();
+    else pauseGame();
+    event.preventDefault();
+    return;
+  }
+
   // 메뉴 화면: ↑↓(또는 W/S)로 버튼 고르기, Enter 나 Space 로 누르기
   if (gameState === "menu") {
     if (event.code === "ArrowUp" || event.code === "KeyW") {
@@ -364,6 +375,14 @@ function handleDebugKey(event) {
   return false;
 }
 
+// 브라우저 창이 포커스를 잃거나(다른 창 클릭) 탭이 가려지면 자동으로 일시정지
+window.addEventListener("blur", function () {
+  pauseGame();
+});
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden) pauseGame();
+});
+
 // 키에서 손을 떼는 순간 실행되는 함수를 등록한다
 window.addEventListener("keyup", function (event) {
   // 뗀 키를 "안 눌림(false)"으로 기록한다
@@ -400,8 +419,9 @@ canvas.addEventListener("mousemove", function (event) {
     if (menuHover >= 0) menuIndex = menuHover;
   }
 
-  // 업그레이드 화면·결과 화면 버튼
+  // 업그레이드 화면·결과 화면·일시정지 버튼, 전투 중 상태창
   let otherHover = false;
+  if (gameState === "playing") otherHover = paused ? pauseButtonAt(pos.x, pos.y) !== null : insideRect(pos.x, pos.y, hudPanelRect());
   if (gameState === "upgrades") otherHover = upgradeButtonAt(pos.x, pos.y) !== null;
   if (gameState === "gameover" || gameState === "clear") otherHover = resultButtonAt(pos.x, pos.y) !== null;
 
@@ -412,6 +432,21 @@ canvas.addEventListener("mousemove", function (event) {
 // 마우스를 클릭하면: 클릭한 위치의 카드를 고른다
 canvas.addEventListener("click", function (event) {
   const pos = getMousePos(event);
+
+  // 전투 중
+  if (gameState === "playing") {
+    if (paused) {
+      // 일시정지 창의 버튼
+      const button = pauseButtonAt(pos.x, pos.y);
+      if (button === "resume") resumeGame();
+      else if (button === "restart") { commitRunProgress(); resetGame(); }
+      else if (button === "lobby") { commitRunProgress(); goToMenu(); }
+    } else if (insideRect(pos.x, pos.y, hudPanelRect())) {
+      // 왼쪽 위 상태창을 누르면 일시정지
+      pauseGame();
+    }
+    return;
+  }
 
   // 메뉴 화면: 클릭한 버튼 실행
   if (gameState === "menu") {
@@ -502,6 +537,13 @@ let menuTime = 0;
 // 메뉴 아래쪽에 잠깐 뜨는 알림 글자와 남은 시간 (예: "준비 중이에요!")
 let menuToast = "";
 let menuToastTimer = 0;
+
+// 이번 판의 코인을 이미 저장했는지 (두 번 저장하지 않으려고)
+let runCommitted = false;
+
+// 일시정지 중인지, 그리고 "계속하기" 뒤 다시 움직이기까지 남은 시간 (초)
+let paused = false;
+let resumeTimer = 0;
 
 // 이번 판에 잡은 보스 수
 let bossesKilled = 0;
@@ -973,12 +1015,41 @@ function endGame(result) {
   }
 
   // 이번 판에 번 코인(정수로 내림)과 최고 도달 웨이브를 영구 저장
+  commitRunProgress();
+
+  paused = false;
+  resumeTimer = 0;
+  gameState = result;
+}
+
+// 이번 판에 번 코인과 최고 웨이브를 저장한다
+// (판이 끝날 때, 그리고 일시정지 창에서 "다시 시작"·"로비로"로 판을 그만둘 때)
+// 같은 판의 코인이 두 번 저장되지 않도록 runCommitted 표시를 남긴다.
+function commitRunProgress() {
+  if (runCommitted) return;
+  runCommitted = true;
   lastRunCoins = Math.floor(runCoins);
   saveData.coins += lastRunCoins;
   saveData.bestWave = Math.max(saveData.bestWave, wave);
   writeSave();
+}
 
-  gameState = result;
+// ---- 일시정지 ----
+
+// 일시정지하기 (전투 중일 때만. 카드 선택·메뉴·결과 화면에서는 아무 일도 없다)
+function pauseGame() {
+  if (gameState !== "playing" || paused) return;
+  paused = true;
+  resumeTimer = 0;
+  // 누르고 있던 키를 모두 뗀 것으로 (창이 포커스를 잃으면 "뗀" 소식이 안 올 수 있어서)
+  for (const k in keys) keys[k] = false;
+}
+
+// 계속하기: 바로 움직이지 않고 RESUME_DELAY(0.5초) 뒤에 움직인다
+function resumeGame() {
+  if (!paused) return;
+  paused = false;
+  resumeTimer = RESUME_DELAY;
 }
 
 // 지금 웨이브에서 1초에 버는 코인
@@ -1007,6 +1078,8 @@ function formatTime(seconds) {
 // 메뉴 화면으로 가는 함수 (처음 켰을 때, 결과 화면에서 M 키)
 function goToMenu() {
   gameState = "menu";
+  paused = false;
+  resumeTimer = 0;
   menuIndex = 0;
   menuTime = 0;
   menuToast = "";
@@ -1128,6 +1201,11 @@ function resetGame() {
   particles = [];
   lastHitEnemy = null;
   hitStreak = 0;
+
+  // 일시정지 풀기, 이번 판 코인은 아직 저장 전
+  paused = false;
+  resumeTimer = 0;
+  runCommitted = false;
 
   // 점수는 0점부터, 잡은 보스도 0, 이번 판 코인과 시간도 0
   score = 0;
@@ -1505,6 +1583,13 @@ function updateBullets(dt) {
 
 // 게임 전체의 값을 바꾸는 함수. 게임 상태에 따라 하는 일이 다르다.
 function update(dt) {
+  // 일시정지 중이거나, "계속하기" 뒤 0.5초 기다리는 중이면 게임 시간·코인·적·총알이 모두 멈춘다
+  if (gameState === "playing" && (paused || resumeTimer > 0)) {
+    if (!paused) resumeTimer = Math.max(0, resumeTimer - dt);
+    debugMessageTimer = Math.max(0, debugMessageTimer - dt);
+    return;
+  }
+
   if (gameState === "playing") {
     // 전투 중 (순서가 중요하다)
     updatePlayer(dt);     // 1) 플레이어 이동
@@ -2085,6 +2170,11 @@ function drawBar(x, y, w, h, ratio, fillColor, width = OUTLINE_WIDTH) {
   drawOutlinedRoundRect(x, y, w, h, h / 2, null, width); // 3) 외곽선만 덮어 그리기
 }
 
+// 왼쪽 위 상태창의 사각형 (누르면 일시정지)
+function hudPanelRect() {
+  return { x: 12, y: 12, w: 250, h: 132 };
+}
+
 // ---- 화면 위 정보 (HUD) ----
 // 왼쪽 위: 웨이브 번호, 체력바, 점수 / 오른쪽 위: 가진 증강 목록
 function drawHud() {
@@ -2374,6 +2464,168 @@ function drawChoiceScreen() {
   // 카드를 한 장씩 그리는 반복문
   for (let i = 0; i < choices.length; i++) {
     drawCard(choices[i], i);
+  }
+}
+
+// ---- 일시정지 창 ----
+
+// 일시정지 창 크기와 버튼 (게임 좌표)
+const PAUSE_PANEL = { x: 80, y: 40, w: 800, h: 460 };
+const PAUSE_BUTTONS = [
+  { id: "resume", label: "계속하기", hint: "P / Esc", color: "green" },
+  { id: "restart", label: "다시 시작", hint: "", color: "yellow" },
+  { id: "lobby", label: "로비로", hint: "", color: "brown" },
+];
+
+// 조작법 (일시정지 창에 보여 준다)
+const CONTROLS_HELP = [
+  ["이동", "WASD / 방향키"],
+  ["발사", "가장 가까운 적에게 자동"],
+  ["일시정지", "P / Esc / 상태창 클릭"],
+  ["상태창 접기", "Tab / 화살표 버튼"],
+  ["카드 고르기", "클릭 또는 1 · 2 · 3"],
+  ["결과 화면", "R 다시 · U 업그레이드 · M 메뉴"],
+];
+
+// i 번째 일시정지 버튼의 사각형
+function pauseButtonRect(i) {
+  return { x: PAUSE_PANEL.x + 34, y: PAUSE_PANEL.y + 84 + i * 64, w: 250, h: 50 };
+}
+
+// 일시정지 창에서 (x, y) 에 있는 버튼 id (없으면 null)
+function pauseButtonAt(x, y) {
+  for (let i = 0; i < PAUSE_BUTTONS.length; i++) {
+    if (insideRect(x, y, pauseButtonRect(i))) return PAUSE_BUTTONS[i].id;
+  }
+  return null;
+}
+
+// 가진 증강 목록을 영역(폭 w, 높이 h) 안에 들어가게 배치한다.
+// 글자 크기와 설명 줄 수를 줄여 가며 맞는 배치를 찾는다.
+function layoutPauseAugments(owned, w, h) {
+  // 글자 크기 14 → 11, 설명 최대 3줄 → 1줄 순서로 시도하는 이중 반복문
+  for (let maxLines = 3; maxLines >= 1; maxLines--) {
+    for (let size = 14; size >= 11; size--) {
+      const lineH = size + 4;
+      let total = 0;
+      const items = owned.map(function (aug) {
+        const level = getAugmentLevel(aug.id);
+        let lines = wrapText(aug.levels[level - 1].desc, w - 18, size);
+        if (lines.length > maxLines) {
+          lines = lines.slice(0, maxLines);
+          lines[maxLines - 1] = lines[maxLines - 1].replace(/.$/, "…"); // 잘린 줄 끝에 말줄임표
+        }
+        const itemH = 22 + lines.length * lineH + 6;    // 이름 줄 + 설명 줄들 + 간격
+        total += itemH;
+        return { aug: aug, level: level, lines: lines, h: itemH };
+      });
+      if (total <= h || (maxLines === 1 && size === 11)) return { size: size, lineH: lineH, items: items };
+    }
+  }
+}
+
+function drawPauseScreen() {
+  if (gameState !== "playing") return;
+
+  // "계속하기" 뒤 다시 움직이기 전: 가운데에 짧은 안내
+  if (!paused && resumeTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, resumeTimer / RESUME_DELAY + 0.3);
+    drawOutlinedText("준비!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 44 + (1 - resumeTimer / RESUME_DELAY) * 16, "center", COLORS.yellow);
+    ctx.restore();
+    return;
+  }
+  if (!paused) return;
+
+  // 1) 반투명 어두운 배경
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+
+  // 2) 가운데 패널 (그림자 + 크림색 몸통)
+  const P = PAUSE_PANEL;
+  roundRectPath(P.x + 8, P.y + 8, P.w, P.h, 26);
+  ctx.fillStyle = COLORS.outline;
+  ctx.fill();
+  drawOutlinedRoundRect(P.x, P.y, P.w, P.h, 26, COLORS.background);
+
+  // 3) 제목 스티커
+  ctx.save();
+  ctx.translate(P.x + 160, P.y + 6);
+  ctx.rotate(-0.04);
+  drawOutlinedRoundRect(-110, -26, 220, 52, 18, COLORS.yellow);
+  drawOutlinedText("일시정지", 0, 1, 30);
+  ctx.restore();
+
+  // 4) 왼쪽: 버튼 3개
+  for (let i = 0; i < PAUSE_BUTTONS.length; i++) {
+    const b = PAUSE_BUTTONS[i];
+    const r = pauseButtonRect(i);
+    roundRectPath(r.x + 5, r.y + 5, r.w, r.h, 20);
+    ctx.fillStyle = COLORS.outline;
+    ctx.fill();
+    drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 20, COLORS[b.color]);
+    drawOutlinedText(b.label, r.x + r.w / 2, r.y + r.h / 2 + 1, 24);
+  }
+
+  // 5) 왼쪽 아래: 조작법
+  const hx = P.x + 34, hy = P.y + 290;
+  drawOutlinedText("조작법", hx, hy, 20, "left", COLORS.brown);
+  ctx.font = "15px " + FONT_FAMILY;
+  ctx.textBaseline = "middle";
+  // 조작법을 한 줄씩 쓰는 반복문 (왼쪽: 무엇, 오른쪽: 어떤 키)
+  for (let i = 0; i < CONTROLS_HELP.length; i++) {
+    const y = hy + 28 + i * 22;
+    ctx.textAlign = "left";
+    ctx.fillStyle = COLORS.brown;
+    ctx.fillText(CONTROLS_HELP[i][0], hx, y);
+    ctx.fillStyle = COLORS.outline;
+    // 오른쪽 칸(증강 목록)을 넘지 않게, 길면 글자를 줄인다
+    ctx.font = fitTextSize(CONTROLS_HELP[i][1], 15, 186) + "px " + FONT_FAMILY;
+    ctx.fillText(CONTROLS_HELP[i][1], hx + 92, y);
+    ctx.font = "15px " + FONT_FAMILY;
+  }
+
+  // 6) 오른쪽: 가진 증강과 설명
+  const ax = P.x + 330, ay = P.y + 34, aw = P.w - 360, ah = P.h - 60;
+  // 오른쪽 칸 구분선
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(ax - 18, P.y + 30, 3, P.h - 60);
+  ctx.restore();
+  drawOutlinedText("가진 증강", ax, ay, 20, "left", COLORS.brown);
+  const owned = AUGMENTS.filter(function (aug) { return getAugmentLevel(aug.id) > 0; });
+  if (owned.length === 0) {
+    ctx.font = "16px " + FONT_FAMILY;
+    ctx.textAlign = "left";
+    ctx.fillStyle = COLORS.outline;
+    ctx.fillText("아직 가진 증강이 없어요. 웨이브를 깨고 카드를 골라 보세요!", ax, ay + 34);
+  } else {
+    const layout = layoutPauseAugments(owned, aw, ah - 20);
+    let y = ay + 26;
+    // 증강을 하나씩: 색 동그라미 + 이름 Lv + 수식, 그 아래 설명
+    for (const item of layout.items) {
+      drawOutlinedCircle(ax + 8, y + 10, 7, COLORS[item.aug.color], SMALL_OUTLINE_WIDTH * 0.8);
+      ctx.font = "17px " + FONT_FAMILY;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = COLORS.outline;
+      const title = item.aug.name + " Lv." + item.level;
+      ctx.fillText(title, ax + 22, y + 10);
+      const tw = ctx.measureText(title).width;
+      ctx.font = "14px " + FONT_FAMILY;
+      ctx.fillStyle = COLORS.brown;
+      ctx.fillText(item.aug.formula, ax + 32 + tw, y + 10);
+      ctx.font = layout.size + "px " + FONT_FAMILY;
+      ctx.fillStyle = COLORS.outline;
+      for (let n = 0; n < item.lines.length; n++) {
+        ctx.fillText(item.lines[n], ax + 22, y + 22 + layout.lineH * (n + 0.5) + 2);
+      }
+      y += item.h;
+    }
   }
 }
 
@@ -2871,7 +3123,8 @@ function draw() {
   drawBossBars();   // 보스 체력바
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
-  drawOverlay();    // 게임 오버·클리어 안내 (가장 위)
+  drawOverlay();    // 게임 오버·클리어 안내
+  drawPauseScreen(); // 일시정지 창 / 다시 움직이기 전 안내 (가장 위)
   drawDebug();      // 디버그 표시 (디버그 모드일 때만)
 }
 
