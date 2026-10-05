@@ -15,6 +15,7 @@
 // 사용법 (프로젝트 폴더에서)
 //   NODE_PATH=$(npm root -g) node tools/balance.js
 //   NODE_PATH=$(npm root -g) node tools/balance.js --runs 30 --levels 0,3,6,10 --bot old
+//   공격력만 올린 레벨: --levels 0/3,0/6  (체력/공격력)
 //   상수를 바꿔서 시험: --set ENEMY_HP_GROWTH=0.1,WAVE_SPAWN_BATCH=2
 //   압박 규칙 이전 값으로 시험: --preset before-pressure
 //   (게임 파일은 그대로 두고, 측정할 때만 파일 글자를 바꿔 끼운다 → tools/serve.js)
@@ -29,7 +30,11 @@ const { startServer } = require("./serve.js");
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].replace(/^--/, "")] = process.argv[i + 1];
 const RUNS = Number(args.runs || 30);
-const LEVELS = (args.levels || "0,3,6,10,15,20,25,30").split(",").map(Number);
+// 레벨 목록: "6" = (체력 6, 공격력 6), "0/3" = (체력 0, 공격력 3)
+const LEVELS = (args.levels || "0,3,6,10,15,20,25,30").split(",").map(function (token) {
+  const [v, p] = token.includes("/") ? token.split("/").map(Number) : [Number(token), Number(token)];
+  return { v: v, p: p, label: v === p ? v : token };
+});
 const BOT = args.bot || "new";
 const PARALLEL = Number(args.parallel || 4);
 
@@ -188,9 +193,11 @@ function runLevel(opts) {
 
   const results = [];
   for (let run = 0; run < opts.runs; run++) {
-    __reseed(1000 + run * 7919 + opts.level * 104729);
+    // 같은 레벨이면 예전과 같은 씨앗 (체력·공격력이 다르면 둘을 섞은 씨앗)
+    const seedLevel = opts.v === opts.p ? opts.v : opts.v * 31 + opts.p * 1009;
+    __reseed(1000 + run * 7919 + seedLevel * 104729);
     saveData = defaultSave();
-    saveData.upgrades = { vitality: opts.level, power: opts.level };
+    saveData.upgrades = { vitality: opts.v, power: opts.p };
     orbitDir = 1; flipCooldown = 0;
     startGame();
     let frames = 0;
@@ -217,7 +224,7 @@ function runLevel(opts) {
   const errors = [];
 
   console.log("봇: " + BOT + " / 판 수: " + RUNS + " / 바꾼 상수: " + (Object.keys(OVERRIDES).length ? JSON.stringify(OVERRIDES) : "없음"));
-  console.log("레벨(체력,공격력) | 평균 웨이브 | 최소 | 최대 | 클리어 | 평균 생존 시간 | 평균 코인 | 최소 코인 | 40코인 이상");
+  console.log("레벨(체력,공격력) | 평균 웨이브 | 최소 | 최대 | 클리어 | 평균 생존 시간 | 평균 코인 | 최소 코인 | 40코인 이상 | 5웨이브 보스 통과");
   const rows = new Array(LEVELS.length);
   let next = 0;
   // 탭 하나가 레벨을 하나씩 가져가서 측정하는 일꾼 (PARALLEL 개가 동시에 돈다)
@@ -229,14 +236,15 @@ function runLevel(opts) {
     while (next < LEVELS.length) {
       const idx = next++;
       const level = LEVELS[idx];
-      const r = await page.evaluate(runLevel, { level: level, runs: RUNS, bot: BOT });
+      const r = await page.evaluate(runLevel, { v: level.v, p: level.p, runs: RUNS, bot: BOT });
       const waves = r.map((x) => x.wave), coins = r.map((x) => x.coins);
       const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
       rows[idx] = {
-        level: level, avgWave: avg(waves), min: Math.min(...waves), max: Math.max(...waves),
+        level: level.label, vitality: level.v, power: level.p, avgWave: avg(waves), min: Math.min(...waves), max: Math.max(...waves),
         clears: r.filter((x) => x.clear).length, avgTime: avg(r.map((x) => x.time)),
         avgCoins: avg(coins), minCoins: Math.min(...coins), coins40: coins.filter((c) => c >= 40).length,
         avgCards: avg(r.map((x) => x.cards)),
+        pass5: r.filter((x) => x.wave >= 6 || x.clear).length,   // 5웨이브(첫 보스)를 넘긴 판 수
       };
     }
     await page.close();
@@ -244,9 +252,9 @@ function runLevel(opts) {
   await Promise.all(Array.from({ length: Math.min(PARALLEL, LEVELS.length) }, worker));
 
   for (const row of rows) {
-    console.log("(" + row.level + "," + row.level + ") | " + row.avgWave.toFixed(1) + " | " + row.min + " | " + row.max + " | " +
+    console.log("(" + row.vitality + "," + row.power + ") | " + row.avgWave.toFixed(1) + " | " + row.min + " | " + row.max + " | " +
       row.clears + "/" + RUNS + " | " + (row.avgTime / 60).toFixed(1) + "분 | " + row.avgCoins.toFixed(0) + " | " + row.minCoins +
-      " | " + row.coins40 + "/" + RUNS);
+      " | " + row.coins40 + "/" + RUNS + " | " + row.pass5 + "/" + RUNS);
   }
   if (errors.length) console.log("페이지 오류: " + errors.slice(0, 3).join(" / "));
   console.log("JSON " + JSON.stringify(rows));
