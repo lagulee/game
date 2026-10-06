@@ -879,11 +879,15 @@ const AUGMENTS = [
     // =========================================================
     onBulletUpdate: function (bullet, stats, dt) {
       // 처음 한 번: 충돌 반지름을 키우고 관통 수를 정한다
+      //   돌연변이 "공명" (보강 간섭): 진폭 × RESONANCE_AMP_MULT, 관통 + RESONANCE_PIERCE_BONUS (mutation.stats 로 들어온다)
+      //   단, 방패에 막히면 관통하지 않는다 (bullet.stopOnShield → game.js 의 updateBullets)
       if (!bullet.fourier) {
         bullet.fourier = { latX: 0, latY: 0 };       // 지난 프레임에 더한 옆 속도
         bullet.radius = bulletRadius(bullet) + stats.radiusBonus;
-        bullet.pierce = Math.max(bullet.pierce || 0, stats.pierce);
+        bullet.pierce = Math.max(bullet.pierce || 0, stats.pierce + (stats.pierceBonus || 0));
+        if (stats.mutated) bullet.stopOnShield = true;
       }
+      const amplitude = stats.amplitude * (stats.amplitudeMult || 1);
       const f = bullet.fourier;
       // 지난번에 더한 옆 속도를 빼면 "앞으로 가는" 속도만 남는다
       const fx = bullet.vx - f.latX, fy = bullet.vy - f.latY;
@@ -892,7 +896,7 @@ const AUGMENTS = [
       const px = -fy / len, py = fx / len;
       // 옆 속도 = 이번 프레임의 옆 거리 변화 ÷ dt  (bullet.age 는 이미 이번 프레임만큼 늘어 있다)
       const t = bullet.age;
-      const lateral = dt > 0 ? (fourierOffset(stats.amplitude, t) - fourierOffset(stats.amplitude, t - dt)) / dt : 0;
+      const lateral = dt > 0 ? (fourierOffset(amplitude, t) - fourierOffset(amplitude, t - dt)) / dt : 0;
       f.latX = px * lateral;
       f.latY = py * lateral;
       bullet.vx = fx + f.latX;

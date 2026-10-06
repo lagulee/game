@@ -2689,4 +2689,45 @@ module.exports = [
         " / 0.5초 뒤 다시 " + again + " / 보스 피해 · 안 밀림 " + bossOk + " / 돌연변이 전 그대로 " + plain };
     },
   },
+  {
+    name: "[돌연변이 C] 공명: 진폭 2배, 관통 +2 (Lv.3 이면 1 → 3), 방패에 막힌 총알은 관통하지 않음 (돌연변이 전 관통은 그대로)",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      const run = (lv, mut) => {
+        ownedAugments = { fourier: lv }; mutatedAugments = mut ? { fourier: true } : {};
+        enemies = [createEnemy("basic", 900, 20, 1)]; enemies[0].speed = 0;
+        bullets = []; const b = createBullet(1, 0, { x: 100, y: 270, fromAugment: true });
+        let maxOff = 0;
+        for (let i = 0; i < 40; i++) { player.fireTimer = 1e9; update(DT); maxOff = Math.max(maxOff, Math.abs(b.y - 270)); }
+        return { off: maxOff, pierce: b.pierce };
+      };
+      const p2 = run(2, false), m2 = run(2, true), p3 = run(3, false), m3 = run(3, true);
+      // 관통: 일렬로 선 적 4마리를 뚫는 수
+      const line = (mut) => {
+        ownedAugments = { fourier: 3 }; mutatedAugments = mut ? { fourier: true } : {};
+        enemies = []; for (let i = 0; i < 4; i++) { const e = createEnemy("basic", 300 + i * 60, 270, 1); e.hp = e.maxHp = 1e5; e.speed = 0; enemies.push(e); }
+        bullets = []; createBullet(1, 0, { x: 260, y: 270, fromAugment: true });
+        for (let i = 0; i < 60; i++) { player.fireTimer = 1e9; update(DT); }
+        return enemies.filter((e) => e.hp < 1e5).length;
+      };
+      const hitPlain = line(false), hitMut = line(true);
+      // 방패: 방패형이 맨 앞 (방패가 총알 쪽) → 공명 총알은 거기서 멈춤, 돌연변이 전 Lv.3 은 뚫음
+      const shield = (mut) => {
+        ownedAugments = { fourier: 3 }; mutatedAugments = mut ? { fourier: true } : {};
+        const s = createEnemy("shield", 330, 270, 1); s.hp = s.maxHp = 1e5; s.speed = 0;
+        const back = createEnemy("basic", 420, 270, 1); back.hp = back.maxHp = 1e5; back.speed = 0;
+        enemies = [s, back];
+        bullets = []; createBullet(1, 0, { x: 290, y: 270, fromAugment: true });
+        for (let i = 0; i < 40; i++) { s.shieldAngle = Math.PI; player.fireTimer = 1e9; update(DT); }
+        return { shieldHit: s.hp < 1e5, backHit: back.hp < 1e5 };
+      };
+      const sp = shield(false), sm = shield(true);
+      debugMode = false; debugInvincible = false;
+      const ok = Math.abs(m2.off / p2.off - 2) < 0.05 && Math.abs(m3.off / p3.off - 2) < 0.05 && hitPlain === 2 && hitMut === 4 &&
+        sp.shieldHit && sp.backHit && sm.shieldHit && !sm.backHit;
+      return { ok: ok, detail: "흔들림 Lv2 " + p2.off.toFixed(1) + " → " + m2.off.toFixed(1) + "px, Lv3 " + p3.off.toFixed(1) + " → " + m3.off.toFixed(1) +
+        "px / 일렬 4마리 중 맞힌 수 " + hitPlain + " → " + hitMut + " / 방패 뒤 적: 전 " + (sp.backHit ? "뚫음" : "막힘") + ", 공명 " + (sm.backHit ? "뚫음" : "막힘") };
+    },
+  },
 ];

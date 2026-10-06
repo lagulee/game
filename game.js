@@ -2578,7 +2578,8 @@ function updateBullets(dt) {
         spawnPopup(enemy.x, enemy.y - enemy.radius, damage); // 숫자 팝업
         enemy.hitFlash = 0.08;   // 잠깐 하얗게 번쩍
         // 총알은 맞으면 사라진다. 관통이 남아 있으면 하나 쓰고 계속 날아간다
-        if (bullet.pierce > 0) {
+        // (돌연변이 "공명" 총알은 방패에 막히면 관통하지 않는다)
+        if (bullet.pierce > 0 && !(blocked && bullet.stopOnShield)) {
           bullet.pierce -= 1;
           bullet.hitEnemies = bullet.hitEnemies || [];
           bullet.hitEnemies.push(enemy);
