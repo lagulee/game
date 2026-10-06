@@ -2568,6 +2568,8 @@ function updateBullets(dt) {
 
       if (circlesOverlap(bullet.x, bullet.y, bulletRadius(bullet),
                          enemy.x, enemy.y, enemy.radius)) {
+        // 방패에 막혔는지 (방패형). 막힌 총알은 갈라지거나 (프랙털 탄) 공명 관통을 하지 않는다
+        const blocked = enemyType(enemy).blocksBullet ? enemyType(enemy).blocksBullet(enemy, bullet) : false;
         // 대미지를 계산해서 적 체력을 깎는다 (방패형처럼 총알 대미지를 줄이는 적은 종류별로 한 번 더)
         let damage = calcDamage(enemy, bullet);
         if (enemyType(enemy).modifyBulletDamage) damage = enemyType(enemy).modifyBulletDamage(enemy, damage, bullet);
@@ -2586,7 +2588,7 @@ function updateBullets(dt) {
         const killed = enemy.hp <= 0; // 이번 한 방으로 죽었는지
 
         // [훅] onHit: 대미지가 적용된 직후 증강에게 알린다 (넉백, 지속 대미지 등)
-        const hitInfo = { enemy: enemy, bullet: bullet, damage: damage, killed: killed };
+        const hitInfo = { enemy: enemy, bullet: bullet, damage: damage, killed: killed, blocked: blocked };
         forEachOwnedAugment(function (aug, stats) {
           if (aug.onHit) aug.onHit(stats, hitInfo);
         });

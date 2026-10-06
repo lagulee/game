@@ -47,6 +47,8 @@
 //   enemy.chargeFlash = true      : 몸이 빠르게 깜빡인다 (사수형: 곧 쏜다는 신호)
 //   damageTakenMult(enemy)        : 받는 대미지 배율 (총알·폭발 모두). 블랙홀: 약점이 닫혀 있으면 0.3
 //   bendBullet(enemy, bullet, dt) : 플레이어 총알을 휘게 한다 (블랙홀)
+//   blocksBullet(enemy, bullet)   : 이 총알이 방패에 막혔으면 true (방패형). 막힌 총알은 갈라지거나 (프랙털 탄)
+//                                   공명 관통을 하지 않는다. 값만 알려 주고 아무것도 바꾸지 않는다
 //
 // ---- 보스 전용 항목 ----
 //   isBoss       : true 면 보스. 화면 위쪽 큰 체력바, 처치 시 체력 회복
@@ -512,6 +514,11 @@ const ENEMY_TYPES = {
       const maxTurn = SHIELD_TURN_RATE * info.localDt;
       enemy.shieldAngle += clamp(diff, -maxTurn, maxTurn);
       enemy.shieldFlash = Math.max(0, enemy.shieldFlash - dt);
+    },
+
+    // 총알이 방패 쪽에서 맞았는지 (돌연변이: 막힌 총알은 갈라지거나 관통하지 않는다)
+    blocksBullet: function (enemy, bullet) {
+      return shieldBlocks(enemy, bullet.x, bullet.y);
     },
 
     // 총알이 맞은 방향이 방패 쪽이면 대미지 80% 감소

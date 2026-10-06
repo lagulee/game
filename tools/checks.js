@@ -2549,4 +2549,51 @@ module.exports = [
       return { ok: ok, detail: "D=2기본 → ×4, 3기본 → ×9, 5기본 → ×" + CUBE_MAX_MULT + " (상한), 기본 → ×1.5 / 전: 3기본 → ×3 / 등차 다음에 세제곱: " + last.toFixed(1) + " (기대 " + want.toFixed(1) + ")" };
     },
   },
+  {
+    name: "[돌연변이 C] 프랙털 탄: 플레이어 총알이 명중하면 작은 총알 3개 (120°, 대미지 40%), 갈라진 총알 · 핵분열 파편은 다시 안 갈라짐, onFire 안 불림, 방패에 막히면 안 갈라짐, 핵분열과 섞여도 끝없이 늘지 않음",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { multiShot: 2, arithmetic: 1 }; mutatedAugments = { multiShot: true };
+      const arith = AUGMENTS.find((a) => a.id === "arithmetic");
+      const e = createEnemy("basic", 500, 270, 1); e.hp = e.maxHp = 1e6; e.speed = 0;
+      enemies = [e]; bullets = [];
+      const shot = createBullet(1, 0, { x: 486, y: 270, fromAugment: true });   // 플레이어 총알 (onFire 없이 하나만)
+      const k0 = arith.shotNumber;
+      player.fireTimer = 1e9; update(DT);
+      const kids = bullets.filter((b) => b.isFractal);
+      const angles = kids.map((b) => Math.round(Math.atan2(b.vy, b.vx) * 180 / Math.PI)).sort((a, b) => a - b);
+      const scaleOk = kids.length === 3 && kids.every((b) => Math.abs(b.damageScale - FRACTAL_SCALE) < 1e-12 && b.fromAugment);
+      const noFire = arith.shotNumber === k0;
+      // 갈라진 총알이 다른 적에게 맞아도 다시 갈라지지 않음
+      const e2 = createEnemy("basic", 0, 0, 1); e2.hp = e2.maxHp = 1e6; e2.speed = 0; enemies.push(e2);
+      bullets = []; const kid = createBullet(1, 0, { x: 100, y: 100, fromAugment: true }); kid.isFractal = true; e2.x = 112; e2.y = 100;
+      update(DT); const noResplit = bullets.filter((b) => b.isFractal && b !== kid).length === 0;
+      // 핵분열 파편도 안 갈라짐
+      bullets = []; const frag = createBullet(1, 0, { x: 100, y: 100, fromAugment: true }); frag.isFragment = true; e2.x = 112;
+      update(DT); const fragNo = bullets.filter((b) => b.isFractal).length === 0;
+      // 방패에 막히면 안 갈라짐 (방패를 총알 쪽으로)
+      const sh = createEnemy("shield", 700, 400, 1); sh.hp = sh.maxHp = 1e6; sh.speed = 0; sh.shieldAngle = Math.PI; enemies = [sh];
+      bullets = []; createBullet(1, 0, { x: 670, y: 400, fromAugment: true });
+      const holdShield = () => { sh.shieldAngle = Math.PI; };
+      holdShield(); update(DT); const blockedNo = bullets.filter((b) => b.isFractal).length === 0;
+      // 돌연변이 전에는 안 갈라짐
+      mutatedAugments = {}; enemies = [e]; bullets = []; createBullet(1, 0, { x: 486, y: 270, fromAugment: true }); update(DT);
+      const plainNo = bullets.filter((b) => b.isFractal).length === 0;
+      // 폭주 확인: 3방향 탄 Lv.3 + 프랙털 + 핵분열 Lv.3 → 약한 적 60마리 무리에서 10초, 총알 수가 줄어들고 끝남
+      ownedAugments = { multiShot: 3, fission: 3 }; mutatedAugments = { multiShot: true };
+      enemies = []; bullets = [];
+      for (let i = 0; i < 60; i++) { const m = createEnemy("basic", 300 + (i % 10) * 36, 120 + Math.floor(i / 10) * 50, 1); m.speed = 0; m.hp = m.maxHp = 15; enemies.push(m); }
+      let maxB = 0; player.fireTimer = 0;
+      for (let f = 0; f < 600; f++) { player.x = 480; player.y = 500; update(DT); maxB = Math.max(maxB, bullets.length); if (gameState !== "playing") break; }
+      // 쏘기를 멈추면 2초 안에 총알이 모두 사라진다 (서로를 끝없이 만들지 않음)
+      for (let f = 0; f < 120 && gameState === "playing"; f++) { player.fireTimer = 1e9; update(DT); }
+      const settled = bullets.length === 0;
+      const bounded = maxB > 0 && maxB < 400 && settled;
+      debugMode = false; debugInvincible = false;
+      const ok = scaleOk && angles.join(",") === "-120,0,120" && noFire && noResplit && fragNo && blockedNo && plainNo && bounded;
+      return { ok: ok, detail: "갈라짐 " + kids.length + "개 (각도 " + angles.join(",") + "°, 대미지 40%, fromAugment) " + scaleOk + " / onFire 안 불림 " + noFire +
+        " / 다시 안 갈라짐 " + noResplit + " / 파편 안 갈라짐 " + fragNo + " / 방패에 막힘 → 안 갈라짐 " + blockedNo + " / 돌연변이 전 " + plainNo + " / 핵분열과 섞어 10초 최대 총알 " + maxB + ", 멈추면 모두 사라짐 " + settled };
+    },
+  },
 ];

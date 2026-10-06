@@ -69,6 +69,7 @@
 //     info.bullet : 맞힌 총알
 //     info.damage : 이번에 준 대미지
 //     info.killed : 이번 한 방으로 죽었으면 true
+//     info.blocked: 방패형의 방패에 막혔으면 true
 //     예: 넉백, 지속 대미지
 //
 //   onKill(stats, info)
@@ -239,6 +240,8 @@ const CUBE_MAX_MULT = 15;
 // 프랙털 탄: 명중하면 작은 총알 FRACTAL_COUNT 개 (360° ÷ 3 = 120° 간격), 대미지는 맞힌 총알의 FRACTAL_SCALE 배
 const FRACTAL_COUNT = 3;
 const FRACTAL_SCALE = 0.4;
+const FRACTAL_LIFE = 0.45;     // 갈라진 총알이 날아가는 시간 (초). 0.45 × 480 ≈ 216px
+const FRACTAL_RADIUS = 3;      // 갈라진 총알의 크기 (충돌 반지름, 보통 총알보다 작게)
 // 임계 초과: 세대 제한과 감쇠 (원래 FISSION_MAX_GENERATION 2, FISSION_DECAY 0.6). 파편 동시 제한 FISSION_MAX_FRAGMENTS 는 그대로
 const FISSION_MUT_MAX_GENERATION = 4;
 const FISSION_MUT_DECAY = 1.0;
@@ -599,6 +602,36 @@ const AUGMENTS = [
         // fromAugment: true → 이 총알 때문에 onFire 가 다시 불리지 않는다
         const extra = createBullet(dirX, dirY, { damageScale: stats.scale, fromAugment: true });
         extra.arithK = info.bullet.arithK; // 같은 순간에 쏜 총알이니 등차 번호도 같다
+      }
+    },
+
+    // =========================================================
+    // 돌연변이 "프랙털 탄" (자기 닮음)
+    //   플레이어가 쏜 총알 (조준탄 · 3방향 탄의 추가 총알) 이 적에게 맞으면, 맞은 자리에서
+    //   작은 총알 FRACTAL_COUNT(3)개가 120° 간격으로 갈라진다 (하나는 원래 방향 그대로).
+    //   큰 모양을 작게 줄인 모양이 다시 나타나는 것 = 자기 닮음.
+    //   - 갈라진 총알 · 핵분열 파편은 다시 갈라지지 않는다 (끝없이 늘어나지 않게)
+    //   - 갈라진 총알은 fromAugment 총알 → onFire 를 다시 부르지 않는다
+    //   - 방패에 막힌 총알은 갈라지지 않는다
+    // =========================================================
+    onHit: function (stats, info) {
+      if (!stats.mutated || info.blocked) return;
+      const b = info.bullet;
+      if (b.isFragment || b.isFractal) return;
+      const heading = Math.atan2(b.vy, b.vx);
+      const step = (Math.PI * 2) / FRACTAL_COUNT;
+      for (let i = 0; i < FRACTAL_COUNT; i++) {
+        const a = heading + step * i;
+        const child = createBullet(Math.cos(a), Math.sin(a), {
+          x: b.x, y: b.y,
+          damageScale: b.damageScale * FRACTAL_SCALE,
+          fromAugment: true,
+          color: COLORS.purple,
+          life: FRACTAL_LIFE,
+        });
+        child.isFractal = true;
+        child.radius = FRACTAL_RADIUS;
+        child.hitEnemies = [info.enemy];   // 방금 맞은 적은 바로 다시 맞히지 않는다
       }
     },
   },
