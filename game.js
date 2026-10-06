@@ -1060,8 +1060,10 @@ function enemyPullOnPlayer() {
     const type = enemyType(enemy);
     if (!type.pullOn || enemy.dead) continue;
     const a = type.pullOn(enemy, player.x, player.y);
-    ax += a.ax;
-    ay += a.ay;
+    // 절대 영도 · 시간 정지 중이면 끌어당기는 힘도 그만큼 느려진다 (평소엔 × 1)
+    const slow = worldSlowFactor(type.isBoss);
+    ax += a.ax * slow;
+    ay += a.ay * slow;
   }
   return { ax: ax, ay: ay };
 }
@@ -1460,6 +1462,13 @@ function mutateAugment(aug) {
     saveData.seenMutations.push(aug.id);
     writeSave();
   }
+}
+
+// [훅] onUpdate: 전투 중 매 프레임 한 번, 가진 증강에게 시간이 흘렀다고 알린다 (시간 정지 · 효소 · 특이점 시계)
+function updateAugments(dt) {
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.onUpdate) aug.onUpdate(stats, dt);
+  });
 }
 
 // 플레이어의 지금 속력 v (피타고라스 정리: √(vx² + vy²))
@@ -2065,7 +2074,7 @@ function updateEnemyBullets(dt) {
     // 시간 지연 범위 안이면 적처럼 느려진다 (증강의 modifyEnemySpeed 를 그대로 쓴다)
     const dist = distance(b.x, b.y, player.x, player.y);
     b.slowFactor = enemySpeedFactor(b, dist);
-    if (skillState.freezeTime > 0) b.slowFactor *= SKILL_FREEZE_ENEMY;   // 스킬 "절대 영도"
+    b.slowFactor *= worldSlowFactor(false);   // 스킬 "절대 영도" · 돌연변이 "시간 정지"
     b.x += b.vx * b.slowFactor * dt;
     b.y += b.vy * b.slowFactor * dt;
     b.age += dt;
@@ -2168,6 +2177,16 @@ function resetGame() {
   startWave(1);
 }
 
+// 모든 적에게 한꺼번에 걸리는 느려짐 배율 (1 = 그대로)
+//   스킬 "절대 영도" (적 0.3, 보스 0.6) 와 돌연변이 "시간 정지" (적 0.05, 보스 0.3)
+//   둘이 겹치면 곱하지 않고 더 느린 쪽 하나만 쓴다
+function worldSlowFactor(isBoss) {
+  let f = 1;
+  if (skillState.freezeTime > 0) f = Math.min(f, isBoss ? SKILL_FREEZE_BOSS : SKILL_FREEZE_ENEMY);
+  if (timeStopActive()) f = Math.min(f, isBoss ? TIMESTOP_BOSS_FACTOR : TIMESTOP_FACTOR);
+  return f;
+}
+
 // 공명형 범위 안에 있는 적의 속도 배율 (여러 공명형 범위가 겹쳐도 한 번만: 1 또는 RESONATOR_BOOST)
 function resonanceFactor(enemy) {
   for (const other of enemies) {
@@ -2189,8 +2208,8 @@ function updateEnemies(dt) {
     // 보스처럼 timeScaleMin 이 있는 적은 그보다 더 느려지지 않는다
     const timeScaleMin = enemyType(enemy).timeScaleMin;
     if (timeScaleMin !== undefined) enemy.slowFactor = Math.max(enemy.slowFactor, timeScaleMin);
-    // 스킬 "절대 영도": 그 위에 한 번 더 (보스는 덜)
-    if (skillState.freezeTime > 0) enemy.slowFactor *= enemyType(enemy).isBoss ? SKILL_FREEZE_BOSS : SKILL_FREEZE_ENEMY;
+    // 스킬 "절대 영도" · 돌연변이 "시간 정지": 그 위에 한 번 더 (보스는 덜). 행동 시간(localDt)도 함께 느려진다
+    enemy.slowFactor *= worldSlowFactor(enemyType(enemy).isBoss);
 
     // 종류별 행동 함수(enemies.js)에게 움직임을 맡긴다
     //   speed     : 기본 속도 × 배율 (이동에 사용)
@@ -2599,6 +2618,7 @@ function update(dt) {
   if (gameState === "playing") {
     // 전투 중 (순서가 중요하다)
     waveTime += dt;       // 0) 과열 시계
+    updateAugments(dt);   // 0-1) 증강의 매 프레임 훅 onUpdate (시간 정지 시계 등)
     updatePlayer(dt);     // 1) 플레이어 이동
     updateSpawning(dt);   // 2) 적 생성
     updateEnemies(dt);    // 3) 적 이동
@@ -3906,6 +3926,38 @@ function drawFreezeOverlay() {
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.restore();
+}
+
+// ---- 돌연변이 "시간 정지" 표시 ----
+const TIMESTOP_HUD_X = 46;                     // 고리 가운데 (화면 왼쪽 아래 가장자리)
+const TIMESTOP_HUD_Y = CANVAS_HEIGHT - 46;
+const TIMESTOP_HUD_R = 24;
+
+// 왼쪽 아래 고리: 다음 정지까지 시계 방향으로 차오르고, 정지 중에는 남은 정지 시간이 줄어든다.
+// 정지 중에는 화면 가장자리에 회보라 테두리
+function drawTimeStopHud() {
+  const info = timeStopInfo();
+  if (!info) return;
+  const x = TIMESTOP_HUD_X, y = TIMESTOP_HUD_Y, r = TIMESTOP_HUD_R;
+  if (info.active) {
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = COLORS.purple;
+    ctx.lineWidth = 14;
+    ctx.strokeRect(7, 7, CANVAS_WIDTH - 14, CANVAS_HEIGHT - 14);
+    ctx.restore();
+  }
+  drawOutlinedCircle(x, y, r, COLORS.dark, SMALL_OUTLINE_WIDTH);
+  // 진행 고리: 정지 전에는 "다음 정지까지" 가 차오르고 (노랑), 정지 중에는 남은 정지 시간 (보라)
+  const ratio = info.active ? info.left / TIMESTOP_DURATION : 1 - info.left / (TIMESTOP_PERIOD - TIMESTOP_DURATION);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r - 5, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2);
+  ctx.strokeStyle = info.active ? lightenColor(COLORS.purple, 0.3) : COLORS.yellow;
+  ctx.lineWidth = 6;
+  ctx.stroke();
+  ctx.restore();
+  drawOutlinedText(info.active ? "정지" : String(Math.ceil(info.left)), x, y + 1, info.active ? 15 : 19);
 }
 
 // 화면 아래 가운데 스킬 아이콘: 쿨타임은 시계 방향으로 차오르고, 준비되면 한 번 튀어 오른다
@@ -5536,6 +5588,7 @@ function draw() {
   drawPopups();     // 대미지 숫자 (캐릭터들 위에)
   drawHud();        // 웨이브 번호, 체력바, 점수, 증강 목록
   drawSkillHud();   // 장착한 스킬 아이콘 (화면 아래 가운데, 쿨타임)
+  drawTimeStopHud(); // 돌연변이 "시간 정지": 다음 정지까지 남은 시간 고리 (왼쪽 아래)
   drawBossBars();   // 보스 체력바
   drawEnrageWarning(); // "과열!" 경고 (웨이브가 너무 길어지면)
   drawBanner();     // 웨이브 시작 안내 띠

@@ -2454,4 +2454,58 @@ module.exports = [
       return { ok: ok, detail: out.map((o, i) => "Lv" + (i + 1) + " 평균 " + o.mean.toFixed(3) + ", 10배 " + (o.rate * 100).toFixed(2) + "% (전 " + o.mean0.toFixed(3) + ")").join(" / ") };
     },
   },
+  {
+    name: "[돌연변이 C] 시간 정지: 10초마다 2초 동안 적 · 적 탄환 0.05배 (보스 0.3배), 행동 시간 · 회전 포대 회전 · 블랙홀 당김도 같이, 절대 영도와 겹치면 더 느린 쪽만, 전투 중에만 흐름",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { timeDilation: 2 }; mutateAugment(AUGMENTS.find((a) => a.id === "timeDilation"));
+      player.x = 480; player.y = 270;
+      const basic = createEnemy("basic", 100, 100, 1); basic.speed = 0;
+      const shooter = createEnemy("shooter", 860, 100, 1);
+      const turret = createEnemy("turret", 480, 120, 20);
+      const hole = createEnemy("blackHole", 300, 420, 30);
+      enemies = [basic, shooter, turret, hole];
+      const pin = () => { player.x = 480; player.y = 270; player.vx = player.vy = 0; player.fireTimer = 1e9; };
+      const step = (n) => { for (let i = 0; i < n; i++) { pin(); update(DT); } };
+      const bullet = () => { enemyBullets = [{ x: 900, y: 500, vx: -100, vy: 0, radius: ENEMY_BULLET_RADIUS, life: 99, damage: 1, age: 0 }]; };
+      // 측정: 한 프레임 동안 사수형 발사 타이머 · 포대 회전 · 탄환 이동 · 블랙홀 당김
+      const measure = () => {
+        bullet(); shooter.fireTimer = 100; const spin0 = turret.spin; pin();
+        const pull = enemyPullOnPlayer();
+        update(DT);
+        return { basic: basic.slowFactor, boss: turret.slowFactor, fire: (100 - shooter.fireTimer) / DT, spin: Math.abs(turret.spin - spin0),
+          bullet: enemyBullets.length ? (900 - enemyBullets[0].x) / (100 * DT) : 0, pull: Math.hypot(pull.ax, pull.ay) };
+      };
+      step(Math.round(7.5 / DT));
+      const before = measure();                        // 7.5초: 아직
+      step(Math.round(0.6 / DT));
+      const during = measure();                        // 8.1초: 정지
+      const info = timeStopInfo();
+      // 절대 영도와 겹치기
+      skillState.freezeTime = 1;
+      const both = measure();
+      skillState.freezeTime = 0;
+      step(Math.round(1.9 / DT));
+      const after = measure();                         // 10.1초: 풀림
+      // 카드 고르기 · 일시정지 중에는 시계가 멈춤
+      const c0 = timeDilationAug.stopClock;
+      pauseGame(); for (let i = 0; i < 60; i++) update(DT); const pausedSame = timeDilationAug.stopClock === c0; resumeGame(); resumeTimer = 0;
+      gameState = "choosing"; choices = [AUGMENTS[0]]; for (let i = 0; i < 60; i++) update(DT); const chooseSame = timeDilationAug.stopClock === c0; gameState = "playing";
+      // 표시 (그림이 그려지는지)
+      draw();
+      // 돌연변이 전에는 시계가 없다
+      startGame(); ownedAugments = { timeDilation: 3 }; const none = timeStopInfo() === null && worldSlowFactor(false) === 1;
+      debugMode = false; debugInvincible = false;
+      const near = (a, b) => Math.abs(a - b) < 1e-6;
+      const ok = near(before.basic, 1) && near(during.basic, TIMESTOP_FACTOR) && near(during.boss, TIMESTOP_BOSS_FACTOR) &&
+        near(during.fire / before.fire, TIMESTOP_FACTOR) && near(during.spin / before.spin, TIMESTOP_BOSS_FACTOR) && near(during.bullet, TIMESTOP_FACTOR) &&
+        near(during.pull / before.pull, TIMESTOP_BOSS_FACTOR) && info.active &&
+        near(both.basic, TIMESTOP_FACTOR) && near(both.boss, TIMESTOP_BOSS_FACTOR) && near(after.basic, 1) && near(after.boss, 1) && pausedSame && chooseSame && none;
+      return { ok: ok, detail: "7.5초 적 ×" + before.basic + " / 8.1초 적 ×" + during.basic.toFixed(2) + ", 보스 ×" + during.boss.toFixed(2) +
+        ", 발사 타이머 ×" + (during.fire / before.fire).toFixed(2) + ", 포대 회전 ×" + (during.spin / before.spin).toFixed(2) + ", 적 탄환 ×" + during.bullet.toFixed(2) +
+        ", 블랙홀 당김 ×" + (during.pull / before.pull).toFixed(2) + " / 절대 영도와 겹침: 적 ×" + both.basic.toFixed(2) + " 보스 ×" + both.boss.toFixed(2) +
+        " / 10.1초 원래대로 " + near(after.basic, 1) + " / 일시정지 · 카드 고르기 중 시계 멈춤 " + (pausedSame && chooseSame) + " / 돌연변이 전 없음 " + none };
+    },
+  },
 ];

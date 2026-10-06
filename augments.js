@@ -85,6 +85,10 @@
 //     bullet.radius 는 충돌 반지름, bullet.pierce 는 더 뚫고 지나갈 수 있는 적 수
 //     예: 푸리에 탄환, 중력 렌즈
 //
+//   onUpdate(stats, dt)
+//     언제: 전투 중 매 프레임 한 번 (일시정지 · 카드 고르기 중에는 안 불린다)
+//     예: 시간 정지 시계, 효소 초기화 시계, 특이점
+//
 //   onEnemyUpdate(enemy, stats, dt)
 //     언제: 매 프레임, 적 하나하나가 움직인 직후
 //     예: 반감기 (붕괴 중인 적의 체력을 줄인다)
@@ -393,6 +397,17 @@ const AUGMENTS = [
         desc: "시간 지연 범위 최대! 반경 115px → 140px",
       },
     ],
+
+    // 돌연변이 "시간 정지" 시계 (돌연변이한 뒤 전투 중에만 흐른다)
+    stopClock: 0,
+
+    reset: function () {
+      this.stopClock = 0;
+    },
+
+    onUpdate: function (stats, dt) {
+      if (stats.mutated) this.stopClock += dt;
+    },
 
     // 반경 안의 적 속도 × √(1 − (v/c)²)
     modifyEnemySpeed: function (factor, stats, info) {
@@ -994,6 +1009,27 @@ const AUGMENTS = [
     },
   },
 ];
+
+
+// =============================================================
+// 돌연변이 "시간 정지" (쌍둥이 역설)
+//   시계가 TIMESTOP_PERIOD(10)초마다 한 바퀴. 한 바퀴의 마지막 TIMESTOP_DURATION(2)초 동안 정지
+//   (돌연변이한 뒤 8초에 처음 멈추고, 그 뒤로 10초마다 2초씩)
+//   정지 중에는 game.js 의 worldSlowFactor 가 모든 적 · 적 탄환을 0.05배 (보스 0.3배) 로 만든다
+// 돌려주는 값: 시간 정지가 없으면 null, 있으면 { active: 정지 중인지, left: 정지가 끝나기까지 / 다음 정지까지 남은 초 }
+// =============================================================
+const timeDilationAug = AUGMENTS.find(function (aug) { return aug.id === "timeDilation"; });
+function timeStopInfo() {
+  if (!(getAugmentLevel("timeDilation") > 0 && isMutated("timeDilation"))) return null;
+  const phase = timeDilationAug.stopClock % TIMESTOP_PERIOD;
+  const start = TIMESTOP_PERIOD - TIMESTOP_DURATION;
+  if (phase >= start) return { active: true, left: TIMESTOP_PERIOD - phase };
+  return { active: false, left: start - phase };
+}
+function timeStopActive() {
+  const info = timeStopInfo();
+  return info !== null && info.active;
+}
 
 
 // =============================================================
