@@ -252,6 +252,7 @@ const ENZYME_RESET_TIME = 2;
 // 탄성 충돌: 부딪힌 적이 밀려나는 속도 비율, 같은 쌍이 다시 부딪힐 수 있기까지 (초)
 const ELASTIC_TRANSFER = 0.5;
 const ELASTIC_PAIR_COOLDOWN = 0.5;
+const ELASTIC_MIN_SPEED = 60;    // 밀리는 속도가 이보다 빠를 때만 "밀려나는 중" (px/초)
 // 공명: 진폭 배율과 관통 추가
 const RESONANCE_AMP_MULT = 2;
 const RESONANCE_PIERCE_BONUS = 2;
@@ -814,6 +815,28 @@ const AUGMENTS = [
       // 총알 진행 방향(길이 1) × 처음 속도
       pushEnemy(info.enemy, (b.vx / len) * stats.speed, (b.vy / len) * stats.speed);
     },
+
+    // =========================================================
+    // 돌연변이 "탄성 충돌" (운동량 전달)
+    //   밀려나는 중인 적이 다른 적과 부딪히면: 둘 다 기본 대미지만큼 피해,
+    //   부딪힌 적은 밀려나던 속도의 절반으로 밀려난다 (당구공처럼 운동량이 옮겨 간다)
+    //   - 보스는 밀려나지 않지만 피해는 받는다
+    //   - 같은 두 적은 ELASTIC_PAIR_COOLDOWN(0.5)초에 한 번만 (붙어 있는 동안 매 프레임 터지지 않게)
+    // =========================================================
+    onEnemyUpdate: function (enemy, stats) {
+      if (!stats.mutated || enemy.dead) return;
+      const vx = enemy.knockVx || 0, vy = enemy.knockVy || 0;
+      if (Math.sqrt(vx * vx + vy * vy) < ELASTIC_MIN_SPEED) return;
+      for (const other of enemies) {
+        if (other === enemy || other.dead || enemy.dead) continue;
+        if (!circlesOverlap(enemy.x, enemy.y, enemy.radius, other.x, other.y, other.radius)) continue;
+        if (elasticRecently(enemy, other)) continue;
+        markElastic(enemy, other);
+        if (!enemyType(other).isBoss) pushEnemy(other, vx * ELASTIC_TRANSFER, vy * ELASTIC_TRANSFER);
+        damageEnemy(other, player.damage, { elastic: true });
+        damageEnemy(enemy, player.damage, { elastic: true });
+      }
+    },
   },
   {
     id: "fourier",
@@ -1109,6 +1132,23 @@ function timeStopInfo() {
 function timeStopActive() {
   const info = timeStopInfo();
   return info !== null && info.active;
+}
+
+
+// =============================================================
+// 탄성 충돌: 두 적이 최근 (ELASTIC_PAIR_COOLDOWN 초 안에) 부딪혔는지 / 부딪혔다고 적어 두기
+//   적마다 "부딪힌 상대 → 그때 시각(runTime)" 을 기억한다
+// =============================================================
+function elasticRecently(a, b) {
+  const t = Math.max(a.elasticAt && a.elasticAt.has(b) ? a.elasticAt.get(b) : -Infinity,
+    b.elasticAt && b.elasticAt.has(a) ? b.elasticAt.get(a) : -Infinity);
+  return runTime - t < ELASTIC_PAIR_COOLDOWN;
+}
+function markElastic(a, b) {
+  a.elasticAt = a.elasticAt || new Map();
+  b.elasticAt = b.elasticAt || new Map();
+  a.elasticAt.set(b, runTime);
+  b.elasticAt.set(a, runTime);
 }
 
 

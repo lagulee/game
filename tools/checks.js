@@ -2650,4 +2650,43 @@ module.exports = [
       return { ok: ok, detail: "간격 " + i0.toFixed(3) + " → 4번 명중 " + i4.toFixed(3) + " (×0.88) → 16번 명중 (최대 10) " + i10.toFixed(3) + " (×0.70) / 1.9초 그대로 " + kept + ", 2초 뒤 0 " + reset + " / 돌연변이 전 그대로 " + plain };
     },
   },
+  {
+    name: "[돌연변이 C] 탄성 충돌: 밀려나던 적이 다른 적과 부딪히면 둘 다 기본 대미지, 부딪힌 적도 절반 속도로 밀림, 같은 쌍은 0.5초에 한 번, 보스는 안 밀리지만 피해",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { knockback: 2 }; mutatedAugments = { knockback: true };
+      player.x = 480; player.y = 500;
+      const make = (type, x, y) => { const e = createEnemy(type, x, y, 1); e.hp = e.maxHp = 1e5; e.speed = 0; return e; };
+      const a = make("basic", 200, 200), b = make("basic", 250, 200);
+      enemies = [a, b];
+      pushEnemy(a, 400, 0);
+      let hitAt = -1, bVx = 0;
+      for (let f = 0; f < 60; f++) { player.fireTimer = 1e9; update(DT); if (hitAt < 0 && a.hp < 1e5) { hitAt = f; bVx = b.knockVx; } }
+      const dmgA = 1e5 - a.hp, dmgB = 1e5 - b.hp;
+      const once = dmgA === player.damage && dmgB === player.damage;          // 붙어 있어도 0.5초 동안 한 번만
+      const pushed = bVx > 0;
+      // 0.5초 뒤 다시 밀어서 부딪히면 또 한 번
+      a.x = 200; a.y = 200; b.x = 250; b.y = 200; b.knockVx = b.knockVy = 0;
+      for (let i = 0; i < 40; i++) { player.fireTimer = 1e9; update(DT); }
+      pushEnemy(a, 400, 0); for (let f = 0; f < 30; f++) { player.fireTimer = 1e9; update(DT); }
+      const again = 1e5 - b.hp === player.damage * 2;
+      // 보스: 피해는 받고 밀리지 않음
+      const c = make("basic", 600, 300), boss = make("chargerKing", 660, 300); boss.update = null;
+      enemies = [c, boss]; const bossType = enemyType(boss); const upd = bossType.update; bossType.update = () => {};
+      pushEnemy(c, 450, 0);
+      for (let f = 0; f < 30; f++) { player.fireTimer = 1e9; update(DT); }
+      bossType.update = upd;
+      const bossOk = boss.hp < 1e5 && !(boss.knockVx) && c.hp < 1e5;
+      // 돌연변이 전에는 부딪혀도 그대로
+      mutatedAugments = {};
+      const d = make("basic", 200, 400), e2 = make("basic", 250, 400); enemies = [d, e2];
+      pushEnemy(d, 400, 0); for (let f = 0; f < 30; f++) { player.fireTimer = 1e9; update(DT); }
+      const plain = d.hp === 1e5 && e2.hp === 1e5;
+      debugMode = false; debugInvincible = false;
+      const ok = hitAt >= 0 && once && pushed && again && bossOk && plain;
+      return { ok: ok, detail: "부딪힘 " + hitAt + "프레임 뒤, 둘 다 " + dmgA + "/" + dmgB + " 피해 (기본 " + player.damage + ") 한 번만 " + once + " / 부딪힌 적 밀림 " + bVx.toFixed(0) + "px/초" +
+        " / 0.5초 뒤 다시 " + again + " / 보스 피해 · 안 밀림 " + bossOk + " / 돌연변이 전 그대로 " + plain };
+    },
+  },
 ];
