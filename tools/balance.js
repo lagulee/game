@@ -312,8 +312,15 @@ function runLevel(opts) {
         const mutIndex = choices.findIndex((c) => c.isMutation);
         if (mutIndex >= 0) {
           offered++;
-          chooseAugment(mutIndex);      // 돌연변이 카드는 고른다
           firstPick = false;
+          if (picksNeeded() > 1) {
+            // 풍요: 돌연변이 카드 + 나머지는 무작위로 채워서 확정 (체크만 켜고 끄며 맴돌지 않게)
+            const rest = shuffle(choices.map((_, i) => i).filter((i) => i !== mutIndex)).slice(0, picksNeeded() - 1);
+            for (const i of [mutIndex].concat(rest)) chooseAugment(i);
+            confirmChoice();
+          } else {
+            chooseAugment(mutIndex);      // 돌연변이 카드는 고른다
+          }
           continue;
         }
         // focus: 가진 증강의 레벨업 카드 → 없으면 다시 뽑기 → 그래도 없으면 무작위

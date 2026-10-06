@@ -5624,7 +5624,7 @@ function drawLobbyRow(row, label) {
 
 // 로비 "튜토리얼부터 해볼까요?" 말풍선 (튜토리얼 칸 위쪽 왼편)
 function tutorialPromptRect() {
-  return { x: 50, y: START_BUTTON.y + 4, w: 240, h: 42 };   // 시작 버튼 왼쪽 빈자리
+  return { x: 20, y: 96, w: 236, h: 40 };   // 제목 왼쪽 빈자리 (바로 아래가 튜토리얼 칸)
 }
 function drawTutorialPrompt() {
   if (!tutorialPromptVisible()) return;
@@ -5633,8 +5633,8 @@ function drawTutorialPrompt() {
   const chip = lobbyChipRect("difficulty", DIFFICULTIES.findIndex(function (d) { return d.id === "tutorial"; }));
   ctx.save();
   ctx.translate(0, bob);
-  // 꼬리: 말풍선 위 → 튜토리얼 칸 쪽
-  drawOutlinedPolygon([[r.x + r.w - 70, r.y + 4], [chip.x + chip.w / 2, chip.y + chip.h + 4], [r.x + r.w - 30, r.y + 4]], COLORS.white, SMALL_OUTLINE_WIDTH);
+  // 꼬리: 말풍선 오른쪽 아래 → 튜토리얼 칸 위쪽 (다른 줄을 가리지 않게 짧게)
+  drawOutlinedPolygon([[r.x + r.w - 52, r.y + r.h - 4], [chip.x + 26, chip.y + 3], [r.x + r.w - 22, r.y + r.h - 4]], COLORS.white, SMALL_OUTLINE_WIDTH);
   drawStickerRect(r.x, r.y, r.w, r.h, 18, hoverColor("tutorialPrompt", COLORS.white), 4);
   drawOutlinedText("튜토리얼부터 해볼까요?", r.x + r.w / 2, r.y + r.h / 2 + 1, 18, "center", COLORS.blue);
   ctx.restore();

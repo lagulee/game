@@ -1,4 +1,4 @@
-A menuDraw e81e1ea2
+A menuDraw ed310497
 A f0 {"st":"playing","w":1,"sc":0,"hp":100,"p":[480.222,270,13.333,0,0],"e":[],"b":[],"pop":[],"par":0,"own":"{}","ch":[],"best":0}
 A f0 draw 14e2fdea
 A f20 {"st":"playing","w":1,"sc":0,"hp":100,"p":[528.556,270,220,0,0],"e":[],"b":[],"pop":[],"par":0,"own":"{}","ch":[],"best":0}

@@ -30,8 +30,34 @@
 // 둘을 합칠 때: 배율끼리는 곱하고, 그 밖의 값은 모드가 덮어쓴다.
 // =============================================================
 
+// ---- 조절용 숫자 (난이도 · 모드) ----
 // 카드 선택 화면의 "다시 뽑기" 횟수 (한 판에)
 const REROLL_COUNT = 2;
+// 쉬움 · 어려움 배율 (적 체력 · 속도 · 접촉 대미지 · 코인) 과 해금 웨이브 ("보통 + 기본" 기록)
+const EASY_HP = 0.7;
+const EASY_SPEED = 0.9;
+const EASY_DAMAGE = 0.7;
+const EASY_COIN = 0.7;
+const HARD_HP = 1.4;
+const HARD_SPEED = 1.1;
+const HARD_DAMAGE = 1.3;
+const HARD_COIN = 1.5;
+const HARD_UNLOCK = 15;
+// 풍요: 보여 주는 카드 · 고르는 카드, 적 체력 · 코인 배율, 해금
+const PLENTY_SHOW = 5;
+const PLENTY_PICK = 2;
+const PLENTY_HP = 1.6;
+const PLENTY_COIN = 0.8;
+const PLENTY_UNLOCK = 10;
+// 혼돈: 웨이브마다 자동으로 받는 카드 수, 돌연변이 확률 배율, 코인 배율, 해금
+const CHAOS_AUTO = 2;
+const CHAOS_MUTATION = 3;
+const CHAOS_COIN = 1.2;
+const CHAOS_UNLOCK = 15;
+// 오늘의 도전: 정해진 능력치, 해금
+const DAILY_HP = 200;
+const DAILY_DAMAGE = 16;
+const DAILY_UNLOCK = 5;
 
 // ---- 규칙의 기본값 (보통 + 기본) ----
 const BASE_RULES = {
@@ -73,17 +99,17 @@ const DIFFICULTIES = [
   },
   {
     id: "easy", name: "쉬움", color: "green", unlockWave: 0,
-    enemyHpMult: 0.7, enemySpeedMult: 0.9, enemyDamageMult: 0.7, coinMult: 0.7,
-    desc: "연습용. 적 체력 × 0.7, 속도 × 0.9, 대미지 × 0.7. 대신 코인도 × 0.7",
+    enemyHpMult: EASY_HP, enemySpeedMult: EASY_SPEED, enemyDamageMult: EASY_DAMAGE, coinMult: EASY_COIN,
+    desc: "연습용. 적 체력 × " + EASY_HP + ", 속도 × " + EASY_SPEED + ", 대미지 × " + EASY_DAMAGE + ". 대신 코인도 × " + EASY_COIN,
   },
   {
     id: "normal", name: "보통", color: "yellow", unlockWave: 0,
     desc: "기본 난이도. 모든 배율 × 1",
   },
   {
-    id: "hard", name: "어려움", color: "red", unlockWave: 15,
-    enemyHpMult: 1.4, enemySpeedMult: 1.1, enemyDamageMult: 1.3, coinMult: 1.5,
-    desc: "적 체력 × 1.4, 속도 × 1.1, 대미지 × 1.3. 코인 × 1.5",
+    id: "hard", name: "어려움", color: "red", unlockWave: HARD_UNLOCK,
+    enemyHpMult: HARD_HP, enemySpeedMult: HARD_SPEED, enemyDamageMult: HARD_DAMAGE, coinMult: HARD_COIN,
+    desc: "적 체력 × " + HARD_HP + ", 속도 × " + HARD_SPEED + ", 대미지 × " + HARD_DAMAGE + ". 코인 × " + HARD_COIN,
   },
 ];
 
@@ -98,19 +124,19 @@ const MODES = [
     rules: {},
   },
   {
-    id: "plenty", name: "풍요", color: "green", unlockWave: 10,
-    desc: "카드 5장 중 2장을 고른다. 대신 적 체력 × 1.6, 코인 × 0.8",
-    rules: { choiceShow: 5, choicePick: 2, enemyHpMult: 1.6, coinMult: 0.8 },
+    id: "plenty", name: "풍요", color: "green", unlockWave: PLENTY_UNLOCK,
+    desc: "카드 " + PLENTY_SHOW + "장 중 " + PLENTY_PICK + "장을 고른다. 대신 적 체력 × " + PLENTY_HP + ", 코인 × " + PLENTY_COIN,
+    rules: { choiceShow: PLENTY_SHOW, choicePick: PLENTY_PICK, enemyHpMult: PLENTY_HP, coinMult: PLENTY_COIN },
   },
   {
-    id: "chaos", name: "혼돈", color: "purple", unlockWave: 15,
-    desc: "카드를 고르지 못하고 웨이브마다 무작위 증강 2개를 자동으로 받는다. 돌연변이 확률 3배, 다시 뽑기 없음, 코인 × 1.2",
-    rules: { autoAugments: 2, mutationMult: 3, rerolls: 0, coinMult: 1.2 },
+    id: "chaos", name: "혼돈", color: "purple", unlockWave: CHAOS_UNLOCK,
+    desc: "카드를 고르지 못하고 웨이브마다 무작위 증강 " + CHAOS_AUTO + "개를 자동으로 받는다. 돌연변이 확률 " + CHAOS_MUTATION + "배, 다시 뽑기 없음, 코인 × " + CHAOS_COIN,
+    rules: { autoAugments: CHAOS_AUTO, mutationMult: CHAOS_MUTATION, rerolls: 0, coinMult: CHAOS_COIN },
   },
   {
-    id: "daily", name: "오늘의 도전", color: "orange", unlockWave: 5, fixedDifficulty: "normal",
-    desc: "날짜가 같으면 누구나 같은 적 배치 · 같은 카드. 업그레이드 · 스킬 없이 체력 200, 공격력 16 으로. 난이도는 보통 고정, 코인은 하루 첫 판만",
-    rules: { useUpgrades: false, useSkills: false, fixedStats: { maxHp: 200, damage: 16 }, daily: true },
+    id: "daily", name: "오늘의 도전", color: "orange", unlockWave: DAILY_UNLOCK, fixedDifficulty: "normal",
+    desc: "날짜가 같으면 누구나 같은 적 배치 · 같은 카드. 업그레이드 · 스킬 없이 체력 " + DAILY_HP + ", 공격력 " + DAILY_DAMAGE + " 으로. 난이도는 보통 고정, 코인은 하루 첫 판만",
+    rules: { useUpgrades: false, useSkills: false, fixedStats: { maxHp: DAILY_HP, damage: DAILY_DAMAGE }, daily: true },
   },
 ];
 
