@@ -2434,4 +2434,24 @@ module.exports = [
         " / 연속 복리: 배율 " + mut.mult.toFixed(2) + " (1.2¹⁵), 적 바뀌면 n=15→" + mut.nAfter + ", n=30→" + mut.capHalf };
     },
   },
+  {
+    name: "[돌연변이 C] 블랙 스완: 3% 확률로 10배, 나머지는 낮춰서 전체 평균은 그대로 1.1배 (Lv.1~3), 돌연변이 전 분포는 그대로",
+    run: function () {
+      startGame(); __reseed(9);
+      const aug = AUGMENTS.find((a) => a.id === "variance");
+      const N = 300000;
+      const out = [];
+      for (let lv = 0; lv < 3; lv++) {
+        const stats = Object.assign({}, aug.levels[lv], { mutated: true });
+        let sum = 0, big = 0;
+        for (let i = 0; i < N; i++) { const m = aug.modifyDamage(1, stats, {}); sum += m; if (m === BLACKSWAN_MULT) big++; }
+        let sum0 = 0;
+        for (let i = 0; i < N; i++) sum0 += aug.modifyDamage(1, aug.levels[lv], {});
+        out.push({ mean: sum / N, rate: big / N, mean0: sum0 / N });
+      }
+      // 평균의 오차: 10배가 섞여 흔들림이 크다 (표준편차 약 1.7 → 30만 번이면 ±0.01 안쪽)
+      const ok = out.every((o) => Math.abs(o.mean - VARIANCE_MEAN) < 0.015 && Math.abs(o.rate - BLACKSWAN_CHANCE) < 0.002 && Math.abs(o.mean0 - VARIANCE_MEAN) < 0.01);
+      return { ok: ok, detail: out.map((o, i) => "Lv" + (i + 1) + " 평균 " + o.mean.toFixed(3) + ", 10배 " + (o.rate * 100).toFixed(2) + "% (전 " + o.mean0.toFixed(3) + ")").join(" / ") };
+    },
+  },
 ];

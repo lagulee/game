@@ -350,13 +350,21 @@ const AUGMENTS = [
       const highMean = (1 + high) / 2;
       const p = (VARIANCE_MEAN - lowMean) / (highMean - lowMean);
 
-      let mult;
-      if (Math.random() < p) {
-        mult = 1 + Math.random() * (high - 1);  // 큰 쪽: 1 ~ high
-      } else {
-        mult = low + Math.random() * (1 - low); // 작은 쪽: 0.2 ~ 1
+      // =========================================================
+      // 돌연변이 "블랙 스완": BLACKSWAN_CHANCE(3%) 확률로 BLACKSWAN_MULT(10)배
+      //   나머지 97% 는 위의 원래 방법으로 뽑은 배율에 s 를 곱해서 낮춘다.
+      //   원래 방법으로 뽑은 배율의 평균은 M = 1.1 이므로, 낮춘 배율의 평균은 M × s.
+      //   전체 평균 = 0.03 × 10 + 0.97 × (M × s) 가 다시 M(1.1) 이 되려면
+      //     0.3 + 0.97 × 1.1 × s = 1.1
+      //     s = (1.1 − 0.3) ÷ (0.97 × 1.1) = 0.8 ÷ 1.067 ≈ 0.7498
+      //   즉 평소에는 약 75% 로 조금 약하게 맞지만, 가끔 10배가 터져서 평균은 그대로 1.1배.
+      // =========================================================
+      if (stats.mutated) {
+        if (Math.random() < BLACKSWAN_CHANCE) return damage * BLACKSWAN_MULT;
+        const s = (VARIANCE_MEAN - BLACKSWAN_CHANCE * BLACKSWAN_MULT) / ((1 - BLACKSWAN_CHANCE) * VARIANCE_MEAN);
+        return damage * varianceDraw(low, high, p) * s;
       }
-      return damage * mult;
+      return damage * varianceDraw(low, high, p);
     },
   },
   {
@@ -986,6 +994,18 @@ const AUGMENTS = [
     },
   },
 ];
+
+
+// =============================================================
+// 분산 증폭의 배율 하나 뽑기: 확률 p 로 큰 쪽 [1, high], 아니면 작은 쪽 [low, 1] 에서 고르게
+// (난수를 쓰는 순서는 예전 그대로: 먼저 어느 쪽인지, 그다음 그 안의 값)
+// =============================================================
+function varianceDraw(low, high, p) {
+  if (Math.random() < p) {
+    return 1 + Math.random() * (high - 1);  // 큰 쪽: 1 ~ high
+  }
+  return low + Math.random() * (1 - low);   // 작은 쪽: 0.2 ~ 1
+}
 
 
 // =============================================================
