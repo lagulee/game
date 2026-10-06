@@ -270,14 +270,17 @@ function scenarioRunner(config) {
 const CHECKS = require("./checks.js");
 
 // 게임 페이지를 연다. overrides = 바꿔 끼울 상수 { 이름: 값 } (지금 게임 폴더일 때만)
+// (여러 페이지를 동시에 열므로, 상수를 바꿔 끼우는 페이지는 저마다 작은 서버를 따로 연다)
 async function openGame(browser, gameDir, overrides) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.addInitScript(initScript);
   if (gameDir === ROOT) {
-    server.setOverrides(overrides || {});
-    await page.goto(server.url + "index.html");
+    const own = await startServer(ROOT);
+    own.setOverrides(overrides || {});
+    await page.goto(own.url + "index.html");
+    page.on("close", () => own.close());
   } else {
     await page.goto("file://" + path.join(gameDir, "index.html"));
   }
@@ -294,6 +297,18 @@ async function trace(browser, gameDir, config, overrides) {
   await page.close();
   if (errors.length) log.push("PAGE ERRORS " + JSON.stringify(errors));
   return log.join("\n") + "\n";
+}
+
+// 일을 n 개씩 동시에 처리하고, 결과는 원래 순서대로 돌려준다
+const PARALLEL = 4;
+async function pool(items, n, work) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function runner() {
+    while (next < items.length) { const i = next++; results[i] = await work(items[i], i); }
+  }
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, runner));
+  return results;
 }
 
 function compare(label, actual, file) {
@@ -359,18 +374,21 @@ function compare(label, actual, file) {
   }
 
   console.log("[기록 비교]");
-  allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개, 예고 0)", await trace(browser, ROOT, "old", NO_SPAWN_WARN), path.join(GOLDEN, "old-config.txt")) && allOk;
-  allOk = compare("새 설정 (지금 waves.js, 예고 0)", await trace(browser, ROOT, "new", NO_SPAWN_WARN), path.join(GOLDEN, "new-config.txt")) && allOk;
-  allOk = compare("등장 예고 (지금 waves.js, 예고 0.8초, 돌연변이 0)", await trace(browser, ROOT, "new", NO_MUTATION), path.join(GOLDEN, "new-config-spawnwarn.txt")) && allOk;
+  // 기록들을 동시에 만든 뒤 차례로 비교한다
+  const [tOld, tNew, tWarn, rollOnly, burned, tMut] = await pool([
+    ["old", NO_SPAWN_WARN], ["new", NO_SPAWN_WARN], ["new", NO_MUTATION],
+    ["new", MUTATION_ROLL_ONLY], ["new:burnroll", NO_MUTATION], ["new", {}],
+  ], PARALLEL, (t) => trace(browser, ROOT, t[0], t[1]));
+  allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개, 예고 0)", tOld, path.join(GOLDEN, "old-config.txt")) && allOk;
+  allOk = compare("새 설정 (지금 waves.js, 예고 0)", tNew, path.join(GOLDEN, "new-config.txt")) && allOk;
+  allOk = compare("등장 예고 (지금 waves.js, 예고 0.8초, 돌연변이 0)", tWarn, path.join(GOLDEN, "new-config-spawnwarn.txt")) && allOk;
   {
     // 돌연변이 판정이 바꾸는 것은 난수 한 번뿐인지: "뽑기만 하고 안 걸리는 확률" == "확률 0 + 난수 한 번 버리기"
-    const rollOnly = await trace(browser, ROOT, "new", MUTATION_ROLL_ONLY);
-    const burned = await trace(browser, ROOT, "new:burnroll", NO_MUTATION);
     const same = rollOnly === burned;
     console.log("  " + (same ? "PASS" : "FAIL") + " 돌연변이 난수: 확률 1e-9 기록 = 확률 0 + 후보가 있을 때 난수 한 번 버리기 (" + rollOnly.split("\n").length + "줄)");
     allOk = same && allOk;
   }
-  allOk = compare("돌연변이 (지금 waves.js, 지금 기본값)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config-mutation.txt")) && allOk;
+  allOk = compare("돌연변이 (지금 waves.js, 지금 기본값)", tMut, path.join(GOLDEN, "new-config-mutation.txt")) && allOk;
   // 옛 규칙 되돌리기 검사: 화면 그림(draw)은 HUD 글자 등이 바뀔 수 있으니 빼고, 상태 기록만 비교
   const stateOnly = (text) => text.split("\n").filter((l) => !/ draw /.test(l) && !/ menuDraw /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
   // 되돌리기 검사 목록: 바꾼 규칙을 옛 값으로 바꿔 끼우면, 그때 저장한 기록과 상태가 같아야 한다
@@ -385,10 +403,13 @@ function compare(label, actual, file) {
     { label: "성장 D 되돌리기: 적 강화 상수를 옛 값으로, 업그레이드 0레벨이면 D 이전 기록과 상태가 같음", config: "beforeGrowthD", file: "old-config-before-growth-d.txt" },
     { label: "옛 규칙 되돌리기: 새 규칙(웨이브 스케일링·회복)만 예전으로 바꾸면 이전 기록과 상태가 같음", config: "legacy", file: "old-config-legacy.txt" },
   ];
-  for (const rb of ROLLBACKS) {
+  const rbTraces = await pool(ROLLBACKS, PARALLEL, (rb) =>
+    fs.existsSync(path.join(GOLDEN, rb.file)) ? trace(browser, ROOT, rb.config, rb.overrides || BEFORE_PRESSURE) : null);
+  for (let k = 0; k < ROLLBACKS.length; k++) {
+    const rb = ROLLBACKS[k];
     const file = path.join(GOLDEN, rb.file);
     if (!fs.existsSync(file)) { console.log("  ? " + rb.label + ": 기록 파일이 없음"); continue; }
-    const now = stateOnly(await trace(browser, ROOT, rb.config, rb.overrides || BEFORE_PRESSURE));
+    const now = stateOnly(rbTraces[k]);
     const want = stateOnly(fs.readFileSync(file, "utf8"));
     if (now === want) console.log("  PASS " + rb.label);
     else {
@@ -401,7 +422,8 @@ function compare(label, actual, file) {
   }
 
   console.log("[동작 검사]");
-  for (const check of CHECKS) {
+  // 검사마다 새 페이지 (동시에 PARALLEL 개씩). 결과는 목록 순서대로 쓴다
+  const results = await pool(CHECKS, PARALLEL, async (check) => {
     const { page, errors } = await openGame(browser, ROOT);
     let result;
     try {
@@ -410,9 +432,13 @@ function compare(label, actual, file) {
       result = { ok: false, detail: "검사 중 오류: " + e.message };
     }
     if (errors.length) result = { ok: false, detail: "페이지 오류: " + errors.join(" / ") };
-    console.log("  " + (result.ok ? "PASS " : "FAIL ") + check.name + (result.detail ? " — " + result.detail : ""));
-    allOk = allOk && result.ok;
     await page.close();
+    return result;
+  });
+  for (let k = 0; k < CHECKS.length; k++) {
+    const result = results[k];
+    console.log("  " + (result.ok ? "PASS " : "FAIL ") + CHECKS[k].name + (result.detail ? " — " + result.detail : ""));
+    allOk = allOk && result.ok;
   }
 
   await browser.close();

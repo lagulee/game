@@ -296,9 +296,10 @@ const AUGMENTS = [
     ],
 
     // 대미지 × (1 + r)^n
+    //   돌연변이 "연속 복리": n 상한이 COMPOUND_MUT_MAX_N, 적이 바뀌면 n 이 절반(내림)으로 (game.js 의 calcDamage → keepStreakOnSwitch)
     modifyDamage: function (damage, stats, info) {
-      // n = 연속 명중 횟수. 단, COMPOUND_MAX_N 을 넘지 않게 자른다
-      const n = Math.min(info.streak, COMPOUND_MAX_N);
+      // n = 연속 명중 횟수. 단, 상한(COMPOUND_MAX_N, 돌연변이면 COMPOUND_MUT_MAX_N)을 넘지 않게 자른다
+      const n = Math.min(info.streak, stats.mutated ? COMPOUND_MUT_MAX_N : COMPOUND_MAX_N);
       // Math.pow(a, b) = a 의 b 제곱
       return damage * Math.pow(1 + stats.r, n);
     },

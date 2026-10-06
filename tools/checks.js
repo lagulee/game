@@ -2409,4 +2409,29 @@ module.exports = [
       return { ok: open && lockedOthers && on && off && gone, detail: "모바일 지급 버튼으로 열림 " + open + " / 안 가진 증강은 잠김 " + lockedOthers + " / 켜기 (이름 바뀜) " + on + " / 끄기 " + off + " / 레벨 0 이면 함께 지워짐 " + gone };
     `),
   },
+  // ---------------- 돌연변이 C: 14종 ----------------
+  {
+    name: "[돌연변이 C] 연속 복리: n 상한 10 → 20, 적이 바뀌어도 n 이 0 이 아니라 절반(내림). 돌연변이 전에는 그대로 (상한 10, 0 부터)",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const a = createEnemy("basic", 300, 300, 1), b = createEnemy("basic", 600, 300, 1);
+      const bullet = { damageScale: 1 };
+      const r = AUGMENTS[0].levels[1].r;
+      const hits = (enemy, n) => { let d = 0; for (let i = 0; i < n; i++) d = calcDamage(enemy, bullet); return d; };
+      const run = (mut) => {
+        ownedAugments = { compound: 2 }; mutatedAugments = mut ? { compound: true } : {};
+        lastHitEnemy = null; hitStreak = 0;
+        const d16 = hits(a, 16);                 // 16번째 명중: n = 15
+        const nAfter = (calcDamage(b, bullet), hitStreak);   // 다른 적: n = ?
+        const switched = calcDamage(b, bullet);  // 그다음
+        lastHitEnemy = null; hitStreak = 0; hits(a, 31); calcDamage(b, bullet); const capHalf = hitStreak;   // n 30 → 상한 20 → 10
+        return { mult: d16 / player.damage, nAfter, capHalf };
+      };
+      const plain = run(false), mut = run(true);
+      const ok = Math.abs(plain.mult - Math.pow(1 + r, 10)) < 1e-9 && plain.nAfter === 0 &&
+        Math.abs(mut.mult - Math.pow(1 + r, 15)) < 1e-9 && mut.nAfter === 7 && mut.capHalf === 10;
+      return { ok: ok, detail: "돌연변이 전: n=15 배율 " + plain.mult.toFixed(2) + " (1.2¹⁰), 적 바뀌면 n=" + plain.nAfter +
+        " / 연속 복리: 배율 " + mut.mult.toFixed(2) + " (1.2¹⁵), 적 바뀌면 n=15→" + mut.nAfter + ", n=30→" + mut.capHalf };
+    },
+  },
 ];

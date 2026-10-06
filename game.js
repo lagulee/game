@@ -2356,6 +2356,14 @@ function fireInterval() {
   return interval;
 }
 
+// 다른 적을 맞혔을 때 남는 연속 명중 횟수 n
+//   보통은 0 부터 다시. 돌연변이 "연속 복리" 는 이자를 끊지 않고 이어 간다: 상한 안에서 절반(내림)
+//   예: n = 13 → 6, n = 30 → (상한 20) → 10
+function keepStreakOnSwitch(n) {
+  if (getAugmentLevel("compound") > 0 && isMutated("compound")) return Math.floor(Math.min(n, COMPOUND_MUT_MAX_N) / 2);
+  return 0;
+}
+
 // 총알 한 발이 적에게 줄 대미지를 계산하는 함수
 // 기본 대미지에서 시작해서, 가진 증강 중 modifyDamage 가 있는 것들이 차례로 바꾼다.
 function calcDamage(enemy, bullet) {
@@ -2364,7 +2372,7 @@ function calcDamage(enemy, bullet) {
   if (enemy === lastHitEnemy) {
     hitStreak += 1;
   } else {
-    hitStreak = 0;
+    hitStreak = keepStreakOnSwitch(hitStreak);
     lastHitEnemy = enemy;
   }
 
