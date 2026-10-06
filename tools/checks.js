@@ -3133,4 +3133,166 @@ module.exports = [
       return { ok: ok, detail: "첫 클릭: 확인만 " + armed + " / 두 번째: 다시 뽑음 (돌연변이 사라짐, 남은 1) " + done + " / R키도 확인 " + armedKey + " / 3초 지나면 풀림 " + expired + ", 다시 확인부터 " + armedAgain + " / 결과 화면 R = 다시 시작 " + restart };
     },
   },
+  // ---------------- 난이도 · 모드 D: 모드 ----------------
+  {
+    name: "[모드] 풍요: 카드 5장 중 2장 (체크 켜고 끄기, 2장이면 확정 버튼, 1~5 키 · Enter), 두 장 모두 적용, 적 체력 × 1.6 · 코인 × 0.8, 보통 10웨이브에 해금",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      const cr = canvas.getBoundingClientRect();
+      const click = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.tutorialPrompted = true;
+      saveData.bestWaves["normal:basic"] = 9; saveData.mode = "plenty";
+      const lockedBefore = selectedMode().id === "basic";
+      saveData.bestWaves["normal:basic"] = 10;
+      startGame(); spawnQueue = []; enemies = [];
+      const rules = currentRules.mode === "plenty" && currentRules.choiceShow === 5 && currentRules.choicePick === 2;
+      const hp = (() => { const e = createEnemy("basic", 0, 0, 3); const r = currentRules; currentRules = makeRules("normal", "basic"); const n = createEnemy("basic", 0, 0, 3); currentRules = r; return Math.abs(e.maxHp / n.maxHp - 1.6) < 1e-9; })();
+      const coin = Math.abs(currentRules.coinMult - 0.8) < 1e-12;
+      ownedAugments = {};
+      openChoiceScreen(); choosingTime = 1; draw();
+      const five = choices.length === 5;
+      const ids = choices.map((c) => c.id);
+      // 카드 2 클릭 → 체크, 다시 클릭 → 해제, 4 · 5 키 → 2장, 확정 버튼 보임
+      const card = (i) => { const p = cardPosition(i), s = cardScale(); return { x: p.x, y: p.y, w: CARD_WIDTH * s, h: CARD_HEIGHT * s }; };
+      click(card(1)); const one = pickedCards.join() === "1" && !confirmButtonVisible();
+      click(card(1)); const none = pickedCards.length === 0;
+      press("Digit4"); press("Digit5"); press("Digit1"); draw();
+      const two = pickedCards.join() === "3,4" && confirmButtonVisible() && gameState === "choosing";   // 세 번째는 안 됨
+      press("Enter");
+      const applied = gameState === "playing" && wave === 2 && [ids[3], ids[4]].every((id) => SUPPLIES.some((s) => s.id === id) || getAugmentLevel(id) === 1);
+      // 확정 버튼 클릭도
+      openChoiceScreen(); choosingTime = 1; chooseAugment(0); chooseAugment(2); click(CONFIRM_BUTTON);
+      const byButton = gameState === "playing" && wave === 3;
+      saveData.mode = "basic"; goToMenu();
+      const ok = lockedBefore && rules && hp && coin && five && one && none && two && applied && byButton;
+      return { ok: ok, detail: "9웨이브엔 잠김 " + lockedBefore + " / 규칙 5장 중 2장 " + rules + ", 체력 ×1.6 " + hp + ", 코인 ×0.8 " + coin + " / 5장 " + five +
+        " / 클릭 체크 " + one + ", 다시 클릭 해제 " + none + " / 4·5 키 → 2장, 세 번째 안 됨, 확정 버튼 " + two + " / Enter 확정 · 두 장 적용 " + applied + " / 확정 버튼 클릭 " + byButton };
+    },
+  },
+  {
+    name: "[모드] 혼돈: 카드를 못 고르고 무작위 증강 2개를 바로 받음, 1.5초 보여 준 뒤 다음 웨이브, 돌연변이 확률 3배, 다시 뽑기 없음, 코인 × 1.2, 보통 15웨이브에 해금",
+    run: function () {
+      const DT = 1 / 60;
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.tutorialPrompted = true; saveData.mode = "chaos";
+      saveData.bestWaves["normal:basic"] = 14; const locked = selectedMode().id === "basic";
+      saveData.bestWaves["normal:basic"] = 15;
+      startGame(); spawnQueue = []; enemies = [];
+      const rules = currentRules.autoAugments === 2 && currentRules.mutationMult === 3 && currentRules.rerolls === 0 && Math.abs(currentRules.coinMult - 1.2) < 1e-12;
+      ownedAugments = {};
+      openChoiceScreen();
+      const got = Object.keys(ownedAugments).length === 2 && choices.length === 2 && autoChoiceActive();
+      choosingTime = 1; chooseAugment(0); const noPick = Object.keys(ownedAugments).length === 2 && gameState === "choosing" && !rerollButtonVisible();
+      draw();
+      for (let i = 0; i < Math.round(1.4 / DT); i++) update(DT);
+      const stillShowing = gameState === "choosing" && wave === 1;
+      for (let i = 0; i < Math.round(0.2 / DT); i++) update(DT);
+      const next = gameState === "playing" && wave === 2 && bannerSubText.indexOf("획득") >= 0;
+      // 돌연변이: 후보가 있을 때 확률 3배로 굴린다 (6000번 뽑아 비율)
+      ownedAugments = { compound: 2, variance: 2 }; let n = 0;
+      for (let i = 0; i < 6000; i++) { mutatedAugments = {}; bossKilledThisWave = false; if (pickChoices().some((c) => c.isMutation)) n++; }
+      const rate = n / 6000, want = MUTATION_CHANCE * 3;
+      const mut3 = Math.abs(rate - want) < 4 * Math.sqrt(want * (1 - want) / 6000);
+      saveData.mode = "basic"; goToMenu();
+      const ok = locked && rules && got && noPick && stillShowing && next && mut3;
+      return { ok: ok, detail: "14웨이브엔 잠김 " + locked + " / 규칙 " + rules + " / 웨이브 끝 → 2개 자동 " + got + " / 고르기 · 다시 뽑기 안 됨 " + noPick +
+        " / 1.4초엔 아직 " + stillShowing + ", 1.6초에 다음 웨이브 " + next + " / 돌연변이 " + (rate * 100).toFixed(1) + "% (기대 " + (want * 100).toFixed(0) + "%)" };
+    },
+  },
+  {
+    name: "[모드] 오늘의 도전: 같은 날 두 번 하면 (다르게 움직여도) 적 배치 · 카드가 같고, 다른 날은 다름. 체력 200 · 공격력 16 (업그레이드 · 스킬 없이), 보통 고정, 코인은 하루 첫 판만, 오늘의 기록, 보통 5웨이브에 해금",
+    run: function () {
+      const DT = 1 / 60;
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.tutorialPrompted = true;
+      saveData.bestWaves["normal:basic"] = 4; saveData.mode = "daily"; const locked = selectedMode().id === "basic";
+      saveData.bestWaves["normal:basic"] = 5;
+      saveData.difficulty = "hard"; saveData.bestWaves["normal:basic"] = 20;   // 어려움을 골라 둬도 보통으로
+      saveData.upgrades = { vitality: 10, power: 10 }; saveData.ownedSkills = ["dash"]; saveData.equippedSkill = "dash";
+      let day = "2026-10-07";
+      window.todayKey = () => day;
+      // 한 판: 1~3웨이브, 웨이브마다 처음 나오는 적 6마리의 (종류, 자리) 와 웨이브 끝의 카드
+      const playRun = (moveKey, seedShift) => {
+        const spawns = [], cards = [];
+        const orig = window.createEnemy;
+        window.createEnemy = function (type, x, y, w) { const e = orig(type, x, y, w); if (spawns.length < 60) spawns.push(type + "@" + Math.round(x) + "," + Math.round(y)); return e; };
+        startGame();
+        const stats = [currentRules.difficulty, player.maxHp, player.damage, battleSkill() === null, currentRules.coinMult];
+        __reseed(1234 + seedShift);   // 다른 곳 (파티클 · 대미지 숫자) 의 난수는 판마다 다르게
+        debugMode = true; debugInvincible = true;
+        for (let w = 1; w <= 3; w++) {
+          for (let f = 0; f < 60 * 20 && gameState === "playing" && wave === w; f++) {
+            for (const k in keys) keys[k] = false; keys[moveKey] = (f % 120) < 60;
+            update(DT);
+          }
+          if (gameState !== "choosing") { enemies = []; spawnQueue = []; bossQueue = []; pendingSpawns = []; checkWaveEnd(); }
+          cards.push(choices.map((c) => c.id).join("/"));
+          ownedAugments = {}; mutatedAugments = {};   // 같은 증강을 가진 상태로 다음 카드를 비교
+          choosingTime = 1; chooseAugment(0); ownedAugments = {};
+        }
+        for (const k in keys) keys[k] = false;
+        debugMode = false; debugInvincible = false;
+        window.createEnemy = orig;
+        endGame("gameover");
+        return { spawns: spawns.join(";"), cards: cards.join(" | "), stats, coins: lastRunCoins };
+      };
+      const a = playRun("KeyD", 0), b = playRun("KeyA", 777);
+      day = "2026-10-08"; const c = playRun("KeyD", 0);
+      const same = a.spawns === b.spawns && a.cards === b.cards && a.spawns.length > 0;
+      const differ = a.spawns !== c.spawns && a.cards !== c.cards;
+      const stats = a.stats.join() === "normal,200,16,true,1" && b.stats[4] === 0 && c.stats[4] === 1;
+      const record = saveData.dailyBest.date === "2026-10-08" && saveData.dailyBest.wave >= 3;
+      draw();
+      delete window.todayKey;
+      saveData.mode = "basic"; saveData.difficulty = "normal"; goToMenu();
+      const ok = locked && same && differ && stats && record;
+      return { ok: ok, detail: "4웨이브엔 잠김 " + locked + " / 같은 날 두 판 적 배치 · 카드 같음 " + same + " (적 " + a.spawns.split(";").length + "마리, 카드 " + a.cards + ") / 다른 날 다름 " + differ +
+        " / 보통 고정 · 체력 200 · 공격력 16 · 스킬 없음, 코인 첫 판만 " + stats + " (" + a.stats.join() + " / 둘째 판 코인 배율 " + b.stats[4] + ") / 오늘의 기록 " + JSON.stringify(saveData.dailyBest) };
+    },
+  },
+  {
+    name: "[모드] 로비 모드 줄: 난이도와 자유롭게 조합 (어려움 + 풍요 = 체력 1.4 × 1.6), 오늘의 도전은 난이도 줄이 \"고정\" (눌러도 이유만 알림), 튜토리얼은 모드 줄 고정, 최고 기록은 조합마다",
+    run: function () {
+      const cr = canvas.getBoundingClientRect();
+      const click = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.tutorialPrompted = true; saveData.bestWaves["normal:basic"] = 30;
+      goToMenu(); draw();
+      const mi = (id) => MODES.findIndex((m) => m.id === id), di = (id) => DIFFICULTIES.findIndex((d) => d.id === id);
+      click(lobbyChipRect("difficulty", di("hard"))); click(lobbyChipRect("mode", mi("plenty")));
+      const combo = makeRules(saveData.difficulty, saveData.mode);
+      const mixed = combo.difficulty === "hard" && combo.mode === "plenty" && Math.abs(combo.enemyHpMult - 1.4 * 1.6) < 1e-9 && Math.abs(combo.coinMult - 1.5 * 0.8) < 1e-9;
+      click(lobbyChipRect("mode", mi("daily"))); draw();
+      const fixedDiff = lobbyRowFixedReason("difficulty") !== null && lobbyRowSelected("difficulty").id === "normal";
+      click(lobbyChipRect("difficulty", di("easy")));
+      const stayed = saveData.difficulty === "hard" && lobbyToastTimer > 0 && lobbyToast.indexOf("고정") >= 0;
+      click(lobbyChipRect("mode", mi("basic"))); click(lobbyChipRect("difficulty", di("tutorial"))); draw();
+      const fixedMode = lobbyRowFixedReason("mode") !== null;
+      click(lobbyChipRect("mode", mi("chaos"))); const modeStayed = saveData.mode === "basic";
+      // 최고 기록은 조합마다
+      saveData.difficulty = "hard"; saveData.mode = "plenty"; startGame(); wave = 7; endGame("gameover");
+      const rec = bestWaveFor("hard", "plenty") === 7 && bestWaveFor("normal", "basic") === 30;
+      saveData.difficulty = "normal"; saveData.mode = "basic"; goToMenu();
+      const ok = mixed && fixedDiff && stayed && fixedMode && modeStayed && rec;
+      return { ok: ok, detail: "어려움 + 풍요: 체력 ×" + combo.enemyHpMult.toFixed(2) + ", 코인 ×" + combo.coinMult.toFixed(2) + " " + mixed + " / 오늘의 도전 → 난이도 고정 (보통) " + fixedDiff +
+        ", 눌러도 그대로 + 알림 " + stayed + " / 튜토리얼 → 모드 고정 " + (fixedMode && modeStayed) + " / 기록 조합마다 " + rec };
+    },
+  },
+  {
+    name: "[모드] 도감 \"난이도·모드\" 쪽 (6 키): 난이도 4 + 모드 4 설명 · 해금 조건, 쪽 버튼 7개가 한 줄에 들어감",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      saveData.tutorialPrompted = true;
+      goToMenu(); openTab("collection"); press("Digit6"); draw();
+      const page = collectionPage === "rules" && collectionItems("rules").length === DIFFICULTIES.length + MODES.length;
+      const n = COLLECTION_PAGES.length, first = collectionPageRect(0), last = collectionPageRect(n - 1);
+      const fits = first.x >= 20 && last.x + last.w <= CANVAS_WIDTH - 20;
+      const allDesc = DIFFICULTIES.concat(MODES).every((x) => x.desc && x.name);
+      goToMenu();
+      return { ok: page && fits && allDesc, detail: "6쪽 " + page + " (" + collectionItems("rules").map((x) => x.name).join(", ") + ") / 쪽 버튼 " + n + "개 화면 안 " + fits + " (" + Math.round(first.x) + " ~ " + Math.round(last.x + last.w) + ")" };
+    },
+  },
 ];

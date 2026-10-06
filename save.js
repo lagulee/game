@@ -13,6 +13,7 @@
 //   (bestWaves: 최고 웨이브를 "난이도:모드" 별로 따로. rules.js 의 recordKey)
 //   (difficulty · mode: 로비에서 고른 난이도 · 모드. 다음에 켜도 그대로)
 //   (tutorialDone: 튜토리얼을 끝내 보상을 받았는지 / tutorialPrompted: 로비의 "튜토리얼부터 해볼까요?" 를 보여 줬는지)
+//   (dailyPlayed: 오늘의 도전을 마지막으로 시작한 날짜 "2026-10-07" (코인은 하루 첫 판만) / dailyBest: { date, wave } 그날의 최고 기록)
 //   ※ 버전 1 (옛 저장) 에는 bestWave 숫자 하나만 있었다 → 읽을 때 "보통 + 기본" 기록 (bestWaves["normal:basic"]) 으로 옮긴다.
 //     코인 · 업그레이드 · 스킬 · 본 돌연변이 등 나머지는 그대로 읽는다.
 //   (hudCollapsed: 상태창을 접어 두었는지. 다음 판에도 그대로)
@@ -35,7 +36,7 @@ const LEGACY_RECORD_KEY = "normal:basic";
 function defaultSave() {
   return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWaves: {}, difficulty: "normal", mode: "basic",
     hudCollapsed: false, mobileMode: false, spawnWarn: true, ownedSkills: [], equippedSkill: null, seenMutations: [],
-    tutorialDone: false, tutorialPrompted: false };
+    tutorialDone: false, tutorialPrompted: false, dailyPlayed: "", dailyBest: { date: "", wave: 0 } };
 }
 
 // 0 이상의 정수만 통과시키는 도우미 (이상한 값이면 기본값)
@@ -80,6 +81,10 @@ function loadSave() {
   if (typeof parsed.mode === "string") data.mode = parsed.mode;
   data.tutorialDone = parsed.tutorialDone === true;
   data.tutorialPrompted = parsed.tutorialPrompted === true;
+  if (typeof parsed.dailyPlayed === "string") data.dailyPlayed = parsed.dailyPlayed;
+  if (parsed.dailyBest && typeof parsed.dailyBest.date === "string") {
+    data.dailyBest = { date: parsed.dailyBest.date, wave: cleanCount(parsed.dailyBest.wave, 0) };
+  }
   data.hudCollapsed = parsed.hudCollapsed === true;  // true 가 아니면 펼친 상태
   data.mobileMode = parsed.mobileMode === true;      // true 가 아니면 꺼짐
   data.spawnWarn = parsed.spawnWarn !== false;       // false 가 아니면 켜짐 (적 등장 예고 표시)

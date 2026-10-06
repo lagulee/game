@@ -30,6 +30,8 @@
 //   증강 기여도: --contrib 10 --runs 20  (레벨 (10,10) 에서 증강마다 "첫 카드로 얻는 판" vs "안 나오는 판")
 //   카드 고르기 방식: --cardbot focus (가진 증강의 레벨업 카드 먼저, 없으면 다시 뽑기를 쓰고, 그래도 없으면 무작위)
 //     리롤 비교: --cardbot focus --levels 10 --runs 40 와 --set REROLL_COUNT=0 를 견준다
+//   난이도 · 모드 조합표: --combos easy,normal,hard --modes basic,plenty,chaos --levels 10,20 --runs 30
+//     (오늘의 도전 daily 는 업그레이드 대신 정해진 능력치라 레벨과 상관없이 한 줄. 판마다 날짜를 바꿔 잰다)
 //   돌연변이 비교: --mutation off,on --levels 6,10,20 --runs 30
 //     (off = 확률 0, on = 지금 확률. 한 판에 얻은 돌연변이 수 평균도 보여 준다)
 //   돌연변이 기여도: --mutcontrib 10 --runs 20 --at 10
@@ -278,6 +280,14 @@ function runLevel(opts) {
     __reseed(opts.seedList ? opts.seedList[run] : 1000 + run * 7919 + seedLevel * 104729 + opts.seed * 15485863);
     saveData = defaultSave();
     saveData.upgrades = { vitality: opts.v, power: opts.p };
+    // 난이도 · 모드 (조합표). 해금 조건은 넘긴 것으로
+    saveData.tutorialPrompted = true;
+    if (opts.difficulty || opts.mode) {
+      saveData.bestWaves["normal:basic"] = 30;
+      saveData.difficulty = opts.difficulty || "normal";
+      saveData.mode = opts.mode || "basic";
+      if (saveData.mode === "daily") { const day = "2026-01-" + (run + 1); window.todayKey = () => day; }   // 판마다 다른 날
+    }
     if (opts.skill) { saveData.ownedSkills = [opts.skill]; saveData.equippedSkill = opts.skill; }
     orbitDir = 1; flipCooldown = 0;
     startGame();
@@ -287,6 +297,8 @@ function runLevel(opts) {
     let offered = 0, eligible = 0, eligibleBoss = 0, reached = false, rerolls = 0;
     while (gameState !== "gameover" && gameState !== "clear" && frames < MAX_FRAMES) {
       if (gameState === "choosing") {
+        // 혼돈: 자동으로 받은 카드를 보여 주는 동안은 시간만 흘린다
+        if (autoChoiceActive()) { update(1 / 60); continue; }
         choosingTime = 1;
         // 돌연변이 기여도: forceAt 웨이브를 깬 뒤의 선택에서 그 증강을 Lv.2 이상으로 (forceMutate 면 돌연변이까지)
         if (opts.forceAug && wave === opts.forceAt && !reached) {
@@ -319,6 +331,13 @@ function runLevel(opts) {
           continue;
         }
         firstPick = false;
+        // 풍요: 무작위로 필요한 장수만큼 고르고 확정
+        if (picksNeeded() > 1) {
+          const order = shuffle(choices.map((_, i) => i)).slice(0, picksNeeded());
+          for (const i of order) chooseAugment(i);
+          confirmChoice();
+          continue;
+        }
         chooseAugment(Math.floor(Math.random() * choices.length));
         continue;
       }
@@ -366,6 +385,36 @@ const AUGMENT_IDS = ["compound", "variance", "timeDilation", "arithmetic", "squa
   }
   const NO_MUTATION = { MUTATION_CHANCE: 0, MUTATION_BOSS_CHANCE: 0 };
   const avgOf = (list, key) => list.reduce((a, x) => a + x[key], 0) / list.length;
+
+  // ---- 난이도 · 모드 조합표: --combos 난이도들 --modes 모드들 ----
+  if (args.combos !== undefined) {
+    const diffs = args.combos.split(","), modes = (args.modes || "basic").split(",");
+    const jobs = [];
+    for (const level of LEVELS) for (const d of diffs) for (const m of modes) {
+      if (m === "daily" && (d !== diffs[0] || level !== LEVELS[0])) continue;   // 오늘의 도전은 한 번만
+      jobs.push({ level, d, m });
+    }
+    const rows = await pool(jobs, PARALLEL, async (job) => {
+      const page = await openPage({});
+      const r = await page.evaluate(runLevel, { v: job.level.v, p: job.level.p, runs: RUNS, bot: BOT, seed: SEED, difficulty: job.d, mode: job.m });
+      await page.close();
+      const row = { level: job.m === "daily" ? "-" : job.level.label, difficulty: job.m === "daily" ? "normal" : job.d, mode: job.m,
+        wave: avgOf(r, "wave"), clears: r.filter((x) => x.clear).length, coins: avgOf(r, "coins"), mutations: avgOf(r, "mutations") };
+      console.error("  끝남: " + JSON.stringify(row));   // 진행 상황 (오래 걸리므로)
+      return row;
+    });
+    console.log("난이도 · 모드 조합: 봇 " + BOT + " / 판 수 " + RUNS + " / 씨앗 " + SEED);
+    console.log("레벨 | 난이도 | 모드 | 평균 웨이브 | 클리어 | 평균 코인 | 돌연변이");
+    for (const row of rows) {
+      console.log((row.level === "-" ? "(정해진 능력치)" : "(" + row.level + "," + row.level + ")") + " | " + row.difficulty + " | " + row.mode + " | " + row.wave.toFixed(1) + " | " + row.clears + "/" + RUNS +
+        " | " + row.coins.toFixed(0) + " | " + row.mutations.toFixed(2));
+    }
+    if (errors.length) console.log("페이지 오류: " + errors.slice(0, 3).join(" / "));
+    console.log("JSON " + JSON.stringify(rows));
+    await browser.close();
+    server.close();
+    return;
+  }
 
   // ---- 돌연변이 비교 모드: --mutation off,on ----
   if (args.mutation !== undefined) {

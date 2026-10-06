@@ -324,7 +324,7 @@ const ENEMY_TYPES = {
 
     init: function (enemy) {
       enemy.waveTime = 0;                        // 흔들림에 쓰는 시간 t (이 적의 시계로)
-      enemy.phase = Math.random() * Math.PI * 2; // 시작 위상 φ: 적마다 흔들림 박자가 다르게
+      enemy.phase = spawnRandom() * Math.PI * 2; // 시작 위상 φ: 적마다 흔들림 박자가 다르게 (오늘의 도전은 날짜로 고정)
     },
 
     update: function (enemy, dt, info) {
@@ -552,7 +552,7 @@ const ENEMY_TYPES = {
     resonance: { range: RESONATOR_RANGE, boost: RESONATOR_BOOST },
 
     init: function (enemy) {
-      enemy.wobble = Math.random() * Math.PI * 2;   // 도망 다닐 때 흔들리는 박자 (적마다 다르게)
+      enemy.wobble = spawnRandom() * Math.PI * 2;   // 도망 다닐 때 흔들리는 박자 (적마다 다르게)
     },
 
     update: function (enemy, dt, info) {

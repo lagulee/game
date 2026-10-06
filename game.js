@@ -205,6 +205,12 @@ const BANNER_TIME = 1.8;
 const REROLL_BUTTON = { x: CANVAS_WIDTH / 2 - 110, y: 480, w: 220, h: 42 };   // 카드 아래 가운데
 const REROLL_CONFIRM_TIME = 3;   // 돌연변이가 떠 있을 때: 한 번 더 누르기를 기다리는 시간 (초)
 
+// ---- 모드: 풍요 (카드 여러 장 고르기), 혼돈 (자동으로 받기) ----
+const CARD_SMALL_SCALE = 0.7;    // 카드가 3장보다 많으면 (풍요 5장) 이만큼 작게
+const CARD_SMALL_GAP = 12;       // 작은 카드 사이 간격 (px)
+const CONFIRM_BUTTON = { x: CANVAS_WIDTH - 250, y: 480, w: 220, h: 42 };   // 풍요: 다 고르면 생기는 "확정" 버튼
+const CHAOS_SHOW_TIME = 1.5;     // 혼돈: 받은 증강을 보여 주는 시간 (초)
+
 // ---- 돌연변이 카드 연출 ----
 const MUTATION_CARD_DELAY = 0.35;   // 돌연변이 카드는 다른 카드보다 이만큼 (초) 한 박자 늦게 튀어나온다
 const MUTATION_SHAKE_TIME = 0.45;   // 카드가 뜰 때 화면이 흔들리는 시간 (초)
@@ -416,12 +422,14 @@ window.addEventListener("keydown", function (event) {
   if (gameState === "choosing") {
     // 키 이름과 카드 번호(0부터)를 짝지은 표
     const keyToIndex = {
-      Digit1: 0, Digit2: 1, Digit3: 2,
-      Numpad1: 0, Numpad2: 1, Numpad3: 2,
+      Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4,
+      Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3, Numpad5: 4,
     };
     if (event.code in keyToIndex) {
       chooseAugment(keyToIndex[event.code]);
     }
+    // 풍요: Enter · Space = 확정
+    if (event.code === "Enter" || event.code === "Space" || event.code === "NumpadEnter") confirmChoice();
   }
 
   // 방향키·스페이스를 누를 때 웹페이지가 위아래로 스크롤되는 것을 막는다
@@ -862,6 +870,7 @@ canvas.addEventListener("click", function (event) {
     if (insideRect(pos.x, pos.y, hudArrowRect())) { toggleHud(); return; }
     if (activeTutorialStep() && insideRect(pos.x, pos.y, tutorialSkipRect())) { skipTutorialStep(); return; }
     if (rerollButtonVisible() && insideRect(pos.x, pos.y, REROLL_BUTTON)) { rerollChoices(); return; }
+    if (confirmButtonVisible() && insideRect(pos.x, pos.y, CONFIRM_BUTTON)) { confirmChoice(); return; }
     const index = cardIndexAt(pos.x, pos.y);
     if (index >= 0) chooseAugment(index);
     return;
@@ -1038,6 +1047,9 @@ let choices = [];
 let rerollsLeft = 0;      // 이번 판에 남은 다시 뽑기 횟수
 let rerollArmTimer = 0;   // 돌연변이 카드가 떠 있을 때 "한 번 더 누르면 다시 뽑기" 를 기다리는 남은 시간 (0 = 평소)
 let rerollShake = 0;      // 횟수가 없는데 누르면 버튼이 흔들리는 남은 시간
+let pickedCards = [];     // 풍요: 지금 체크한 카드 번호들
+let autoShowTimer = 0;    // 혼돈: 자동으로 받은 카드를 보여 주는 남은 시간 (0 이 되면 다음 웨이브)
+let autoResults = [];     // 혼돈: 자동으로 받은 카드의 안내 글자들
 
 // 마우스가 올라가 있는 카드 번호 (없으면 -1)
 let hoverIndex = -1;
@@ -1201,7 +1213,8 @@ function edgeSpawnPoint(typeId, side) {
   const r = ENEMY_TYPES[typeId].radius; // 이 종류의 몸 반지름
 
   // 변을 정하지 않았으면 0, 1, 2, 3 중 하나를 무작위로 뽑는다
-  if (side === undefined) side = Math.floor(Math.random() * 4);
+  // (오늘의 도전은 spawnRandom 이 날짜로 고정한 난수. 아니면 Math.random 과 같다)
+  if (side === undefined) side = Math.floor(spawnRandom() * 4);
 
   // 적이 나타날 위치
   let x = 0;
@@ -1209,17 +1222,17 @@ function edgeSpawnPoint(typeId, side) {
 
   // 화면 바로 바깥(반지름만큼 밖)에서 나타나게 한다
   if (side === 0) {          // 0: 위쪽 변
-    x = Math.random() * CANVAS_WIDTH;
+    x = spawnRandom() * CANVAS_WIDTH;
     y = -r;
   } else if (side === 1) {   // 1: 아래쪽 변
-    x = Math.random() * CANVAS_WIDTH;
+    x = spawnRandom() * CANVAS_WIDTH;
     y = CANVAS_HEIGHT + r;
   } else if (side === 2) {   // 2: 왼쪽 변
     x = -r;
-    y = Math.random() * CANVAS_HEIGHT;
+    y = spawnRandom() * CANVAS_HEIGHT;
   } else {                   // 3: 오른쪽 변
     x = CANVAS_WIDTH + r;
-    y = Math.random() * CANVAS_HEIGHT;
+    y = spawnRandom() * CANVAS_HEIGHT;
   }
   return { x: x, y: y };
 }
@@ -1288,7 +1301,7 @@ function reserveBatch(count, timeLeft) {
     add(spawnQueue.shift());
     return;
   }
-  const sides = shuffle([0, 1, 2, 3]);
+  const sides = shuffle([0, 1, 2, 3], spawnRandom);
   for (let i = 0; i < count && spawnQueue.length > 0; i++) {
     add(spawnQueue.shift(), sides[i % sides.length]);
   }
@@ -1312,7 +1325,7 @@ function spawnBatch(count) {
     return;
   }
   // 네 변의 순서를 섞어서 앞에서부터 하나씩 쓴다 (4마리가 넘으면 다시 처음 변부터)
-  const sides = shuffle([0, 1, 2, 3]);
+  const sides = shuffle([0, 1, 2, 3], spawnRandom);
   for (let i = 0; i < count && spawnQueue.length > 0; i++) {
     spawnEnemy(spawnQueue.shift(), sides[i % sides.length]);
   }
@@ -1350,6 +1363,7 @@ function enrageFactor(enemy) {
 function startWave(n) {
   wave = n;
   bossKilledThisWave = false;
+  seedDailySpawns(n);   // 오늘의 도전: 이 웨이브의 적 배치 난수를 (날짜 + 웨이브) 로 고정
 
   // 대기열 만들기: 배열은 0번 칸부터 시작하므로 n번째 웨이브는 WAVES[n - 1]
   // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
@@ -1368,7 +1382,7 @@ function startWave(n) {
   }
   // mix: true 인 웨이브는 대기열을 섞어서 여러 종류가 뒤섞여 나오게 한다
   if (waveIsMixed(waveDef)) {
-    shuffle(spawnQueue);
+    shuffle(spawnQueue, spawnRandom);
   }
   // 새 웨이브: 이 웨이브에서 코인이 쌓인 시간, 과열 시계를 0 부터 다시 잰다
   waveCoinTime = 0;
@@ -1524,10 +1538,12 @@ function enemySpeedFactor(enemy, distanceToPlayer) {
 
 // 배열의 순서를 무작위로 섞는 함수 (피셔-예이츠 셔플)
 // 맨 뒤 칸부터 앞으로 오면서, 자기 앞쪽(자기 포함)의 아무 칸과 자리를 바꾼다.
-function shuffle(array) {
+// rand: 쓸 난수 함수 (생략하면 Math.random. 오늘의 도전은 날짜로 고정한 spawnRandom / cardRandom)
+function shuffle(array, rand) {
+  const random = rand || Math.random;
   // i 를 맨 뒤에서 1까지 하나씩 줄여 가는 반복문
   for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1)); // 0 ~ i 중 하나
+    const j = Math.floor(random() * (i + 1)); // 0 ~ i 중 하나
     const temp = array[i];                         // 두 칸의 값을 맞바꾼다
     array[i] = array[j];
     array[j] = temp;
@@ -1549,16 +1565,17 @@ function shuffle(array) {
 function pickChoices(options) {
   const opt = options || {};
   const exclude = opt.exclude || [];
+  const CHOICE_COUNT = currentRules.choiceShow;   // 보여 줄 장수 (보통 3, 풍요 5)
   const fresh = function (card) { return exclude.indexOf(card.id) < 0; };
   const candidates = AUGMENTS.filter(function (aug) {
     return getAugmentLevel(aug.id) < aug.levels.length && fresh(aug);
   });
   // 1) 섞은 뒤 앞에서부터 CHOICE_COUNT 장만 자른다
-  const picks = shuffle(candidates).slice(0, CHOICE_COUNT);
+  const picks = shuffle(candidates, cardRandom).slice(0, CHOICE_COUNT);
 
   // 2) 남는 자리를 보급 카드로 채운다 (보급 카드끼리는 겹치지 않게 섞어서)
   if (picks.length < CHOICE_COUNT && SUPPLIES.length > 0) {
-    const supplies = shuffle(SUPPLIES.filter(fresh));
+    const supplies = shuffle(SUPPLIES.filter(fresh), cardRandom);
     // 자리가 남아 있는 동안 보급 카드를 하나씩 넣는 반복문
     for (const supply of supplies) {
       if (picks.length >= CHOICE_COUNT) break;
@@ -1581,7 +1598,7 @@ function pickChoices(options) {
   // (회복해 주는 보급(rescue: true) 중에서 고른다)
   const rescue = SUPPLIES.filter(function (card) { return card.rescue; });
   if (lowHp && !hasSupply && rescue.length > 0) {
-    const supply = rescue[Math.floor(Math.random() * rescue.length)];
+    const supply = rescue[Math.floor(cardRandom() * rescue.length)];
     if (picks.length < CHOICE_COUNT) picks.push(supply);
     else picks[picks.length - 1] = supply;
   }
@@ -1590,8 +1607,8 @@ function pickChoices(options) {
   //    3장 중 1장이 돌연변이 카드로 바뀐다. 후보가 없거나 확률이 0 이면 난수를 쓰지 않는다 (= 예전과 완전히 같은 뽑기)
   const mutants = opt.noMutation ? [] : mutationCandidates();
   const chance = (bossKilledThisWave ? MUTATION_BOSS_CHANCE : MUTATION_CHANCE) * currentRules.mutationMult;
-  if (mutants.length > 0 && chance > 0 && Math.random() < chance) {
-    const aug = mutants[Math.floor(Math.random() * mutants.length)];
+  if (mutants.length > 0 && chance > 0 && cardRandom() < chance) {
+    const aug = mutants[Math.floor(cardRandom() * mutants.length)];
     picks[mutationSlot(picks, aug)] = makeMutationCard(aug);
   }
   return picks;
@@ -1608,7 +1625,7 @@ function mutationSlot(picks, aug) {
   for (let i = 0; i < picks.length; i++) if (!picks[i].isSupply) slots.push(i);
   if (slots.length === 0) for (let i = 0; i < picks.length; i++) if (!picks[i].rescue) slots.push(i);
   if (slots.length === 0) return picks.length - 1;
-  return slots[Math.floor(Math.random() * slots.length)];
+  return slots[Math.floor(cardRandom() * slots.length)];
 }
 
 // 웨이브를 깼을 때 회복하는 양 (함수로 둔 이유: 나중에 증강이나 난이도로 바꾸기 쉽게)
@@ -1650,6 +1667,13 @@ function healPlayer(amount) {
 
 // 증강 선택 화면을 여는 함수
 function openChoiceScreen() {
+  seedDailyCards(wave);   // 오늘의 도전: 이 웨이브의 카드 난수를 (날짜 + 웨이브) 로 고정
+  pickedCards = [];
+  // 혼돈: 카드를 고르지 못하고 무작위 카드 autoAugments 장을 바로 받는다 → 잠깐 보여 주고 다음 웨이브
+  if (currentRules.autoAugments > 0) {
+    openAutoChoice();
+    return;
+  }
   choices = pickChoices();
 
   // 고를 수 있는 증강이 하나도 없으면(모두 최대 레벨) 바로 다음 웨이브로
@@ -1662,6 +1686,26 @@ function openChoiceScreen() {
   choosingTime = 0;
   hoverIndex = -1;
   rerollArmTimer = 0;
+}
+
+// 혼돈: 평소처럼 카드를 뽑은 뒤 (돌연변이 확률 3배) 돌연변이 → 증강 → 보급 순서로 autoAugments 장을 골라 바로 적용
+function openAutoChoice() {
+  const pool = pickChoices();
+  const order = function (c) { return c.isMutation ? 0 : c.isSupply ? 2 : 1; };
+  const ranked = pool.map(function (c, i) { return { c: c, i: i }; })
+    .sort(function (a, b) { return order(a.c) - order(b.c) || a.i - b.i; });
+  choices = ranked.slice(0, currentRules.autoAugments).map(function (x) { return x.c; });
+  if (choices.length === 0) { startWave(wave + 1); return; }
+  autoResults = choices.map(applyCard);
+  gameState = "choosing";
+  choosingTime = 0;
+  hoverIndex = -1;
+  autoShowTimer = CHAOS_SHOW_TIME;
+}
+
+// 혼돈 화면이 떠 있는지 (이때는 카드를 고를 수 없다)
+function autoChoiceActive() {
+  return gameState === "choosing" && autoShowTimer > 0;
 }
 
 // ---- 카드 다시 뽑기 ----
@@ -1680,6 +1724,7 @@ function rerollChoices() {
   choices = pickChoices({ exclude: before, noMutation: true });
   rerollsLeft -= 1;
   rerollArmTimer = 0;
+  pickedCards = [];
   choosingTime = 0;        // 새 카드가 다시 튀어나온다 (나타난 직후의 입력 무시도 다시)
   hoverIndex = -1;
   return "rerolled";
@@ -1687,7 +1732,7 @@ function rerollChoices() {
 
 // 다시 뽑기 버튼을 보여 줄지 (이번 판에 다시 뽑기가 있을 때만: 튜토리얼 · 혼돈 모드는 없음)
 function rerollButtonVisible() {
-  return gameState === "choosing" && currentRules.rerolls > 0;
+  return gameState === "choosing" && currentRules.rerolls > 0 && !autoChoiceActive();
 }
 
 // 다시 뽑기 버튼 (카드 아래 가운데). 남은 횟수, 돌연변이 확인 중이면 보라색 + 안내
@@ -1723,56 +1768,88 @@ function applySupply(card) {
 function chooseAugment(index) {
   // 카드가 막 나타난 직후의 입력은 무시한다 (실수 방지)
   if (choosingTime < CHOICE_INPUT_DELAY) return;
+  // 혼돈 화면은 고를 수 없다
+  if (autoChoiceActive()) return;
   // 없는 번호면 무시 (예: 카드가 2장뿐인데 3번 키를 누른 경우)
   if (index < 0 || index >= choices.length) return;
 
-  const aug = choices[index];
+  // 풍요: 여러 장을 고르는 판이면 체크만 켜고 끈다 (다 고르면 확정 버튼)
+  if (picksNeeded() > 1) {
+    const at = pickedCards.indexOf(index);
+    if (at >= 0) pickedCards.splice(at, 1);
+    else if (pickedCards.length < picksNeeded()) pickedCards.push(index);
+    return;
+  }
+
   canvas.style.cursor = "default";
   tutorialOnPick();   // 튜토리얼: "카드를 골랐다"
+  finishChoice([applyCard(choices[index])]);
+}
 
+// 이번 선택에서 골라야 하는 장수 (카드가 그보다 적으면 있는 만큼)
+function picksNeeded() {
+  return Math.min(currentRules.choicePick, choices.length);
+}
+
+// 풍요: 고른 카드들을 확정 (다 골랐을 때만)
+function confirmChoice() {
+  if (gameState !== "choosing" || picksNeeded() <= 1 || pickedCards.length < picksNeeded()) return false;
+  canvas.style.cursor = "default";
+  const order = pickedCards.slice().sort(function (a, b) { return a - b; });
+  finishChoice(order.map(function (i) { return applyCard(choices[i]); }));
+  pickedCards = [];
+  return true;
+}
+
+// 카드 한 장의 효과를 적용하고, 안내 띠에 쓸 글자를 돌려준다 { text, mutation }
+function applyCard(aug) {
   // 돌연변이 카드: 그 증강이 돌연변이한다 (레벨은 그대로)
   if (aug.isMutation) {
     mutateAugment(aug.aug);
-    startWave(wave + 1);
-    bannerSubText = "돌연변이: " + aug.name + "!";
-    bannerIsMutation = true;
-    return;
+    return { text: "돌연변이: " + aug.name + "!", mutation: true };
   }
-
   // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
   if (aug.isSupply) {
     applySupply(aug);
-    startWave(wave + 1);
-    bannerSubText = aug.name + ": " + aug.formula;
-    return;
+    return { text: aug.name + ": " + aug.formula, mutation: false };
   }
-
   const newLevel = getAugmentLevel(aug.id) + 1;
   ownedAugments[aug.id] = newLevel; // 레벨 기록 (처음이면 1, 또 고르면 2 ...)
+  return { text: aug.name + " Lv." + newLevel + (newLevel > 1 ? " 레벨업!" : " 획득!"), mutation: false };
+}
 
-  // 다음 웨이브 시작 + 안내 띠에 무엇을 얻었는지 함께 보여 준다
+// 다음 웨이브 시작 + 안내 띠에 무엇을 얻었는지 함께 보여 준다 (돌연변이를 얻었으면 보라 띠)
+function finishChoice(results) {
   startWave(wave + 1);
-  bannerSubText = aug.name + " Lv." + newLevel + (newLevel > 1 ? " 레벨업!" : " 획득!");
+  bannerSubText = results.map(function (r) { return r.text; }).join("  ·  ");
+  bannerIsMutation = results.some(function (r) { return r.mutation; });
 }
 
 // 카드 i 의 화면 위치(왼쪽 위 x, y)를 계산하는 함수
 // 카드 수가 몇 장이든 화면 가운데에 나란히 놓이도록 한다.
 function cardPosition(i) {
-  const total = choices.length * CARD_WIDTH + (choices.length - 1) * CARD_GAP; // 전체 폭
-  const startX = (CANVAS_WIDTH - total) / 2;                                   // 첫 카드 왼쪽 끝
+  const s = cardScale();
+  const w = CARD_WIDTH * s, h = CARD_HEIGHT * s, gap = s < 1 ? CARD_SMALL_GAP : CARD_GAP;
+  const total = choices.length * w + (choices.length - 1) * gap; // 전체 폭
+  const startX = (CANVAS_WIDTH - total) / 2;                     // 첫 카드 왼쪽 끝
   return {
-    x: startX + i * (CARD_WIDTH + CARD_GAP),
-    y: CANVAS_HEIGHT / 2 - CARD_HEIGHT / 2 + 30, // 위쪽 제목 자리만큼 조금 아래로
+    x: startX + i * (w + gap),
+    y: CANVAS_HEIGHT / 2 - h / 2 + 30, // 위쪽 제목 자리만큼 조금 아래로
   };
+}
+
+// 카드 크기 배율: 3장 이하는 그대로, 더 많으면 (풍요 5장) 작게
+function cardScale() {
+  return choices.length > 3 ? CARD_SMALL_SCALE : 1;
 }
 
 // 캔버스 좌표 (x, y)가 몇 번째 카드 위에 있는지 알려 주는 함수 (없으면 -1)
 function cardIndexAt(x, y) {
   // 카드를 하나씩 보며 사각형 안에 점이 들어 있는지 검사하는 반복문
   for (let i = 0; i < choices.length; i++) {
-    const pos = cardPosition(i);
-    if (x >= pos.x && x <= pos.x + CARD_WIDTH &&
-        y >= pos.y && y <= pos.y + CARD_HEIGHT) {
+    const pos = cardPosition(i), s = cardScale();
+    if (x >= pos.x && x <= pos.x + CARD_WIDTH * s &&
+        y >= pos.y && y <= pos.y + CARD_HEIGHT * s) {
       return i;
     }
   }
@@ -1840,6 +1917,11 @@ function commitRunProgress() {
   const key = recordKey(currentRules.difficulty, currentRules.mode);
   runPrevBestWave = saveData.bestWaves[key] || 0;
   saveData.bestWaves[key] = Math.max(runPrevBestWave, wave);
+  // 오늘의 도전: 그날의 기록을 따로 (날짜가 바뀌면 새로)
+  if (currentRules.daily) {
+    if (saveData.dailyBest.date !== currentRules.dayKey) saveData.dailyBest = { date: currentRules.dayKey, wave: 0 };
+    saveData.dailyBest.wave = Math.max(saveData.dailyBest.wave, wave);
+  }
   writeSave();
 }
 
@@ -1945,6 +2027,13 @@ function startGame() {
   if (!saveData.tutorialPrompted) { saveData.tutorialPrompted = true; writeSave(); }
   // 로비에서 고른 난이도 + 모드로 이번 판의 규칙을 정한다 (rules.js)
   currentRules = makeRules(selectedDifficulty().id, selectedMode().id);
+  // 오늘의 도전: 오늘 날짜를 씨앗으로, 코인은 하루 첫 판만 (× 1, 그 뒤 판은 0)
+  if (currentRules.daily) {
+    currentRules.dayKey = todayKey();
+    currentRules.coinMult = saveData.dailyPlayed === currentRules.dayKey ? 0 : 1;
+    saveData.dailyPlayed = currentRules.dayKey;
+    writeSave();
+  }
   resetGame();
 }
 
@@ -1985,7 +2074,7 @@ function handleLobbyKey(code) {
   }
   // 도감 탭: 1, 2, 3 키 = 적 / 증강 / 보급 쪽
   if (gameState === "collection") {
-    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3, Numpad5: 4 };
+    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4, Digit6: 5, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3, Numpad5: 4, Numpad6: 5 };
     if (code in keyToPage && COLLECTION_PAGES[keyToPage[code]]) { collectionPage = COLLECTION_PAGES[keyToPage[code]].id; return true; }
   }
   // 도감·업그레이드 탭: Esc (또는 M) = 전투 탭으로
@@ -2254,6 +2343,10 @@ function resetGame() {
   player.maxHp = PLAYER_MAX_HP;
   player.damage = BULLET_DAMAGE;
   if (currentRules.useUpgrades) applyUpgrades();   // 영구 업그레이드 적용 (최대 체력, 공격력). 튜토리얼 · 오늘의 도전은 빼고
+  if (currentRules.fixedStats) {                   // 오늘의 도전: 누구나 같은 능력치
+    player.maxHp = currentRules.fixedStats.maxHp;
+    player.damage = currentRules.fixedStats.damage;
+  }
   player.hp = player.maxHp;
   player.fireTimer = 0;
   player.invincibleTimer = 0;
@@ -2298,6 +2391,9 @@ function resetGame() {
   tutorial = newTutorialState();   // 튜토리얼 안내도 처음부터
   rerollsLeft = currentRules.rerolls;   // 다시 뽑기 횟수 (한 판에)
   rerollArmTimer = 0;
+  pickedCards = [];
+  autoShowTimer = 0;
+  autoResults = [];
   // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
   for (const aug of AUGMENTS) {
     if (aug.reset) aug.reset();
@@ -2786,6 +2882,11 @@ function update(dt) {
     choosingTime += dt;
     rerollArmTimer = Math.max(0, rerollArmTimer - dt);
     rerollShake = Math.max(0, rerollShake - dt);
+    // 혼돈: 받은 증강을 CHAOS_SHOW_TIME 동안 보여 준 뒤 다음 웨이브
+    if (autoShowTimer > 0) {
+      autoShowTimer -= dt;
+      if (autoShowTimer <= 0) { autoShowTimer = 0; finishChoice(autoResults); }
+    }
     updateTutorial(dt);
     updatePopups(dt);
     updateParticles(dt);
@@ -4295,6 +4396,8 @@ function drawCard(aug, i) {
   // 고르면 얻게 될 레벨의 정보 (보급 카드는 레벨이 없으니 카드 자체의 설명)
   const info = aug.isSupply || aug.isMutation ? aug : aug.levels[level];
   const isHover = i === hoverIndex;
+  const picked = pickedCards.indexOf(i) >= 0;   // 풍요: 체크한 카드
+  const cs = cardScale();
 
   // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다 (돌연변이 카드는 한 박자 더 늦게)
   const appear = choosingTime - i * 0.08 - (aug.isMutation ? MUTATION_CARD_DELAY : 0);
@@ -4303,9 +4406,9 @@ function drawCard(aug, i) {
 
   ctx.save();
   // 카드 가운데를 기준으로 돌리고 키우기 위해 기준점을 카드 중심으로 옮긴다
-  ctx.translate(pos.x + CARD_WIDTH / 2, pos.y + CARD_HEIGHT / 2 - (isHover ? 10 : 0));
-  ctx.rotate((i - 1) * 0.035);                     // 스티커처럼 왼쪽·가운데·오른쪽 다르게 기울이기
-  ctx.scale(scale, scale);
+  ctx.translate(pos.x + CARD_WIDTH * cs / 2, pos.y + CARD_HEIGHT * cs / 2 - (isHover || picked ? 10 : 0));
+  ctx.rotate((i - (choices.length - 1) / 2) * 0.035);   // 스티커처럼 왼쪽·가운데·오른쪽 다르게 기울이기
+  ctx.scale(scale * cs, scale * cs);
 
   // 이제부터 좌표는 카드 중심 기준. 왼쪽 위 = (-w/2, -h/2)
   const w = CARD_WIDTH;
@@ -4327,6 +4430,7 @@ function drawCard(aug, i) {
     drawMutationCardBody(aug, w, h);
     drawOutlinedCircle(left + 6, top + 6, 18, COLORS.outline);
     drawOutlinedText(String(i + 1), left + 6, top + 7, 20, "center", COLORS.yellow);
+    if (picked) drawCheckBadge(left + w - 8, top + 8);
     ctx.restore();
     return;
   }
@@ -4370,6 +4474,9 @@ function drawCard(aug, i) {
   // 8) 왼쪽 위 번호 배지 (이 번호 키를 눌러도 고를 수 있다)
   drawOutlinedCircle(left + 6, top + 6, 18, COLORS.outline);
   drawOutlinedText(String(i + 1), left + 6, top + 7, 20, "center", COLORS.yellow);
+
+  // 9) 풍요: 체크한 카드는 오른쪽 위에 초록 체크 표시
+  if (picked) drawCheckBadge(left + w - 8, top + 8);
 
   ctx.restore();
 }
@@ -4460,6 +4567,38 @@ function mutationShakeOffset() {
   };
 }
 
+// 체크 표시 (초록 동그라미 + 흰 체크)
+function drawCheckBadge(x, y) {
+  drawOutlinedCircle(x, y, 22, COLORS.green);
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  setOutline(9);
+  ctx.beginPath(); ctx.moveTo(x - 9, y + 1); ctx.lineTo(x - 2, y + 8); ctx.lineTo(x + 10, y - 7); ctx.stroke();
+  ctx.strokeStyle = COLORS.white;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 풍요: 확정 버튼 (다 골랐을 때만)
+function confirmButtonVisible() {
+  return gameState === "choosing" && picksNeeded() > 1 && pickedCards.length >= picksNeeded();
+}
+function drawConfirmButton() {
+  if (gameState !== "choosing" || picksNeeded() <= 1 || autoChoiceActive()) return;
+  const r = CONFIRM_BUTTON;
+  if (confirmButtonVisible()) {
+    const pulse = 1 + 0.04 * Math.sin(choosingTime * 6);
+    drawScaled(r.x + r.w / 2, r.y + r.h / 2, pulse, function () {
+      drawStickerRect(r.x, r.y, r.w, r.h, 20, COLORS.green, 4);
+      drawOutlinedText("확정 (" + pickedCards.length + "/" + picksNeeded() + ") · Enter", r.x + r.w / 2, r.y + r.h / 2 + 1, 19);
+    });
+  } else {
+    drawOutlinedText(pickedCards.length + " / " + picksNeeded() + "장 골랐어요", r.x + r.w / 2, r.y + r.h / 2 + 1, 18, "center", COLORS.white);
+  }
+}
+
 // ---- 증강 선택 화면 전체 ----
 function drawChoiceScreen() {
   if (gameState !== "choosing") return;
@@ -4475,7 +4614,10 @@ function drawChoiceScreen() {
   if (choicesHaveMutation()) drawOutlinedText("돌연변이 발생!", CANVAS_WIDTH / 2, 48, 42, "center", lightenColor(COLORS.purple, 0.35));
   else drawOutlinedText("웨이브 " + wave + " 클리어!", CANVAS_WIDTH / 2, 48, 40, "center", COLORS.yellow);
   // 부제: 돌연변이가 떠 있을 때 다시 뽑기를 한 번 누르면, 그 자리에 확인 안내 (보라)
+  //   혼돈은 "자동으로 받았어요", 풍요는 "2장을 고르세요"
   if (rerollArmTimer > 0) drawOutlinedText("돌연변이가 사라져요. 한 번 더 누르면 다시 뽑기", CANVAS_WIDTH / 2, 88, 20, "center", lightenColor(COLORS.purple, 0.5));
+  else if (autoChoiceActive()) drawOutlinedText("혼돈! 무작위 증강 " + choices.length + "개를 받았어요", CANVAS_WIDTH / 2, 88, 22, "center", lightenColor(COLORS.purple, 0.5));
+  else if (picksNeeded() > 1) drawOutlinedText("카드 " + picksNeeded() + "장을 고르세요  (클릭 또는 1 ~ " + choices.length + " 키, 다 고르면 확정)", CANVAS_WIDTH / 2, 88, 20);
   else drawOutlinedText("증강을 하나 고르세요  (클릭 또는 1 · 2 · 3 키)", CANVAS_WIDTH / 2, 88, 20);
 
   // 카드를 한 장씩 그리는 반복문
@@ -4483,6 +4625,13 @@ function drawChoiceScreen() {
     drawCard(choices[i], i);
   }
   drawRerollButton();
+  drawConfirmButton();
+  // 혼돈: 다음 웨이브까지 남은 시간 막대
+  if (autoChoiceActive()) {
+    const w = 300 * (autoShowTimer / CHAOS_SHOW_TIME);
+    drawOutlinedRoundRect(CANVAS_WIDTH / 2 - 150, 486, 300, 16, 8, COLORS.dark, SMALL_OUTLINE_WIDTH);
+    if (w > 4) drawOutlinedRoundRect(CANVAS_WIDTH / 2 - 150, 486, w, 16, 8, COLORS.purple, SMALL_OUTLINE_WIDTH);
+  }
 }
 
 // ---- 일시정지 창 ----
@@ -4693,7 +4842,17 @@ function drawOverlay() {
     drawOutlinedText("NEW!", 0, 1, 20);
     ctx.restore();
   }
-  drawOutlinedText("최고 점수 " + bestScore, 0, -48, 18);
+  if (currentRules.daily) {
+    // 오늘의 도전: 최고 점수 대신 "오늘의 기록" 주황 딱지
+    const dailyText = "오늘의 기록 (" + currentRules.dayKey + "): 웨이브 " + saveData.dailyBest.wave + (currentRules.coinMult > 0 ? "" : "  ·  코인은 하루 첫 판만");
+    const size = fitTextSize(dailyText, 16, pw - 80);
+    ctx.font = size + "px " + FONT_FAMILY;
+    const tw = ctx.measureText(dailyText).width + 28;
+    drawOutlinedRoundRect(-tw / 2, -48 - 12, tw, 24, 12, COLORS.orange, SMALL_OUTLINE_WIDTH);
+    drawOutlinedText(dailyText, 0, -47, size);
+  } else {
+    drawOutlinedText("최고 점수 " + bestScore, 0, -48, 18);
+  }
 
   // 성장 체감: 지난 최고 기록과 이번 기록 (기록을 깼으면 아래에서 "신기록!" 스티커)
   //   튜토리얼은 기록을 남기지 않으니 보상만 알린다
@@ -4702,6 +4861,7 @@ function drawOverlay() {
     ? (tutorial.reward > 0 ? "보상 +" + tutorial.reward + " 코인! 이제 보통 난이도로 도전해 보세요" : tutorial.cleared ? "보상은 이미 받았어요. 보통 난이도로 도전해 보세요" : "튜토리얼은 기록을 남기지 않아요")
     : "지난 최고 기록: " + (runPrevBestWave > 0 ? "웨이브 " + runPrevBestWave : "없음") + "  →  이번: 웨이브 " + wave;
   drawOutlinedText(recordText, 0, -18, fitTextSize(recordText, 21, pw - 60), "center", newRecord ? COLORS.green : COLORS.yellow);
+
 
   // 코인: 생존 시간 / 번 코인 / 보유 코인 / 잡은 보스
   const coinText = "생존 " + formatTime(runTime) + "  ·  번 코인 +" + lastRunCoins +
@@ -5268,7 +5428,7 @@ function drawLobbyTopBar() {
   drawOutlinedText(coinText, 60, y + 1, 22, "left", COLORS.yellow);
 
   // 최고 웨이브 칸
-  const waveText = "최고 웨이브 " + bestWaveFor(selectedDifficulty().id, selectedMode().id);
+  const waveText = "최고 웨이브 " + bestWaveFor(lobbyRowSelected("difficulty").id, lobbyRowSelected("mode").id);
   ctx.font = "18px " + FONT_FAMILY;
   const waveX = 16 + coinW + 12;
   const waveW = ctx.measureText(waveText).width + 52;
@@ -5367,8 +5527,18 @@ function lobbyRowItems(row) {
   return row === "difficulty" ? DIFFICULTIES : MODES;
 }
 // 그 줄에서 지금 고른 항목
+// (실제로 적용되는 것: 오늘의 도전은 난이도가 보통으로, 튜토리얼은 모드가 기본으로 고정)
 function lobbyRowSelected(row) {
-  return row === "difficulty" ? selectedDifficulty() : selectedMode();
+  const rules = makeRules(selectedDifficulty().id, selectedMode().id);
+  return row === "difficulty" ? difficultyById(rules.difficulty) : modeById(rules.mode);
+}
+// 다른 줄의 선택 때문에 이 줄이 고정됐는지 (그때 그 이유 글자, 아니면 null)
+function lobbyRowFixedReason(row) {
+  if (row === "mode" && selectedDifficulty().fixedMode) return selectedDifficulty().name + "는 " + modeById(selectedDifficulty().fixedMode).name + " 모드로만 해요";
+  if (row === "difficulty" && !selectedDifficulty().fixedMode && selectedMode().fixedDifficulty) {
+    return selectedMode().name + "은 " + difficultyById(selectedMode().fixedDifficulty).name + " 난이도로 고정이에요 (모드를 바꾸면 고를 수 있어요)";
+  }
+  return null;
 }
 // 모드 줄은 모드가 둘 이상일 때만 보인다
 function lobbyRowVisible(row) {
@@ -5399,12 +5569,19 @@ function selectLobbyItem(row, id) {
     showLobbyToast(item.name + ": 보통 난이도 · 기본 모드로 " + item.unlockWave + "웨이브에 도달하면 열려요");
     return;
   }
+  // 다른 줄 때문에 고정된 줄이면 (오늘의 도전의 난이도, 튜토리얼의 모드) 이유만 알린다
+  const fixed = lobbyRowFixedReason(row);
+  if (fixed && item !== lobbyRowSelected(row)) {
+    showLobbyToast(fixed);
+    return;
+  }
   saveData[row] = id;
   writeSave();
 }
 // ◀ ▶: 그 방향의 다음 열린 항목으로 (끝이면 그대로)
 function stepLobbyItem(row, dir) {
   const items = lobbyRowItems(row);
+  if (lobbyRowFixedReason(row)) { showLobbyToast(lobbyRowFixedReason(row)); return; }
   let i = items.indexOf(lobbyRowSelected(row)) + dir;
   while (i >= 0 && i < items.length && !isUnlocked(items[i])) i += dir;
   if (i >= 0 && i < items.length) selectLobbyItem(row, items[i].id);
@@ -5414,7 +5591,10 @@ function drawLobbyRow(row, label) {
   if (!lobbyRowVisible(row)) return;
   const items = lobbyRowItems(row), selected = lobbyRowSelected(row);
   const left = lobbyArrowRect(row, -1), right = lobbyArrowRect(row, 1);
-  drawOutlinedText(label, left.x - 10, left.y + LOBBY_ROW_H / 2 + 1, 16, "right", COLORS.brown);
+  const fixed = lobbyRowFixedReason(row) !== null;   // 고정된 줄은 흐리게, 이름표에 "고정"
+  drawOutlinedText(fixed ? label + " 고정" : label, left.x - 10, left.y + LOBBY_ROW_H / 2 + 1, 16, "right", COLORS.brown);
+  ctx.save();
+  if (fixed) ctx.globalAlpha = 0.55;
   for (const [r, dir] of [[left, -1], [right, 1]]) {
     const id = row + ":" + (dir < 0 ? "prev" : "next");
     drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id), function () {
@@ -5439,6 +5619,7 @@ function drawLobbyRow(row, label) {
       }
     });
   }
+  ctx.restore();
 }
 
 // 로비 "튜토리얼부터 해볼까요?" 말풍선 (튜토리얼 칸 위쪽 왼편)
@@ -5519,8 +5700,11 @@ function drawMenu() {
   });
 
   // 4) 시작 버튼 아래: 최고 기록과 조작 안내
-  const d = selectedDifficulty(), m = selectedMode();
-  drawOutlinedText("최고 기록 (" + rulesLabel(d.id, m.id) + "): 웨이브 " + bestWaveFor(d.id, m.id), CANVAS_WIDTH / 2, B.y + B.h + 24, 19, "center", COLORS.yellow);
+  const d = lobbyRowSelected("difficulty"), m = lobbyRowSelected("mode");
+  const recordLine = m.id === "daily"
+    ? "오늘의 기록 (" + todayKey() + "): 웨이브 " + (saveData.dailyBest.date === todayKey() ? saveData.dailyBest.wave : 0) + (saveData.dailyPlayed === todayKey() ? "  ·  오늘 코인은 받았어요" : "")
+    : "최고 기록 (" + rulesLabel(d.id, m.id) + "): 웨이브 " + bestWaveFor(d.id, m.id);
+  drawOutlinedText(recordLine, CANVAS_WIDTH / 2, B.y + B.h + 24, fitTextSize(recordLine, 19, 560), "center", COLORS.yellow);
   drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 52, 15);
 
   // 5) 장착한 스킬 (장착했을 때만 작게)
@@ -5548,6 +5732,7 @@ const COLLECTION_PAGES = [
   { id: "supplies", label: "보급", color: "green" },
   { id: "skills", label: "스킬", color: "blue" },
   { id: "mutations", label: "돌연변이", color: "purple" },
+  { id: "rules", label: "난이도·모드", color: "orange" },
 ];
 // 도감 위쪽 쪽 버튼 크기와 높이, 내용 패널 위치
 const COLLECTION_PAGE_BUTTON = { w: 150, h: 34, gap: 14, y: 76 };
@@ -5559,8 +5744,10 @@ let collectionPage = "enemies";
 // i 번째 쪽 버튼 사각형
 function collectionPageRect(i) {
   const B = COLLECTION_PAGE_BUTTON, n = COLLECTION_PAGES.length;
-  const total = n * B.w + (n - 1) * B.gap;
-  return { x: (CANVAS_WIDTH - total) / 2 + i * (B.w + B.gap), y: B.y, w: B.w, h: B.h };
+  // 쪽이 많으면 버튼을 좁혀서 한 줄에 (양옆 30px 여백)
+  const w = Math.min(B.w, (CANVAS_WIDTH - 60 - (n - 1) * B.gap) / n);
+  const total = n * w + (n - 1) * B.gap;
+  return { x: (CANVAS_WIDTH - total) / 2 + i * (w + B.gap), y: B.y, w: w, h: B.h };
 }
 
 // 쪽마다 보여 줄 항목 목록 (그리기와 검사가 함께 쓴다)
@@ -5569,6 +5756,7 @@ function collectionItems(page) {
   if (page === "augments") return AUGMENTS;
   if (page === "skills") return SKILLS;
   if (page === "mutations") return AUGMENTS.filter(function (aug) { return aug.mutation; });
+  if (page === "rules") return DIFFICULTIES.concat(MODES);
   return SUPPLIES;
 }
 
@@ -5637,6 +5825,20 @@ function drawCollectionScreen() {
       drawOutlinedText(aug.name, c.x + c.w / 2, c.y + 16, fitTextSize(aug.name, 17, c.w - 16));
       drawFitText(aug.formula, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.38, 19, c.w - 14, COLORS.outline);
       drawFitText(aug.concept, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.76, 13, c.w - 12, COLORS.brown);
+    }
+  } else if (collectionPage === "rules") {
+    // 난이도 · 모드: 한 줄에 4칸. 색 띠 (이름) + 난이도인지 모드인지 + 설명 + 해금 조건
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i], c = collectionCell(i, items.length, 4), cx = c.x + c.w / 2;
+      const isMode = MODES.indexOf(item) >= 0, open = isUnlocked(item);
+      drawOutlinedRoundRect(c.x, c.y, c.w, c.h, 12, COLORS.background, SMALL_OUTLINE_WIDTH);
+      drawOutlinedRoundRect(c.x, c.y, c.w, 32, 12, COLORS[item.color], SMALL_OUTLINE_WIDTH);
+      drawOutlinedText(item.name, cx, c.y + 17, fitTextSize(item.name, 18, c.w - 70));
+      drawOutlinedText(isMode ? "모드" : "난이도", c.x + 10, c.y + 17, 12, "left", COLORS.white);
+      const lines = wrapText(item.desc, c.w - 20, 13).slice(0, 4);
+      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 48 + n * 18, 13, c.w - 16, COLORS.outline);
+      const unlock = item.unlockWave > 0 ? (open ? "열림 · " : "잠김 · ") + "보통 " + item.unlockWave + "웨이브에 해금" : "처음부터";
+      drawFitText(unlock, cx, c.y + c.h - 12, 12, c.w - 16, open ? COLORS.green : COLORS.red);
     }
   } else if (collectionPage === "mutations") {
     // 돌연변이: 한 줄에 5칸. 한 번이라도 얻은 것만 내용이 보이고, 나머지는 "???" 와 원래 증강 이름만

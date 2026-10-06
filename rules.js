@@ -21,6 +21,9 @@
 //   noDeath          : true 면 체력이 1 아래로 내려가지 않는다
 //   saveRecord       : false 면 이번 판의 최고 기록 · 코인을 저장하지 않는다
 //   tutorial         : 튜토리얼 판인지 (tutorial.js 의 안내)
+//   autoAugments     : 0 보다 크면 카드를 고르지 못하고, 웨이브가 끝나면 무작위 카드를 이만큼 자동으로 받는다 (혼돈)
+//   fixedStats       : { maxHp, damage } 이면 영구 업그레이드 대신 이 능력치로 시작 (오늘의 도전)
+//   daily            : 오늘의 도전 판인지 (적 배치 · 카드 난수를 날짜로 고정)
 //
 // 난이도는 배율 (곱하기) 과 (튜토리얼처럼) 덮어쓸 값 rules 를, 모드는 rules 를 가진다.
 // fixedMode: 이 난이도는 모드를 고정한다 (튜토리얼 = 기본)
@@ -47,6 +50,9 @@ const BASE_RULES = {
   noDeath: false,
   saveRecord: true,
   tutorial: false,
+  autoAugments: 0,
+  fixedStats: null,
+  daily: false,
 };
 
 // 배율 (곱해서 합치는 값) 이름 목록
@@ -84,11 +90,27 @@ const DIFFICULTIES = [
 // ---- 모드 ----
 //   id, name, color, desc, unlockWave: 난이도와 같다
 //   rules: 덮어쓸 규칙 값 (배율은 곱한다)
+//   fixedDifficulty: 이 모드는 난이도를 고정한다 (오늘의 도전 = 보통)
 const MODES = [
   {
     id: "basic", name: "기본", color: "yellow", unlockWave: 0,
-    desc: "지금 그대로",
+    desc: "지금 그대로. 웨이브마다 카드 3장 중 1장",
     rules: {},
+  },
+  {
+    id: "plenty", name: "풍요", color: "green", unlockWave: 10,
+    desc: "카드 5장 중 2장을 고른다. 대신 적 체력 × 1.6, 코인 × 0.8",
+    rules: { choiceShow: 5, choicePick: 2, enemyHpMult: 1.6, coinMult: 0.8 },
+  },
+  {
+    id: "chaos", name: "혼돈", color: "purple", unlockWave: 15,
+    desc: "카드를 고르지 못하고 웨이브마다 무작위 증강 2개를 자동으로 받는다. 돌연변이 확률 3배, 다시 뽑기 없음, 코인 × 1.2",
+    rules: { autoAugments: 2, mutationMult: 3, rerolls: 0, coinMult: 1.2 },
+  },
+  {
+    id: "daily", name: "오늘의 도전", color: "orange", unlockWave: 5, fixedDifficulty: "normal",
+    desc: "날짜가 같으면 누구나 같은 적 배치 · 같은 카드. 업그레이드 · 스킬 없이 체력 200, 공격력 16 으로. 난이도는 보통 고정, 코인은 하루 첫 판만",
+    rules: { useUpgrades: false, useSkills: false, fixedStats: { maxHp: 200, damage: 16 }, daily: true },
   },
 ];
 
@@ -108,8 +130,10 @@ function modeById(id) {
 
 // 난이도 + 모드 → 규칙 한 벌
 function makeRules(difficultyId, modeId) {
-  const difficulty = difficultyById(difficultyId);
+  let difficulty = difficultyById(difficultyId);
   const mode = modeById(difficulty.fixedMode || modeId);
+  // 모드가 난이도를 고정하면 (오늘의 도전 = 보통) 그 난이도. 단 튜토리얼은 튜토리얼 그대로
+  if (mode.fixedDifficulty && !difficulty.fixedMode) difficulty = difficultyById(mode.fixedDifficulty);
   const rules = Object.assign({ difficulty: difficulty.id, mode: mode.id }, BASE_RULES);
   // 난이도: 배율을 곱한다
   for (const key of RULE_MULTIPLIERS) {
@@ -147,6 +171,49 @@ function unlockRecord() {
 // 열렸는지 (난이도 · 모드 데이터 하나)
 function isUnlocked(item) {
   return unlockRecord() >= (item.unlockWave || 0);
+}
+
+// ---- 오늘의 도전: 날짜로 고정한 난수 ----
+// 회귀 검사 (tools/regress.js) 에서 쓰던 "같은 씨앗이면 같은 숫자 줄" 장치 (선형 합동 생성기) 를 게임으로 옮겼다.
+// 적 배치용 (spawnRandom) 과 카드용 (cardRandom) 을 따로 쓰고, 웨이브마다 (날짜 + 웨이브 번호) 로 씨앗을 다시 정한다.
+//   → 플레이어가 어떻게 움직이든 (파티클 · 대미지 숫자처럼 다른 곳에서 쓰는 난수와 섞이지 않아서)
+//     같은 날 같은 웨이브는 누구나 같은 적 순서 · 같은 등장 자리, 같은 증강을 가졌으면 같은 카드.
+// 오늘의 도전이 아니면 두 함수 모두 Math.random() 그대로 (= 예전과 똑같은 난수 순서)
+let spawnRng = null;
+let cardRng = null;
+
+// 씨앗 → 0 이상 1 미만의 숫자를 차례로 내놓는 함수
+function makeSeededRandom(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+// 글자 → 씨앗 숫자 (FNV-1a 해시: 글자가 조금만 달라도 전혀 다른 숫자)
+function hashText(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// 오늘 날짜 "2026-10-07" (이 컴퓨터의 날짜)
+function todayKey() {
+  const d = new Date();
+  const two = function (n) { return (n < 10 ? "0" : "") + n; };
+  return d.getFullYear() + "-" + two(d.getMonth() + 1) + "-" + two(d.getDate());
+}
+function spawnRandom() {
+  return spawnRng ? spawnRng() : Math.random();
+}
+function cardRandom() {
+  return cardRng ? cardRng() : Math.random();
+}
+// 오늘의 도전이면 이번 웨이브의 적 배치 난수 / 카드 난수를 (날짜 + 웨이브) 로 다시 정한다
+function seedDailySpawns(waveNumber) {
+  spawnRng = currentRules.daily ? makeSeededRandom(hashText(currentRules.dayKey + ":spawn:" + waveNumber)) : null;
+}
+function seedDailyCards(waveNumber) {
+  cardRng = currentRules.daily ? makeSeededRandom(hashText(currentRules.dayKey + ":card:" + waveNumber)) : null;
 }
 
 // 로비에서 고른 난이도 · 모드 (잠겨 있으면 보통 · 기본)
