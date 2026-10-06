@@ -209,6 +209,9 @@ const EXO_FLASH_TIME = 0.3;
 // 발열 반응 폭발 고리 목록 { x, y, r, born } (그림 전용)
 let exoBlasts = [];
 
+// 돌연변이 "특이점" 목록 { x, y, age } (적을 끌어모으는 점)
+let singularities = [];
+
 // 르샤틀리에: 레벨별 k. 대미지 배율 = 1 + k × (1 − 체력 비율)
 //   체력이 가득이면 1배, 체력이 0 에 가까우면 (1 + k)배
 const LECHATELIER_K = [0.5, 0.8, 1.2];
@@ -929,6 +932,60 @@ const AUGMENTS = [
         desc: "블랙홀급 렌즈! 반경 140px → 170px",
       },
     ],
+
+    // =========================================================
+    // 돌연변이 "특이점"
+    //   총알이 맞은 자리에 SINGULARITY_TIME(1)초 동안 점이 생겨, 반경 SINGULARITY_RADIUS(90) 안의 적을 그 점으로 끌어모은다.
+    //   동시에 최대 SINGULARITY_MAX(3)개 (넘으면 새로 생기지 않는다). 보스와 자석형은 끌려오지 않는다.
+    //   끌려가는 빠르기는 SINGULARITY_PULL 이고, 점에 닿으면 그 자리에 멈춘다 (점을 지나쳐 가지 않게)
+    // =========================================================
+    reset: function () {
+      singularities = [];
+    },
+
+    onHit: function (stats, info) {
+      if (!stats.mutated || singularities.length >= SINGULARITY_MAX) return;
+      singularities.push({ x: info.enemy.x, y: info.enemy.y, age: 0 });
+    },
+
+    onUpdate: function (stats, dt) {
+      if (!stats.mutated) { singularities = []; return; }
+      for (const point of singularities) {
+        point.age += dt;
+        for (const enemy of enemies) {
+          if (enemy.dead || enemyType(enemy).isBoss || enemy.type === "magnet") continue;
+          const dx = point.x - enemy.x, dy = point.y - enemy.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d > SINGULARITY_RADIUS || d < 1e-6) continue;
+          const step = Math.min(d, SINGULARITY_PULL * dt);
+          enemy.x += (dx / d) * step;
+          enemy.y += (dy / d) * step;
+        }
+      }
+      singularities = singularities.filter(function (p) { return p.age < SINGULARITY_TIME; });
+    },
+
+    // 특이점: 가운데 검은 점 + 빙글빙글 도는 보라 고리 (끝날 때 흐려진다)
+    drawEffect: function (stats) {
+      if (!stats.mutated) return;
+      ctx.save();
+      for (const point of singularities) {
+        const life = 1 - point.age / SINGULARITY_TIME;
+        ctx.globalAlpha = 0.15 * life;
+        ctx.fillStyle = COLORS.purple;
+        ctx.beginPath(); ctx.arc(point.x, point.y, SINGULARITY_RADIUS, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.7 * life;
+        ctx.setLineDash([8, 7]);
+        ctx.lineDashOffset = point.age * 60;
+        ctx.strokeStyle = COLORS.purple;
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(point.x, point.y, SINGULARITY_RADIUS * (0.4 + 0.6 * life), 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = life;
+        drawOutlinedCircle(point.x, point.y, 7, COLORS.outline, SMALL_OUTLINE_WIDTH);
+      }
+      ctx.restore();
+    },
 
     // 반경 R 안의 가장 가까운 적 쪽으로 a = G ÷ r² 만큼 끌어당긴다 (빠르기는 그대로, 방향만 휜다)
     onBulletUpdate: function (bullet, stats, dt) {

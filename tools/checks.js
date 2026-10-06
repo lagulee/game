@@ -2730,4 +2730,36 @@ module.exports = [
         "px / 일렬 4마리 중 맞힌 수 " + hitPlain + " → " + hitMut + " / 방패 뒤 적: 전 " + (sp.backHit ? "뚫음" : "막힘") + ", 공명 " + (sm.backHit ? "뚫음" : "막힘") };
     },
   },
+  {
+    name: "[돌연변이 C] 특이점: 총알이 맞은 자리에 1초 동안 반경 90 안의 적을 끌어모으는 점 (최대 3개), 보스 · 자석형은 안 끌림",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { gravityLens: 1 }; mutatedAugments = { gravityLens: true };
+      player.x = 100; player.y = 500;
+      const make = (type, x, y) => { const e = createEnemy(type, x, y, 1); e.hp = e.maxHp = 1e5; e.speed = 0; return e; };
+      const target = make("basic", 500, 270), near = make("basic", 560, 270), far = make("basic", 500, 400);
+      const magnet = make("magnet", 500, 210), boss = make("chargerKing", 440, 270);
+      const bossType = enemyType(boss), upd = bossType.update; bossType.update = () => {};
+      const magType = enemyType(magnet), updM = magType.update; magType.update = () => {};
+      enemies = [target, near, far, magnet, boss];
+      bullets = []; createBullet(1, 0, { x: 486, y: 270, fromAugment: true });
+      player.fireTimer = 1e9; update(DT);
+      const made = singularities.length === 1 && Math.abs(singularities[0].x - 500) < 1;
+      const n0 = near.x;
+      for (let i = 0; i < 20; i++) { player.fireTimer = 1e9; update(DT); }
+      const pulled = near.x < n0 - 30 && near.x >= 500 - 1e-6;
+      const stay = far.y === 400 && magnet.y === 210 && boss.x === 440;
+      for (let i = 0; i < 45; i++) { player.fireTimer = 1e9; update(DT); }
+      const gone = singularities.length === 0;
+      // 최대 3개
+      for (let i = 0; i < 6; i++) { bullets = []; createBullet(1, 0, { x: 486, y: target.y, fromAugment: true }); target.x = 500; player.fireTimer = 1e9; update(DT); }
+      const capped = singularities.length === SINGULARITY_MAX;
+      draw();
+      bossType.update = upd; magType.update = updM;
+      debugMode = false; debugInvincible = false;
+      return { ok: made && pulled && stay && gone && capped,
+        detail: "점 생김 " + made + " / 60px 떨어진 적 " + n0 + " → " + near.x.toFixed(1) + " (점에 멈춤) " + pulled + " / 범위 밖 · 자석형 · 보스 그대로 " + stay + " / 1초 뒤 사라짐 " + gone + " / 최대 3개 " + capped };
+    },
+  },
 ];
