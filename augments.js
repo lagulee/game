@@ -90,6 +90,11 @@
 //     언제: 전투 중 매 프레임 한 번 (일시정지 · 카드 고르기 중에는 안 불린다)
 //     예: 시간 정지 시계, 효소 초기화 시계, 특이점
 //
+//   onPlayerHurt(stats, info)
+//     언제: 플레이어가 적 · 적 탄환에 맞아 체력이 줄어든 직후 (게임 오버 판정보다 먼저)
+//     info.hpBefore : 맞기 전 체력 / info.damage : 받은 대미지
+//     예: 역반응
+//
 //   onEnemyUpdate(enemy, stats, dt)
 //     언제: 매 프레임, 적 하나하나가 움직인 직후
 //     예: 반감기 (붕괴 중인 적의 체력을 줄인다)
@@ -1185,6 +1190,29 @@ const AUGMENTS = [
         desc: "궁지에 몰린 반격! k = 0.8 → 1.2 (체력이 거의 없으면 2.2배)",
       },
     ],
+
+    // =========================================================
+    // 돌연변이 "역반응" (가역 반응)
+    //   체력이 REVERSE_THRESHOLD(30%) 아래로 내려가는 순간 (웨이브당 1번)
+    //   REVERSE_INVINCIBLE_TIME(2)초 무적 + 최대 체력의 REVERSE_HEAL_RATIO(20%) 회복.
+    //   원래 효과 (체력이 낮을수록 대미지 ↑) 도 그대로.
+    //   이 맞음으로 체력이 0 이 되면 (이미 쓰러짐) 일어나지 않는다
+    // =========================================================
+    reverseUsedWave: 0,   // 이번에 역반응을 쓴 웨이브 (0 = 아직)
+
+    reset: function () {
+      this.reverseUsedWave = 0;
+    },
+
+    onPlayerHurt: function (stats, info) {
+      if (!stats.mutated || player.hp <= 0 || this.reverseUsedWave === wave) return;
+      const line = player.maxHp * REVERSE_THRESHOLD;
+      if (!(info.hpBefore >= line && player.hp < line)) return;   // 30% 선을 넘어 내려간 순간만
+      this.reverseUsedWave = wave;
+      player.invincibleTimer = Math.max(player.invincibleTimer, REVERSE_INVINCIBLE_TIME);
+      healPlayer(player.maxHp * REVERSE_HEAL_RATIO);
+      spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "역반응!", COLORS.purple);
+    },
 
     // 대미지 × (1 + k × (1 − 지금 체력 ÷ 최대 체력))
     modifyDamage: function (damage, stats) {

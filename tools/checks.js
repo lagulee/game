@@ -2814,4 +2814,32 @@ module.exports = [
       return { ok: ok, detail: "일렬 6마리 (o 살아남음): 전 " + plain.hits + " / 폭발 연쇄 " + mut.hits + " / 세대별 대미지 (최대 체력 100, 25%) " + heats.join(", ") };
     },
   },
+  {
+    name: "[돌연변이 C] 역반응: 체력이 30% 아래로 내려가는 순간 (웨이브당 1번) 2초 무적 + 최대 체력 20% 회복, 원래 대미지 효과도 그대로",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { leChatelier: 2 }; mutatedAugments = { leChatelier: true };
+      player.maxHp = 100; player.hp = 35; player.invincibleTimer = 0;
+      hurtPlayer(10);                                   // 35 → 25 (30% 아래로) → 역반응: 25 + 20 = 45, 무적 2초
+      const fired = player.hp === 45 && player.invincibleTimer === REVERSE_INVINCIBLE_TIME;
+      player.invincibleTimer = 0; player.hp = 32; hurtPlayer(10);   // 같은 웨이브: 다시 안 됨
+      const once = player.hp === 22;
+      startWave(wave + 1); player.invincibleTimer = 0; player.hp = 31; hurtPlayer(5);   // 다음 웨이브: 다시 됨 (26 → 46)
+      const nextWave = player.hp === 46;
+      startWave(wave + 1); player.invincibleTimer = 0; player.hp = 20; hurtPlayer(5);    // 이미 30% 아래에서 더 내려가면 안 됨
+      const crossOnly = player.hp === 15;
+      startWave(wave + 1); player.invincibleTimer = 0; player.hp = 31; hurtPlayer(40);   // 쓰러지는 맞음이면 안 됨 (게임 오버)
+      const dead = gameState === "gameover";
+      // 원래 대미지 효과: 체력 25% 면 1 + k × 0.75
+      startGame(); ownedAugments = { leChatelier: 2 }; mutatedAugments = { leChatelier: true };
+      player.hp = player.maxHp * 0.25;
+      const lc = AUGMENTS.find((a) => a.id === "leChatelier");
+      const dmg = lc.modifyDamage(10, Object.assign({}, lc.levels[1], { mutated: true }));
+      // 돌연변이 전에는 회복 없음
+      mutatedAugments = {}; player.hp = 35; player.invincibleTimer = 0; hurtPlayer(10); const plain = player.hp === 25;
+      const ok = fired && once && nextWave && crossOnly && dead && Math.abs(dmg - 10 * (1 + LECHATELIER_K[1] * 0.75)) < 1e-9 && plain;
+      return { ok: ok, detail: "35 → 25 → 역반응 45, 무적 2초 " + fired + " / 같은 웨이브 한 번만 " + once + " / 다음 웨이브 다시 " + nextWave + " / 이미 30% 아래면 안 됨 " + crossOnly +
+        " / 쓰러지는 맞음은 그대로 게임 오버 " + dead + " / 대미지 효과 그대로 ×" + (dmg / 10).toFixed(2) + " / 돌연변이 전 " + plain };
+    },
+  },
 ];

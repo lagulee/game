@@ -2038,8 +2038,13 @@ function hurtPlayer(damage) {
     spawnTextPopup(player.x, player.y - PLAYER_RADIUS - 18, "막음!", COLORS.white);
     return;
   }
+  const hpBefore = player.hp;
   player.hp -= damage;
   player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
+  // [훅] onPlayerHurt: 맞은 직후 증강에게 알린다 (돌연변이 "역반응")
+  forEachOwnedAugment(function (aug, stats) {
+    if (aug.onPlayerHurt) aug.onPlayerHurt(stats, { hpBefore: hpBefore, damage: damage });
+  });
   if (player.hp <= 0) {
     player.hp = 0;
     endGame("gameover");
