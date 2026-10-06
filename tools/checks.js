@@ -2529,4 +2529,24 @@ module.exports = [
         detail: "전: +" + plain.join(",") + " / 가우스: +" + mut.join(",") + " / 배율 0.5 총알 +" + half + " / 1+…+100 = " + gaussSum(100) };
     },
   },
+  {
+    name: "[돌연변이 C] 세제곱 증폭: D → D³ ÷ 기본² (배율 상한 15배, 최소 1.5배), 여전히 다른 대미지 증강 뒤 맨 마지막 (order)",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const e = createEnemy("basic", 300, 300, 1);
+      const base = player.damage;
+      const sq = AUGMENTS.find((a) => a.id === "square");
+      const one = (D, mut) => sq.modifyDamage(D, Object.assign({}, sq.levels[2], mut ? { mutated: true } : {}), {});
+      // 2번째 명중마다라 hitCount 를 맞춰 둔다
+      const at = (D, mut) => { sq.hitCount = 1; return one(D, mut); };
+      const r2 = at(base * 2, true), r3 = at(base * 3, true), r5 = at(base * 5, true), r1 = at(base, true), p3 = at(base * 3, false);
+      // 순서: 등차 탄환(+) 다음에 세제곱이 맨 마지막이면 D = 10 + 4×9 = 46 → 배율 (4.6)² = 21.2 → 상한 15 → 690
+      ownedAugments = { arithmetic: 3, square: 3 }; mutatedAugments = { square: true }; sq.hitCount = 1; lastHitEnemy = null;
+      const last = calcDamage(e, { damageScale: 1, arithK: 9 });
+      const D = base + ARITH_D[2] * 9, want = D * Math.min(CUBE_MAX_MULT, (D / base) ** 2);
+      const ok = r2 === base * 2 * 4 && r3 === base * 3 * 9 && r5 === base * 5 * CUBE_MAX_MULT && r1 === base * SQUARE_MIN_MULT && p3 === base * 3 * 3 &&
+        Math.abs(last - want) < 1e-9 && sq.order === 100;
+      return { ok: ok, detail: "D=2기본 → ×4, 3기본 → ×9, 5기본 → ×" + CUBE_MAX_MULT + " (상한), 기본 → ×1.5 / 전: 3기본 → ×3 / 등차 다음에 세제곱: " + last.toFixed(1) + " (기대 " + want.toFixed(1) + ")" };
+    },
+  },
 ];

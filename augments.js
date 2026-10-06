@@ -546,6 +546,11 @@ const AUGMENTS = [
       // D²/10 = D × (D/10). 곱하는 배율 D/10 은 최솟값 ~ 상한 사이로
       // (거듭제곱의 성질: 1보다 큰 수는 제곱하면 커지고, 1보다 작은 수는 제곱하면 작아진다.
       //  그래서 그냥 두면 D 가 기본 대미지 이하일 때 배율이 1 이하라 쓸모가 없다 → 최소 1.5배)
+      // 돌연변이 "세제곱 증폭": D³ ÷ 기본² = D × (D/기본)². 배율 (D/기본)² 의 상한은 CUBE_MAX_MULT
+      if (stats.mutated) {
+        const ratio = damage / player.damage;
+        return damage * clamp(ratio * ratio, SQUARE_MIN_MULT, CUBE_MAX_MULT);
+      }
       const mult = clamp(damage / player.damage, SQUARE_MIN_MULT, stats.maxMult); // 기본 대미지(공격력 업그레이드 포함) 기준
       return damage * mult;
     },
