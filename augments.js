@@ -77,7 +77,7 @@
 //     info.enemy  : 죽은 적
 //     info.x, y   : 죽은 위치
 //     info.bullet : 마지막 한 방을 날린 총알 (폭발로 죽었으면 없음)
-//     info.explosion : 발열 반응 폭발로 죽었으면 true
+//     info.explosion : 발열 반응 폭발로 죽었으면 true (info.exoGen : 그 폭발의 세대 1, 2, 3)
 //     예: 핵분열 (죽은 자리에서 총알이 갈라져 나감), 발열 반응
 //
 //   onBulletUpdate(bullet, stats, dt)
@@ -1121,10 +1121,18 @@ const AUGMENTS = [
     },
 
     // 적이 죽으면 그 자리에서 열이 퍼진다
+    //   돌연변이 "폭발 연쇄" (활성화 에너지): 폭발로 죽은 적도 다시 폭발한다.
+    //   총알로 죽인 적의 폭발 = 1세대, 그 폭발로 죽은 적의 폭발 = 2세대 … EXO_CHAIN_MAX_GEN(3)세대까지.
+    //   세대마다 대미지 × EXO_CHAIN_SCALE(0.7) → 100% · 70% · 49%
     onKill: function (stats, info) {
-      // 폭발로 죽은 적은 다시 폭발하지 않는다 (연쇄 폭발이 끝없이 이어지지 않게)
-      if (info.explosion) return;
-      const heat = info.enemy.maxHp * stats.ratio;
+      let generation = 1;
+      if (info.explosion) {
+        // 폭발로 죽은 적은 다시 폭발하지 않는다 (연쇄 폭발이 끝없이 이어지지 않게). 돌연변이면 세대 제한까지만
+        if (!stats.mutated) return;
+        generation = (info.exoGen || 1) + 1;
+        if (generation > EXO_CHAIN_MAX_GEN) return;
+      }
+      const heat = info.enemy.maxHp * stats.ratio * Math.pow(EXO_CHAIN_SCALE, generation - 1);
       exoBlasts.push({ x: info.x, y: info.y, r: stats.radius, born: runTime });
       // 지금 살아 있는 적들을 미리 적어 둔다 (폭발 중에 새로 생긴 적, 예: 분열형 자식은 안 맞는다)
       const targets = enemies.filter(function (e) {
@@ -1132,7 +1140,7 @@ const AUGMENTS = [
           Math.sqrt((e.x - info.x) ** 2 + (e.y - info.y) ** 2) <= stats.radius;
       });
       for (const target of targets) {
-        damageEnemy(target, heat, { explosion: true });
+        damageEnemy(target, heat, { explosion: true, exoGen: generation });
       }
     },
 

@@ -2784,4 +2784,34 @@ module.exports = [
       return { ok: spread && noSpread && plain, detail: "옮겨 감 (60px 적 4초 · 9%, 100px 적 그대로, 보스 4.5%) " + spread + " / 붕괴 중 아닌 적이 죽으면 안 옮김 " + noSpread + " / 돌연변이 전 " + plain };
     },
   },
+  {
+    name: "[돌연변이 C] 폭발 연쇄: 폭발로 죽은 적도 다시 폭발, 3세대까지, 세대마다 대미지 70% (돌연변이 전엔 1번만)",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const run = (mut) => {
+        ownedAugments = { exothermic: 3 }; mutatedAugments = mut ? { exothermic: true } : {};
+        // 일렬: 첫 적을 죽이면 옆으로 차례로 (간격 70px < 반경 100) — 체력은 폭발 한 번이면 죽게 작게, 마지막 적만 튼튼하게
+        const list = [];
+        for (let i = 0; i < 6; i++) { const e = createEnemy("basic", 200 + i * 70, 300, 1); e.speed = 0; e.maxHp = 100; e.hp = 1; list.push(e); }
+        list[5].hp = 1e5;
+        enemies = list.slice();
+        killEnemy(list[0], {});
+        return { dead: list.filter((e) => e.dead).length, last: 1e5 - list[5].hp, hits: list.map((e) => e.dead ? "x" : "o").join("") };
+      };
+      // 한 줄 대미지: 1세대 25, 2세대 17.5, 3세대 12.25 → 다른 줄에서 따로 잰다
+      const plain = run(false), mut = run(true);
+      ownedAugments = { exothermic: 3 }; mutatedAugments = { exothermic: true };
+      const heats = [];
+      for (let gen = 1; gen <= 4; gen++) {
+        const a = createEnemy("basic", 500, 100, 1), b = createEnemy("basic", 540, 100, 1);
+        a.maxHp = 100; b.hp = b.maxHp = 1e5; enemies = [a, b];
+        const exo = AUGMENTS.find((x) => x.id === "exothermic");
+        exo.onKill(Object.assign({}, exo.levels[2], { mutated: true }), { enemy: a, x: 500, y: 100, explosion: gen > 1, exoGen: gen - 1 });
+        heats.push(Math.round((1e5 - b.hp) * 100) / 100);
+      }
+      // [0] 을 총알로 죽임 → 1세대 폭발이 [1] 을 죽임 → [1] 의 2세대 폭발이 [2] → [2] 의 3세대 폭발이 [3] → [3] 은 다시 안 터짐 → [4] 생존
+      const ok = plain.hits === "xxoooo" && mut.hits === "xxxxoo" && heats.join(",") === "25,17.5,12.25,0";
+      return { ok: ok, detail: "일렬 6마리 (o 살아남음): 전 " + plain.hits + " / 폭발 연쇄 " + mut.hits + " / 세대별 대미지 (최대 체력 100, 25%) " + heats.join(", ") };
+    },
+  },
 ];

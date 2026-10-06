@@ -2511,7 +2511,7 @@ function killEnemy(enemy, cause) {
   }
 
   // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
-  const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: cause.bullet, explosion: cause.explosion === true };
+  const killInfo = { enemy: enemy, x: enemy.x, y: enemy.y, bullet: cause.bullet, explosion: cause.explosion === true, exoGen: cause.exoGen || 0 };
   forEachOwnedAugment(function (aug, stats) {
     if (aug.onKill) aug.onKill(stats, killInfo);
   });
