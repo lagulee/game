@@ -2762,4 +2762,26 @@ module.exports = [
         detail: "점 생김 " + made + " / 60px 떨어진 적 " + n0 + " → " + near.x.toFixed(1) + " (점에 멈춤) " + pulled + " / 범위 밖 · 자석형 · 보스 그대로 " + stay + " / 1초 뒤 사라짐 " + gone + " / 최대 3개 " + capped };
     },
   },
+  {
+    name: "[돌연변이 C] 연쇄 붕괴: 붕괴 중인 적이 죽으면 반경 80 안의 적에게 붕괴가 옮겨 감 (보스는 절반), 붕괴 중이 아니면 안 옮김",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { halfLife: 2 }; mutatedAugments = { halfLife: true };
+      const make = (type, x, y) => { const e = createEnemy(type, x, y, 1); e.hp = e.maxHp = 1e5; e.speed = 0; return e; };
+      const dying = make("basic", 400, 300), near = make("basic", 460, 300), far = make("basic", 400, 400), boss = make("chargerKing", 400, 240);
+      enemies = [dying, near, far, boss];
+      dying.decayTime = 2; dying.decayRate = 0.09;
+      killEnemy(dying, {});
+      const rate = HALFLIFE_RATE[1];
+      const spread = near.decayTime === HALFLIFE_DURATION && near.decayRate === rate && !(far.decayTime > 0) && boss.decayRate === rate * HALFLIFE_BOSS_MULT;
+      // 붕괴 중이 아닌 적이 죽으면 옮기지 않음
+      const plainDie = make("basic", 600, 300), n2 = make("basic", 650, 300); enemies.push(plainDie, n2);
+      killEnemy(plainDie, {}); const noSpread = !(n2.decayTime > 0);
+      // 돌연변이 전에는 안 옮김
+      mutatedAugments = {};
+      const d3 = make("basic", 200, 100), n3 = make("basic", 240, 100); enemies.push(d3, n3); d3.decayTime = 2; d3.decayRate = 0.09;
+      killEnemy(d3, {}); const plain = !(n3.decayTime > 0);
+      return { ok: spread && noSpread && plain, detail: "옮겨 감 (60px 적 4초 · 9%, 100px 적 그대로, 보스 4.5%) " + spread + " / 붕괴 중 아닌 적이 죽으면 안 옮김 " + noSpread + " / 돌연변이 전 " + plain };
+    },
+  },
 ];

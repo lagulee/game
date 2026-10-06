@@ -1054,6 +1054,18 @@ const AUGMENTS = [
     //   마무리는 총알이 해야 한다!
     //   (참고: p = 6% 이면 체력이 절반이 되는 데 ln 2 ÷ −ln 0.94 ≈ 11초 = 반감기)
     // =========================================================
+    // 돌연변이 "연쇄 붕괴": 붕괴 중인 적이 죽으면 반경 CHAIN_DECAY_RADIUS(80) 안의 적들에게 붕괴가 옮겨 간다
+    //   (옮겨 간 적이 죽으면 또 옮겨 가므로, 무리 속에서 연쇄가 이어진다)
+    onKill: function (stats, info) {
+      if (!stats.mutated || !(info.enemy.decayTime > 0)) return;
+      for (const other of enemies) {
+        if (other.dead || other === info.enemy) continue;
+        if (Math.sqrt((other.x - info.x) ** 2 + (other.y - info.y) ** 2) > CHAIN_DECAY_RADIUS) continue;
+        other.decayTime = HALFLIFE_DURATION;
+        other.decayRate = stats.rate * (enemyType(other).isBoss ? HALFLIFE_BOSS_MULT : 1);
+      }
+    },
+
     onEnemyUpdate: function (enemy, stats, dt) {
       if (!(enemy.decayTime > 0) || enemy.dead) return;
       enemy.hp *= Math.pow(1 - enemy.decayRate, dt);
