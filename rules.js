@@ -117,6 +117,7 @@ const DIFFICULTIES = [
 //   id, name, color, desc, unlockWave: 난이도와 같다
 //   rules: 덮어쓸 규칙 값 (배율은 곱한다)
 //   fixedDifficulty: 이 모드는 난이도를 고정한다 (오늘의 도전 = 보통)
+//   lobbyDesc: 로비에서 이 모드를 골랐을 때 "게임 시작" 아래 설명 상자에 띄울 두 줄 (없으면 상자를 안 띄운다)
 const MODES = [
   {
     id: "basic", name: "기본", color: "yellow", unlockWave: 0,
@@ -136,6 +137,10 @@ const MODES = [
   {
     id: "daily", name: "오늘의 도전", color: "orange", unlockWave: DAILY_UNLOCK, fixedDifficulty: "normal",
     desc: "날짜가 같으면 누구나 같은 적 배치 · 같은 카드. 업그레이드 · 스킬 없이 체력 " + DAILY_HP + ", 공격력 " + DAILY_DAMAGE + " 으로. 난이도는 보통 고정, 코인은 하루 첫 판만",
+    lobbyDesc: [
+      "하루에 한 판! 오늘은 누구나 같은 적 · 같은 카드로 겨뤄요 (내일은 새 판)",
+      "업그레이드 · 스킬 없이 체력 " + DAILY_HP + " · 공격력 " + DAILY_DAMAGE + " 으로 시작  ·  코인은 하루 첫 판만",
+    ],
     rules: { useUpgrades: false, useSkills: false, fixedStats: { maxHp: DAILY_HP, damage: DAILY_DAMAGE }, daily: true },
   },
 ];

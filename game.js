@@ -246,6 +246,9 @@ const START_BUTTON = { x: 330, y: 250, w: 300, h: 80 };
 const LOBBY_TITLE_Y = 98;
 // 난이도 · 모드 줄: 위쪽 끝 y, 높이, 칸(칩) 크기, 좌우 화살표 폭
 const LOBBY_ROWS = { difficulty: 154, mode: 200 };
+const LOBBY_DESC_GAP = 64;   // 모드 설명 상자 (오늘의 도전): "게임 시작" 버튼 아래에서 이만큼 떨어진 곳에
+const LOBBY_DESC_W = 560;   // 모드 설명 상자 너비
+const LOBBY_DESC_H = 46;    // 모드 설명 상자 높이
 const LOBBY_ROW_H = 38;
 const LOBBY_CHIP_W = 104;
 const LOBBY_CHIP_GAP = 8;
@@ -5640,6 +5643,17 @@ function drawTutorialPrompt() {
   ctx.restore();
 }
 
+// 로비 모드 설명 상자: 흰 스티커 위에 모드 색 동그라미 "?" 와 설명 두 줄 (y: 상자 위쪽)
+function drawLobbyModeDesc(mode, y) {
+  const w = LOBBY_DESC_W, h = LOBBY_DESC_H, x = CANVAS_WIDTH / 2 - w / 2;
+  drawStickerRect(x, y, w, h, 16, COLORS.white, 4);
+  drawOutlinedCircle(x + 24, y + h / 2, 14, COLORS[mode.color], SMALL_OUTLINE_WIDTH);
+  drawOutlinedText("?", x + 24, y + h / 2 + 1, 18);
+  for (let i = 0; i < mode.lobbyDesc.length; i++) {
+    drawFitText(mode.lobbyDesc[i], x + 24 + (w - 24) / 2, y + h / 2 + (i - (mode.lobbyDesc.length - 1) / 2) * 19 + 1, 15, w - 64, COLORS.outline);
+  }
+}
+
 // 지금 판 (또는 고른) 난이도 · 모드를 짧게: "보통" / "어려움 · 풍요"
 function rulesLabel(difficultyId, modeId) {
   const d = difficultyById(difficultyId), m = modeById(modeId);
@@ -5707,9 +5721,12 @@ function drawMenu() {
   drawOutlinedText(recordLine, CANVAS_WIDTH / 2, B.y + B.h + 24, fitTextSize(recordLine, 19, 560), "center", COLORS.yellow);
   drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 52, 15);
 
-  // 5) 장착한 스킬 (장착했을 때만 작게)
+  // 4-1) 고른 모드의 설명 상자 (오늘의 도전처럼 lobbyDesc 가 있는 모드만)
+  if (m.lobbyDesc) drawLobbyModeDesc(m, B.y + B.h + LOBBY_DESC_GAP);
+
+  // 5) 장착한 스킬 (장착했을 때만 작게. 스킬을 안 쓰는 판 (오늘의 도전 · 튜토리얼) 이거나 설명 상자가 있으면 숨긴다)
   const skill = equippedSkill();
-  if (skill) {
+  if (skill && makeRules(d.id, m.id).useSkills && !m.lobbyDesc) {
     const text = "장착 스킬: " + skill.name;
     ctx.font = "16px " + FONT_FAMILY;
     const tw = ctx.measureText(text).width;
