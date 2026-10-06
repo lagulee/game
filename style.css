@@ -224,7 +224,7 @@ body {
 
 .give-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));   /* 칸 폭에 맞춰 여러 줄로 */
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));   /* 칸 폭에 맞춰 여러 줄로 */
   gap: 8px;
   margin-top: 6px;
 }
@@ -267,6 +267,22 @@ body {
   font-size: 22px;
   background: #D9482B;           /* 빨강: 빼기 */
   color: #F7F4EA;
+}
+
+.give-mut {
+  width: 46px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.give-mut.give-mut-on {
+  background: #8A63B8;           /* 보라: 돌연변이 켜짐 */
+  color: #F7F4EA;
+}
+
+.give-mut:disabled {
+  opacity: 0.3;                  /* 가진 증강이 아니면 켤 수 없음 */
+  cursor: default;
 }
 
 .give-minus:disabled {

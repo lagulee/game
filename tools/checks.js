@@ -2321,4 +2321,92 @@ module.exports = [
       return { ok: ok && vals, detail: names.map((n) => n + "=" + tuningDefaults[n] + "(" + (TUNING_INFO[n] || {}).group + ")").join(", ") };
     },
   },
+  // ---------------- 돌연변이 B: 화면과 연출 ----------------
+  {
+    name: "[돌연변이 B] 돌연변이 카드: 한 박자 늦게 튀어나옴, 제목 \"돌연변이 발생!\", 화면 흔들림 (그림만, 게임 값 · 난수 그대로), 돌연변이 카드가 없으면 예전 그대로",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { compound: 2 };
+      const normal = [AUGMENTS[1], AUGMENTS[2], SUPPLIES[0]];
+      const withMut = [AUGMENTS[1], makeMutationCard(AUGMENTS[0]), SUPPLIES[0]];
+      const shot = (list, t) => { choices = list; gameState = "choosing"; choosingTime = t; draw(); return canvas.toDataURL(); };
+      // 0.3초: 보통 카드는 다 보이지만 돌연변이 카드는 아직 (0.08 + 0.35 초 뒤에 나온다)
+      // → 돌연변이 카드 자리만 비어 있는지: 그 자리에 보통 카드를 둔 그림과 달라야 하고, 0.3초 그림에서 흔들림을 빼면 "카드 없음" 과 같아야 한다
+      const late = !(0.3 - 1 * 0.08 - MUTATION_CARD_DELAY > 0) && (1.0 - 1 * 0.08 - MUTATION_CARD_DELAY > 0);
+      const shakeEarly = (choices = withMut, gameState = "choosing", choosingTime = 0.1, mutationShakeOffset());
+      choosingTime = MUTATION_SHAKE_TIME + 0.01; const shakeLate = mutationShakeOffset();
+      choices = normal; choosingTime = 0.1; const shakeNone = mutationShakeOffset();
+      const shook = (shakeEarly.x !== 0 || shakeEarly.y !== 0) && shakeLate.x === 0 && shakeLate.y === 0 && shakeNone.x === 0 && shakeNone.y === 0;
+      const titleMut = (choices = withMut, choicesHaveMutation()), titleNormal = (choices = normal, !choicesHaveMutation());
+      // 그림을 그려도 게임 값과 난수는 그대로
+      const before = JSON.stringify([player.x, player.y, wave, choices.map((c) => c.id)]), r0 = Math.random(); __reseed(77);
+      shot(withMut, 0.1); shot(withMut, 1.2);
+      const r1 = Math.random(); __reseed(77); const r2 = Math.random();
+      const same = before === JSON.stringify([player.x, player.y, wave, normal.map((c) => c.id)]) && r1 === r2;
+      // 두 그림이 다른지 (돌연변이 카드가 그려짐)
+      const a = shot(normal, 1.2), b = shot(withMut, 1.2);
+      return { ok: late && shook && titleMut && titleNormal && same && a !== b,
+        detail: "한 박자 늦게 " + late + " / 흔들림: 처음 (" + shakeEarly.x.toFixed(1) + "," + shakeEarly.y.toFixed(1) + "), " + MUTATION_SHAKE_TIME + "초 뒤 0, 돌연변이 없으면 0 → " + shook +
+          " / 제목 " + titleMut + " · 보통 " + titleNormal + " / 그림은 게임 값 · 난수를 안 바꿈 " + same };
+    },
+  },
+  {
+    name: "[돌연변이 B] 고른 뒤 보라 안내 띠 \"돌연변이: …!\", 증강 목록 · 일시정지 창은 돌연변이 이름 (보라), 결과 화면에 이번 판 돌연변이, 도감 \"돌연변이\" 쪽 (5 키, 얻은 것만 내용, 나머지 ???)",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { compound: 2, catalyst: 1 };
+      choices = [makeMutationCard(AUGMENTS[0]), AUGMENTS[1], SUPPLIES[0]]; gameState = "choosing"; choosingTime = 1;
+      chooseAugment(0);
+      const banner = bannerIsMutation && bannerSubText === "돌연변이: 연속 복리!";
+      startWave(wave + 1); const bannerReset = !bannerIsMutation;
+      const names = augmentDisplayName(AUGMENTS[0]) === "연속 복리" && augmentDisplayName(AUGMENTS.find((a) => a.id === "catalyst")) === "촉매";
+      // 그림: 돌연변이 표시가 있으면 목록 그림이 달라진다
+      bannerTimer = 0; draw(); const listMut = canvas.toDataURL();
+      delete mutatedAugments.compound; draw(); const listPlain = canvas.toDataURL(); mutatedAugments.compound = true;
+      pauseGame(); draw(); const pauseMut = canvas.toDataURL();
+      delete mutatedAugments.compound; draw(); const pausePlain = canvas.toDataURL(); mutatedAugments.compound = true;
+      const lay = layoutPauseAugments([AUGMENTS[0]], 400, 300).items[0].lines.join(" ");
+      const pauseDesc = lay.indexOf("자연상수") >= 0;
+      resumeGame(); resumeTimer = 0;
+      // 결과 화면
+      endGame("gameover"); draw(); const resMut = canvas.toDataURL();
+      runMutations = []; draw(); const resPlain = canvas.toDataURL(); runMutations = ["compound"];
+      // 도감
+      saveData.seenMutations = ["compound"];
+      goToMenu(); openTab("collection"); press("Digit5");
+      const page = collectionPage === "mutations" && collectionItems("mutations").length === AUGMENTS.length;
+      draw(); const colSeen = canvas.toDataURL();
+      saveData.seenMutations = []; draw(); const colNone = canvas.toDataURL();
+      const ok = banner && bannerReset && names && listMut !== listPlain && pauseMut !== pausePlain && pauseDesc && resMut !== resPlain && page && colSeen !== colNone;
+      return { ok: ok, detail: "보라 띠 " + banner + " (다음 웨이브엔 원래대로 " + bannerReset + ") / 목록 이름 " + names + ", 그림 " + (listMut !== listPlain) +
+        " / 일시정지 그림 " + (pauseMut !== pausePlain) + ", 설명 " + pauseDesc + " / 결과 화면 " + (resMut !== resPlain) + " / 도감 5쪽 " + page + ", 얻음 · ??? 그림 다름 " + (colSeen !== colNone) };
+    },
+  },
+  {
+    name: "[돌연변이 B] 디버그 지급 창(G)의 증강마다 \"변이\" 버튼: 켜고 끄기 (가진 증강만), 모바일 모드의 \"지급\" 버튼으로 연 창에서도 눌림",
+    run: new Function(FIND_PIN + `
+      saveData.mobileMode = true; unlockOwner(findPin());
+      startGame(); spawnQueue = []; enemies = [];
+      debugMode = true; updateMobileControls();
+      ownedAugments = { compound: 2 };
+      const giveBtn = [...document.querySelectorAll(".mobile-debug-btn")].find((b) => b.textContent === "지급");
+      giveBtn.click();
+      const open = isDebugGiveOpen();
+      const cells = document.querySelectorAll(".give-cell");
+      const idx = (id) => AUGMENTS.findIndex((a) => a.id === id);
+      const mutBtn = (id) => cells[idx(id)].querySelector(".give-mut");
+      const lockedOthers = mutBtn("catalyst").disabled && !mutBtn("compound").disabled;
+      mutBtn("compound").click();
+      const on = isMutated("compound") && mutBtn("compound").classList.contains("give-mut-on") && cells[idx("compound")].querySelector(".give-plus").textContent.indexOf("연속 복리") === 0;
+      mutBtn("compound").click();
+      const off = !isMutated("compound") && !mutBtn("compound").classList.contains("give-mut-on");
+      // 레벨을 0 으로 지우면 돌연변이도 함께 지워진다
+      mutBtn("compound").click();
+      cells[idx("compound")].querySelector(".give-minus").click(); cells[idx("compound")].querySelector(".give-minus").click();
+      const gone = !isMutated("compound") && getAugmentLevel("compound") === 0;
+      closeDebugGivePanel(); debugMode = false;
+      return { ok: open && lockedOthers && on && off && gone, detail: "모바일 지급 버튼으로 열림 " + open + " / 안 가진 증강은 잠김 " + lockedOthers + " / 켜기 (이름 바뀜) " + on + " / 끄기 " + off + " / 레벨 0 이면 함께 지워짐 " + gone };
+    `),
+  },
 ];

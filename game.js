@@ -201,6 +201,13 @@ const CHOICE_INPUT_DELAY = 0.4;
 // 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
 const BANNER_TIME = 1.8;
 
+// ---- 돌연변이 카드 연출 ----
+const MUTATION_CARD_DELAY = 0.35;   // 돌연변이 카드는 다른 카드보다 이만큼 (초) 한 박자 늦게 튀어나온다
+const MUTATION_SHAKE_TIME = 0.45;   // 카드가 뜰 때 화면이 흔들리는 시간 (초)
+const MUTATION_SHAKE_SIZE = 6;      // 흔들림 크기 (px)
+const MUTATION_BORDER = 7;          // 돌연변이 카드의 보라 테두리 두께 (px)
+const MUTATION_HELIX_ALPHA = 0.14;  // 카드 배경 DNA 이중 나선 무늬의 진하기
+
 // 가진 증강이 이 개수 이상이면 오른쪽 위 목록을 2열로 작게 그린다
 const AUGMENT_LIST_COMPACT_FROM = 5;
 
@@ -538,6 +545,20 @@ function debugRemoveAugment(aug) {
   debugSay(level === 0 ? aug.name + " 삭제" : aug.name + " Lv." + level);
 }
 
+// 증강 하나의 돌연변이를 켜고 끈다 (가지고 있을 때만. 디버그라서 Lv.2 조건 · 최대 개수는 따지지 않고, 도감 기록도 남기지 않는다)
+function debugToggleMutation(aug) {
+  if (getAugmentLevel(aug.id) <= 0) return;
+  if (isMutated(aug.id)) {
+    delete mutatedAugments[aug.id];
+    runMutations = runMutations.filter(function (id) { return id !== aug.id; });
+    debugSay(aug.name + " 돌연변이 끔");
+  } else {
+    mutatedAugments[aug.id] = true;
+    runMutations.push(aug.id);
+    debugSay(aug.mutation.name + " 돌연변이 켬");
+  }
+}
+
 // 가진 증강을 모두 지운다
 function debugRemoveAllAugments() {
   ownedAugments = {};
@@ -562,7 +583,7 @@ function openDebugGivePanel() {
   panel.innerHTML =
     '<div class="tuning-head"><span class="tuning-title">디버그 · 지급</span>' +
     '<button class="tuning-close" title="닫기 (Esc / G)">✕</button></div>' +
-    '<p class="tuning-help">증강을 누르면 레벨 +1, − 를 누르면 레벨 −1 (Lv.1 에서 누르면 삭제). 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기</p>' +
+    '<p class="tuning-help">증강을 누르면 레벨 +1, − 를 누르면 레벨 −1 (Lv.1 에서 누르면 삭제), "변이" 는 돌연변이 켜기/끄기 (가진 증강만). 보급을 누르면 바로 사용해요. Esc 나 G 로 닫기</p>' +
     '<div class="tuning-list"><div class="tuning-group give-head">증강 <button class="tuning-btn give-clear">모두 삭제</button></div>' +
     '<div class="give-grid give-augments"></div>' +
     '<div class="tuning-group">보급</div><div class="give-grid give-supplies"></div></div>';
@@ -571,12 +592,17 @@ function openDebugGivePanel() {
   const refresh = function () {
     panel.querySelectorAll(".give-cell").forEach(function (cell, i) {
       const aug = AUGMENTS[i], lv = getAugmentLevel(aug.id), max = aug.levels.length;
-      const plus = cell.querySelector(".give-plus"), minus = cell.querySelector(".give-minus");
+      const plus = cell.querySelector(".give-plus"), minus = cell.querySelector(".give-minus"), mut = cell.querySelector(".give-mut");
       plus.innerHTML = aug.name + "<small>" + (lv >= max ? "Lv." + lv + " (MAX)" : "Lv." + lv + " → " + (lv + 1)) + "</small>";
       plus.disabled = lv >= max;
       plus.classList.toggle("give-owned", lv > 0);
       minus.disabled = lv <= 0;
       minus.title = lv === 1 ? "삭제" : "레벨 −1";
+      // 돌연변이 버튼: 켜져 있으면 보라색, 가진 증강이 아니면 잠김
+      mut.disabled = lv <= 0;
+      mut.classList.toggle("give-mut-on", isMutated(aug.id));
+      mut.title = (isMutated(aug.id) ? "돌연변이 끄기: " : "돌연변이 켜기: ") + aug.mutation.name;
+      if (isMutated(aug.id)) plus.innerHTML = aug.mutation.name + "<small>" + aug.name + " · " + (lv >= max ? "Lv." + lv + " (MAX)" : "Lv." + lv + " → " + (lv + 1)) + "</small>";
     });
     panel.querySelector(".give-clear").disabled = Object.keys(ownedAugments).length === 0;
   };
@@ -592,7 +618,12 @@ function openDebugGivePanel() {
     minus.className = "tuning-btn give-minus";
     minus.textContent = "−";
     minus.addEventListener("click", function () { debugRemoveAugment(aug); refresh(); });
+    const mut = document.createElement("button");
+    mut.className = "tuning-btn give-mut";
+    mut.textContent = "변이";
+    mut.addEventListener("click", function () { debugToggleMutation(aug); refresh(); });
     cell.appendChild(plus);
+    cell.appendChild(mut);
     cell.appendChild(minus);
     panel.querySelector(".give-augments").appendChild(cell);
   }
@@ -966,6 +997,7 @@ let currentSpawnBatch = WAVE_SPAWN_BATCH;
 
 // 안내 띠가 보스 안내인지 (보스 안내면 띠 색이 빨강)
 let bannerIsBoss = false;
+let bannerIsMutation = false;   // 돌연변이를 얻은 직후의 안내 띠는 보라색
 
 // 플레이어가 가진 증강과 레벨을 기억하는 상자
 // 예: { compound: 2, variance: 1 } → 복리 탄환 Lv.2, 분산 증폭 Lv.1
@@ -1329,6 +1361,7 @@ function startWave(n) {
   // 화면 위에 "웨이브 n" 안내 띠를 띄운다. 처음 나오는 적이 있으면 이름도 함께
   bannerText = "웨이브 " + n;
   bannerIsBoss = bossQueue.length > 0;
+  bannerIsMutation = false;
   if (bannerIsBoss) {
     // 보스 웨이브: "웨이브 5 · 보스: 돌진 대장!" (여러 마리면 "A & B", 마지막 웨이브면 "최종 보스")
     const names = bossQueue.map(function (id) { return ENEMY_TYPES[id].name; });
@@ -1607,6 +1640,7 @@ function chooseAugment(index) {
     mutateAugment(aug.aug);
     startWave(wave + 1);
     bannerSubText = "돌연변이: " + aug.name + "!";
+    bannerIsMutation = true;
     return;
   }
 
@@ -1842,7 +1876,7 @@ function handleLobbyKey(code) {
   }
   // 도감 탭: 1, 2, 3 키 = 적 / 증강 / 보급 쪽
   if (gameState === "collection") {
-    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3 };
+    const keyToPage = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4, Numpad1: 0, Numpad2: 1, Numpad3: 2, Numpad4: 3, Numpad5: 4 };
     if (code in keyToPage && COLLECTION_PAGES[keyToPage[code]]) { collectionPage = COLLECTION_PAGES[keyToPage[code]].id; return true; }
   }
   // 도감·업그레이드 탭: Esc (또는 M) = 전투 탭으로
@@ -3655,11 +3689,37 @@ function drawAugmentListPanel(owned) {
   for (let i = 0; i < owned.length; i++) {
     const aug = owned[i];
     const rowY = y + 52 + i * rowH;
-    // 증강 색 동그라미 + 이름 + 레벨
-    drawOutlinedCircle(x + 26, rowY, 9, COLORS[aug.color], SMALL_OUTLINE_WIDTH);
-    drawOutlinedText(aug.name, x + 44, rowY, 18, "left");
+    // 증강 색 동그라미 + 이름 + 레벨 (돌연변이했으면 보라 표시 + 돌연변이 이름)
+    drawAugmentDot(aug, x + 26, rowY, 9, SMALL_OUTLINE_WIDTH);
+    drawOutlinedText(augmentDisplayName(aug), x + 44, rowY, 18, "left", augmentNameColor(aug));
     drawOutlinedText("Lv." + getAugmentLevel(aug.id), x + w - 16, rowY, 18, "right", COLORS.yellow);
   }
+}
+
+// 목록에 보여 줄 증강 이름 (돌연변이했으면 돌연변이 이름)
+function augmentDisplayName(aug) {
+  return isMutated(aug.id) ? aug.mutation.name : aug.name;
+}
+// 이름 글자 색 (돌연변이는 밝은 보라)
+function augmentNameColor(aug) {
+  return isMutated(aug.id) ? lightenColor(COLORS.purple, 0.55) : COLORS.white;
+}
+// 증강 색 동그라미 (돌연변이했으면 보라 동그라미 + 안쪽 DNA 가닥 두 줄)
+function drawAugmentDot(aug, x, y, r, width) {
+  if (!isMutated(aug.id)) { drawOutlinedCircle(x, y, r, COLORS[aug.color], width); return; }
+  drawOutlinedCircle(x, y, r + 1, COLORS.purple, width);
+  ctx.save();
+  ctx.strokeStyle = COLORS.white;
+  ctx.lineWidth = Math.max(1.2, r * 0.22);
+  for (const side of [1, -1]) {
+    ctx.beginPath();
+    for (let t = -1; t <= 1.001; t += 0.25) {
+      const px = x + side * Math.sin(t * Math.PI) * r * 0.45, py = y + t * r * 0.7;
+      if (t === -1) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // 증강이 많을 때의 작은 목록: 2열로, 글자도 조금 작게
@@ -3682,8 +3742,8 @@ function drawAugmentListCompact(owned) {
     const row = i % rows;
     const cx = x + 8 + col * colW;
     const rowY = y + 46 + row * rowH;
-    drawOutlinedCircle(cx + 14, rowY, 7, COLORS[aug.color], SMALL_OUTLINE_WIDTH * 0.8);
-    drawOutlinedText(aug.name, cx + 27, rowY, 15, "left");
+    drawAugmentDot(aug, cx + 14, rowY, 7, SMALL_OUTLINE_WIDTH * 0.8);
+    drawOutlinedText(augmentDisplayName(aug), cx + 27, rowY, 15, "left", augmentNameColor(aug));
     drawOutlinedText(String(getAugmentLevel(aug.id)), cx + colW - 10, rowY, 15, "right", COLORS.yellow);
   }
 }
@@ -3949,8 +4009,8 @@ function drawBanner() {
   let w = Math.max(340, ctx.measureText(bannerText).width + 60);
   ctx.font = "20px " + FONT_FAMILY;
   w = Math.max(w, ctx.measureText(bannerSubText).width + 60);
-  // 보스 웨이브 안내는 빨간 띠, 보통은 노란 띠
-  drawOutlinedRoundRect(-w / 2, -28, w, h, 18, bannerIsBoss ? COLORS.red : COLORS.yellow);
+  // 돌연변이를 얻은 직후는 보라 띠, 보스 웨이브 안내는 빨간 띠, 보통은 노란 띠
+  drawOutlinedRoundRect(-w / 2, -28, w, h, 18, bannerIsMutation ? COLORS.purple : bannerIsBoss ? COLORS.red : COLORS.yellow);
   drawOutlinedText(bannerText, 0, 0, 34);
   if (bannerSubText) {
     drawOutlinedText(bannerSubText, 0, 36, 20);
@@ -4023,8 +4083,8 @@ function drawCard(aug, i) {
   const info = aug.isSupply || aug.isMutation ? aug : aug.levels[level];
   const isHover = i === hoverIndex;
 
-  // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다
-  const appear = choosingTime - i * 0.08;
+  // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다 (돌연변이 카드는 한 박자 더 늦게)
+  const appear = choosingTime - i * 0.08 - (aug.isMutation ? MUTATION_CARD_DELAY : 0);
   if (appear <= 0) return;                         // 아직 차례가 안 됨
   const scale = popupScale(appear) * (isHover ? 1.04 : 1);
 
@@ -4048,6 +4108,15 @@ function drawCard(aug, i) {
 
   // 2) 카드 몸통 (하양)
   drawOutlinedRoundRect(left, top, w, h, 20, COLORS.white);
+
+  // 돌연변이 카드는 모양이 따로 (DNA 무늬, 보라 테두리, 리본)
+  if (aug.isMutation) {
+    drawMutationCardBody(aug, w, h);
+    drawOutlinedCircle(left + 6, top + 6, 18, COLORS.outline);
+    drawOutlinedText(String(i + 1), left + 6, top + 7, 20, "center", COLORS.yellow);
+    ctx.restore();
+    return;
+  }
 
   // 3) 위쪽 색 띠 + 제목
   drawOutlinedRoundRect(left + 12, top + 12, w - 24, 58, 14, accent);
@@ -4092,6 +4161,92 @@ function drawCard(aug, i) {
   ctx.restore();
 }
 
+// 돌연변이 카드 (drawCard 가 카드 가운데로 좌표를 옮기고 몸통을 그린 뒤 부른다)
+function drawMutationCardBody(card, w, h) {
+  const left = -w / 2, top = -h / 2;
+  const purple = COLORS.purple;
+
+  // 1) 배경: 연한 DNA 이중 나선 (사인 곡선 두 가닥이 반 바퀴 어긋나 꼬이고, 사이에 가로 막대)
+  ctx.save();
+  roundRectPath(left, top, w, h, 20);
+  ctx.clip();
+  ctx.globalAlpha = MUTATION_HELIX_ALPHA;
+  ctx.strokeStyle = purple;
+  ctx.lineWidth = 5;
+  const amp = w * 0.3, k = (Math.PI * 2) / 150, phase = choosingTime * 2;   // 천천히 돌아간다
+  for (const shift of [0, Math.PI]) {
+    ctx.beginPath();
+    for (let y = top; y <= top + h; y += 6) {
+      const x = amp * Math.sin(k * (y - top) + phase + shift);
+      if (y === top) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.lineWidth = 3;
+  for (let y = top + 10; y < top + h; y += 18) {   // 두 가닥을 잇는 염기쌍 막대
+    const x = amp * Math.sin(k * (y - top) + phase);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(-x, y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // 2) 두꺼운 보라 테두리 (바깥 검은 외곽선 안쪽에)
+  ctx.save();
+  roundRectPath(left + MUTATION_BORDER / 2 + 2, top + MUTATION_BORDER / 2 + 2, w - MUTATION_BORDER - 4, h - MUTATION_BORDER - 4, 17);
+  ctx.lineWidth = MUTATION_BORDER;
+  ctx.strokeStyle = purple;
+  ctx.stroke();
+  ctx.restore();
+
+  // 3) 위쪽 보라 띠: 원래 증강 이름 (작게) → 돌연변이 이름 (크게)
+  drawOutlinedRoundRect(left + 16, top + 22, w - 32, 70, 14, purple);
+  drawOutlinedText(card.aug.name, 0, top + 40, 15, "center", lightenColor(purple, 0.6));
+  const big = "→ " + card.name;
+  drawOutlinedText(big, 0, top + 70, fitTextSize(big, 28, w - 48));
+
+  // 4) "돌연변이" 리본 (카드 위쪽 가장자리에 걸쳐서, 양 끝이 V 자로 파인 띠)
+  ctx.save();
+  ctx.translate(0, top + 2);
+  ctx.rotate(-0.03);
+  const rw = 132, rh = 30;
+  drawOutlinedPolygon([[-rw / 2 - 16, -rh / 2], [rw / 2 + 16, -rh / 2], [rw / 2 + 6, 0], [rw / 2 + 16, rh / 2],
+    [-rw / 2 - 16, rh / 2], [-rw / 2 - 6, 0]], COLORS.outline, SMALL_OUTLINE_WIDTH);
+  drawOutlinedRoundRect(-rw / 2, -rh / 2, rw, rh, 8, purple, SMALL_OUTLINE_WIDTH);
+  drawOutlinedText("돌연변이", 0, 1, 19, "center", COLORS.yellow);
+  ctx.restore();
+
+  // 5) 개념 · 수식 · 설명
+  drawFitText(card.concept, 0, top + 110, 16, w - 40, COLORS.brown);
+  drawOutlinedText(card.formula, 0, top + 145, fitTextSize(card.formula, 26, w - 40), "center", purple);
+  const desc = fitCardDesc(card.desc);
+  ctx.fillStyle = COLORS.outline;
+  ctx.font = desc.size + "px " + FONT_FAMILY;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let n = 0; n < desc.lines.length; n++) {
+    ctx.fillText(desc.lines[n], 0, top + CARD_DESC_TOP + n * desc.lineHeight);
+  }
+
+  // 6) 아래쪽: 레벨은 그대로라는 표시
+  const level = getAugmentLevel(card.aug.id);
+  drawOutlinedRoundRect(-80, top + h - 46, 160, 32, 16, purple);
+  drawOutlinedText("Lv." + level + " 그대로 변이", 0, top + h - 30, 17);
+}
+
+// 선택 화면에 돌연변이 카드가 있는지
+function choicesHaveMutation() {
+  return gameState === "choosing" && choices.some(function (c) { return c.isMutation; });
+}
+
+// 돌연변이 카드가 뜰 때 화면 흔들림 (x, y) — 그림만 흔들고 게임 값은 바꾸지 않는다 (난수도 안 씀)
+function mutationShakeOffset() {
+  if (!choicesHaveMutation() || choosingTime >= MUTATION_SHAKE_TIME) return { x: 0, y: 0 };
+  const fade = 1 - choosingTime / MUTATION_SHAKE_TIME;   // 점점 잦아든다
+  return {
+    x: Math.sin(choosingTime * 75) * MUTATION_SHAKE_SIZE * fade,
+    y: Math.cos(choosingTime * 61) * MUTATION_SHAKE_SIZE * 0.6 * fade,
+  };
+}
+
 // ---- 증강 선택 화면 전체 ----
 function drawChoiceScreen() {
   if (gameState !== "choosing") return;
@@ -4103,8 +4258,9 @@ function drawChoiceScreen() {
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   ctx.restore();
 
-  // 위쪽 제목
-  drawOutlinedText("웨이브 " + wave + " 클리어!", CANVAS_WIDTH / 2, 48, 40, "center", COLORS.yellow);
+  // 위쪽 제목 (돌연변이 카드가 있으면 "돌연변이 발생!")
+  if (choicesHaveMutation()) drawOutlinedText("돌연변이 발생!", CANVAS_WIDTH / 2, 48, 42, "center", lightenColor(COLORS.purple, 0.35));
+  else drawOutlinedText("웨이브 " + wave + " 클리어!", CANVAS_WIDTH / 2, 48, 40, "center", COLORS.yellow);
   drawOutlinedText("증강을 하나 고르세요  (클릭 또는 1 · 2 · 3 키)", CANVAS_WIDTH / 2, 88, 20);
 
   // 카드를 한 장씩 그리는 반복문
@@ -4157,7 +4313,8 @@ function layoutPauseAugments(owned, w, h) {
       let total = 0;
       const items = owned.map(function (aug) {
         const level = getAugmentLevel(aug.id);
-        let lines = wrapText(aug.levels[level - 1].desc, w - 18, size);
+        // 돌연변이했으면 돌연변이 설명
+        let lines = wrapText(isMutated(aug.id) ? aug.mutation.desc : aug.levels[level - 1].desc, w - 18, size);
         if (lines.length > maxLines) {
           lines = lines.slice(0, maxLines);
           // 잘린 줄 끝에 말줄임표 (0줄이면 설명 없이 이름만)
@@ -4256,17 +4413,19 @@ function drawPauseScreen() {
     let y = ay + 26;
     // 증강을 하나씩: 색 동그라미 + 이름 Lv + 수식, 그 아래 설명
     for (const item of layout.items) {
-      drawOutlinedCircle(ax + 8, y + 10, 7, COLORS[item.aug.color], SMALL_OUTLINE_WIDTH * 0.8);
+      const mutated = isMutated(item.aug.id);
+      drawAugmentDot(item.aug, ax + 8, y + 10, 7, SMALL_OUTLINE_WIDTH * 0.8);
       ctx.font = "17px " + FONT_FAMILY;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillStyle = COLORS.outline;
-      const title = item.aug.name + " Lv." + item.level;
+      ctx.fillStyle = mutated ? COLORS.purple : COLORS.outline;
+      // 돌연변이: "연속 복리 Lv.2 (복리 탄환)" 보라 글자
+      const title = mutated ? item.aug.mutation.name + " Lv." + item.level + " (" + item.aug.name + ")" : item.aug.name + " Lv." + item.level;
       ctx.fillText(title, ax + 22, y + 10);
       const tw = ctx.measureText(title).width;
       ctx.font = "14px " + FONT_FAMILY;
-      ctx.fillStyle = COLORS.brown;
-      ctx.fillText(item.aug.formula, ax + 32 + tw, y + 10);
+      ctx.fillStyle = mutated ? COLORS.purple : COLORS.brown;
+      ctx.fillText(mutated ? item.aug.mutation.formula : item.aug.formula, ax + 32 + tw, y + 10);
       ctx.font = layout.size + "px " + FONT_FAMILY;
       ctx.fillStyle = COLORS.outline;
       for (let n = 0; n < item.lines.length; n++) {
@@ -4339,10 +4498,24 @@ function drawOverlay() {
     // 이름과 레벨 사이는 "줄이 바뀌지 않는 띄어쓰기"(\u00A0)로 붙여서, 줄은 " · " 에서만 바뀌게 한다
     .map(function (aug) { return (aug.name + " Lv." + getAugmentLevel(aug.id)).replace(/ /g, "\u00A0"); });
   const augText = owned.length > 0 ? "증강: " + owned.join(" · ") : "모은 증강 없음";
-  const augLines = wrapText(augText, pw - 60, 16).slice(0, 3);   // 최대 3줄
+  // 이번 판에 얻은 돌연변이가 있으면 보라 띠로 한 줄 먼저 (그만큼 증강 목록은 한 줄 줄인다)
+  let augTop = 42;
+  if (runMutations.length > 0) {
+    const mutText = "돌연변이: " + runMutations.map(function (id) {
+      const aug = AUGMENTS.find(function (a) { return a.id === id; });
+      return aug ? aug.mutation.name : id;
+    }).join(" · ");
+    const size = fitTextSize(mutText, 17, pw - 110);
+    ctx.font = size + "px " + FONT_FAMILY;
+    const mw = ctx.measureText(mutText).width + 36;
+    drawOutlinedRoundRect(-mw / 2, 30, mw, 26, 13, COLORS.purple, SMALL_OUTLINE_WIDTH);
+    drawOutlinedText(mutText, 0, 44, size);
+    augTop = 72;
+  }
+  const augLines = wrapText(augText, pw - 60, 16).slice(0, runMutations.length > 0 ? 2 : 3);   // 최대 3줄 (돌연변이가 있으면 2줄)
   // 증강 목록을 한 줄씩 쓰는 반복문
   for (let i = 0; i < augLines.length; i++) {
-    drawOutlinedText(augLines[i], 0, 42 + i * 20, 15);
+    drawOutlinedText(augLines[i], 0, augTop + i * 20, 15);
   }
 
   // 아래쪽 버튼 3개: 다시 시작(R) / 업그레이드(U) / 메뉴(M)
@@ -5042,6 +5215,7 @@ const COLLECTION_PAGES = [
   { id: "augments", label: "증강", color: "purple" },
   { id: "supplies", label: "보급", color: "green" },
   { id: "skills", label: "스킬", color: "blue" },
+  { id: "mutations", label: "돌연변이", color: "purple" },
 ];
 // 도감 위쪽 쪽 버튼 크기와 높이, 내용 패널 위치
 const COLLECTION_PAGE_BUTTON = { w: 150, h: 34, gap: 14, y: 76 };
@@ -5062,6 +5236,7 @@ function collectionItems(page) {
   if (page === "enemies") return COLLECTION_ENEMIES.map(function (id) { return ENEMY_TYPES[id]; });
   if (page === "augments") return AUGMENTS;
   if (page === "skills") return SKILLS;
+  if (page === "mutations") return AUGMENTS.filter(function (aug) { return aug.mutation; });
   return SUPPLIES;
 }
 
@@ -5130,6 +5305,24 @@ function drawCollectionScreen() {
       drawOutlinedText(aug.name, c.x + c.w / 2, c.y + 16, fitTextSize(aug.name, 17, c.w - 16));
       drawFitText(aug.formula, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.38, 19, c.w - 14, COLORS.outline);
       drawFitText(aug.concept, c.x + c.w / 2, c.y + 30 + (c.h - 30) * 0.76, 13, c.w - 12, COLORS.brown);
+    }
+  } else if (collectionPage === "mutations") {
+    // 돌연변이: 한 줄에 5칸. 한 번이라도 얻은 것만 내용이 보이고, 나머지는 "???" 와 원래 증강 이름만
+    for (let i = 0; i < items.length; i++) {
+      const aug = items[i], c = collectionCell(i, items.length, 5), cx = c.x + c.w / 2;
+      const seen = saveData.seenMutations.indexOf(aug.id) >= 0;
+      drawOutlinedRoundRect(c.x, c.y, c.w, c.h, 12, COLORS.background, SMALL_OUTLINE_WIDTH);
+      drawOutlinedRoundRect(c.x, c.y, c.w, 30, 12, seen ? COLORS.purple : COLORS.dark, SMALL_OUTLINE_WIDTH);
+      if (seen) {
+        drawOutlinedText(aug.mutation.name, cx, c.y + 16, fitTextSize(aug.mutation.name, 17, c.w - 16));
+        drawFitText(aug.mutation.formula, cx, c.y + 30 + (c.h - 30) * 0.3, 16, c.w - 14, COLORS.purple);
+        drawFitText(aug.mutation.concept, cx, c.y + 30 + (c.h - 30) * 0.58, 12, c.w - 12, COLORS.brown);
+        drawFitText("원래: " + aug.name, cx, c.y + 30 + (c.h - 30) * 0.83, 12, c.w - 12, COLORS.outline);
+      } else {
+        drawOutlinedText("???", cx, c.y + 16, 17, "center", COLORS.dim);
+        drawFitText("???", cx, c.y + 30 + (c.h - 30) * 0.38, 20, c.w - 14, COLORS.gray);
+        drawFitText("원래 증강: " + aug.name, cx, c.y + 30 + (c.h - 30) * 0.76, 12, c.w - 12, COLORS.brown);
+      }
     }
   } else if (collectionPage === "skills") {
     // 스킬: 한 줄에 3칸. 색 띠(아이콘 + 이름) + 개념 + 쿨타임 · 가격 + 설명
@@ -5310,6 +5503,9 @@ function draw() {
   // 매 프레임 처음에: 게임 좌표 960 × 540 → 실제 픽셀로 확대하는 변환을 정한다
   ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
   drawBackground(); // 배경 (가장 아래, 지난 프레임 그림도 덮어서 지워 준다)
+  // 돌연변이 카드가 뜰 때 화면 전체가 살짝 흔들린다 (배경 위의 모든 그림을 옮긴다)
+  const shake = mutationShakeOffset();
+  if (shake.x !== 0 || shake.y !== 0) ctx.translate(shake.x, shake.y);
 
   // 로비 화면들(전투 탭·도감·업그레이드)은 따로 그리고 끝낸다 (탭 바와 톱니는 여기에만 있다)
   if (isLobbyState()) {
