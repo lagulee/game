@@ -5786,7 +5786,8 @@ function drawCollectionScreen() {
     const active = collectionPage === page.id;
     drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id), function () {
       drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 17, hoverColor(id, active ? COLORS[page.color] : COLORS.dark), SMALL_OUTLINE_WIDTH);
-      drawOutlinedText((i + 1) + "  " + page.label + " " + collectionItems(page.id).length, r.x + r.w / 2, r.y + r.h / 2 + 1, 18,
+      const label = (i + 1) + "  " + page.label + " " + collectionItems(page.id).length;
+      drawOutlinedText(label, r.x + r.w / 2, r.y + r.h / 2 + 1, fitTextSize(label, 18, r.w - 14),
         "center", active ? COLORS.white : COLORS.dim);
     });
   }
@@ -5835,8 +5836,10 @@ function drawCollectionScreen() {
       drawOutlinedRoundRect(c.x, c.y, c.w, 32, 12, COLORS[item.color], SMALL_OUTLINE_WIDTH);
       drawOutlinedText(item.name, cx, c.y + 17, fitTextSize(item.name, 18, c.w - 70));
       drawOutlinedText(isMode ? "모드" : "난이도", c.x + 10, c.y + 17, 12, "left", COLORS.white);
-      const lines = wrapText(item.desc, c.w - 20, 13).slice(0, 4);
-      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 48 + n * 18, 13, c.w - 16, COLORS.outline);
+      // 설명: 13px 로 4줄에 안 들어가면 12px 로 5줄까지
+      let size = 13, gap = 18, lines = wrapText(item.desc, c.w - 20, 13);
+      if (lines.length > 4) { size = 12; gap = 15; lines = wrapText(item.desc, c.w - 20, 12).slice(0, 5); }
+      for (let n = 0; n < lines.length; n++) drawFitText(lines[n], cx, c.y + 46 + n * gap, size, c.w - 16, COLORS.outline);
       const unlock = item.unlockWave > 0 ? (open ? "열림 · " : "잠김 · ") + "보통 " + item.unlockWave + "웨이브에 해금" : "처음부터";
       drawFitText(unlock, cx, c.y + c.h - 12, 12, c.w - 16, open ? COLORS.green : COLORS.red);
     }
