@@ -2245,7 +2245,7 @@ module.exports = [
     },
   },
   {
-    name: "[돌연변이 A] 후보는 Lv.2 이상 증강만 (보급 X), 돌연변이한 증강은 다시 안 됨 (레벨업은 됨), 한 판에 최대 MUTATION_MAX(2)개, 보스를 잡으면 그 웨이브 뒤 표시",
+    name: "[돌연변이 A] 후보는 Lv.2 이상 증강만 (보급 X), 돌연변이한 증강은 다시 안 됨 (바로 Lv.3 이 되어 카드 후보에서도 빠짐), 한 판에 최대 MUTATION_MAX(2)개, 보스를 잡으면 그 웨이브 뒤 표시",
     run: function () {
       startGame();
       ownedAugments = { compound: 1, variance: 2, timeDilation: 3 }; mutatedAugments = {};
@@ -2253,9 +2253,9 @@ module.exports = [
       const noSupply = mutationCandidates().every((a) => !a.isSupply && AUGMENTS.includes(a));
       mutateAugment(AUGMENTS.find((a) => a.id === "variance"));
       const c2 = mutationCandidates().map((a) => a.id).join(",");
-      // 돌연변이한 분산 증폭(Lv.2) 도 레벨업 카드로는 계속 나온다
-      let levelUp = false;
-      for (let i = 0; i < 300 && !levelUp; i++) levelUp = pickChoices().some((c) => c.id === "variance" && !c.isMutation);
+      // 돌연변이한 분산 증폭(Lv.2) 은 바로 Lv.3 이 되고, 레벨업 카드로도 다시 나오지 않는다
+      let levelUp = getAugmentLevel("variance") === 3;
+      for (let i = 0; i < 300 && levelUp; i++) if (pickChoices().some((c) => c.id === "variance" || (c.aug && c.aug.id === "variance"))) levelUp = false;
       ownedAugments.compound = 2;
       mutateAugment(AUGMENTS.find((a) => a.id === "timeDilation"));
       const c3 = mutationCandidates().length;   // 이미 2개 → 후보 없음
@@ -2268,11 +2268,11 @@ module.exports = [
       killEnemy(boss, {}); const flagged = bossKilledThisWave;
       startWave(6); const cleared = !bossKilledThisWave;
       const ok = c1 === "variance,timeDilation" && noSupply && c2 === "timeDilation" && levelUp && c3 === 0 && none && flagged && cleared;
-      return { ok: ok, detail: "후보 " + c1 + " → 분산 돌연변이 뒤 " + c2 + " / 레벨업은 됨 " + levelUp + " / 2개 뒤 후보 " + c3 + ", 카드 없음 " + none + " / 보스 처치 표시 " + flagged + " · 다음 웨이브 지움 " + cleared };
+      return { ok: ok, detail: "후보 " + c1 + " → 분산 돌연변이 뒤 " + c2 + " / Lv.3 · 다시 안 나옴 " + levelUp + " / 2개 뒤 후보 " + c3 + ", 카드 없음 " + none + " / 보스 처치 표시 " + flagged + " · 다음 웨이브 지움 " + cleared };
     },
   },
   {
-    name: "[돌연변이 A] 증강 14개 모두 mutation 데이터 (name · concept · formula · desc), 훅에 stats.mutated 전달 (돌연변이 전엔 없음, 레벨 수치는 그대로 + mutation.stats 덮어쓰기)",
+    name: "[돌연변이 A] 증강 14개 모두 mutation 데이터 (name · concept · formula · desc), 훅에 stats.mutated 전달 (돌연변이 전엔 없음, 최대 레벨 (Lv.3) 수치 + mutation.stats 덮어쓰기)",
     run: function () {
       const all = AUGMENTS.every((a) => a.mutation && a.mutation.name && a.mutation.concept && a.mutation.formula && a.mutation.desc);
       const names = new Set(AUGMENTS.map((a) => a.mutation.name)).size === AUGMENTS.length;
@@ -2283,7 +2283,7 @@ module.exports = [
       mutateAugment(AUGMENTS.find((a) => a.id === "fourier"));
       let fourierStats = null;
       forEachOwnedAugment((aug, stats) => { seen[aug.id + "1"] = stats.mutated; if (aug.id === "fourier") fourierStats = stats; });
-      const lv = AUGMENTS.find((a) => a.id === "fourier").levels[1];
+      const lv = AUGMENTS.find((a) => a.id === "fourier").levels[2];   // 돌연변이하면 Lv.2 → Lv.3
       const merged = fourierStats.amplitude === lv.amplitude && fourierStats.amplitudeMult === RESONANCE_AMP_MULT && fourierStats.desc === lv.desc;
       const untouched = lv.mutated === undefined && lv.amplitudeMult === undefined;   // 원래 levels 는 그대로
       const ok = all && names && !seen.fourier0 && !seen.compound0 && seen.fourier1 === true && !seen.compound1 && merged && untouched;
@@ -2291,7 +2291,7 @@ module.exports = [
     },
   },
   {
-    name: "[돌연변이 A] 돌연변이 카드를 고르면 레벨 그대로 돌연변이 + 안내 띠, 얻은 기록 saveData.seenMutations 저장 (옛 저장 데이터에 없어도 읽힘), 새 판은 초기화",
+    name: "[돌연변이 A] 돌연변이 카드를 고르면 돌연변이 + 바로 Lv.3 + 안내 띠, 얻은 기록 saveData.seenMutations 저장 (옛 저장 데이터에 없어도 읽힘), 새 판은 초기화",
     run: function () {
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
       // 옛 저장 데이터 (seenMutations 없음)
@@ -2305,11 +2305,11 @@ module.exports = [
       const aug = AUGMENTS.find((a) => a.id === "catalyst");
       choices = [makeMutationCard(aug), AUGMENTS[0], SUPPLIES[0]]; gameState = "choosing"; choosingTime = 1;
       chooseAugment(0);
-      const ok1 = isMutated("catalyst") && getAugmentLevel("catalyst") === 2 && bannerSubText === "돌연변이: " + aug.mutation.name + "!" && wave === 2;
+      const ok1 = isMutated("catalyst") && getAugmentLevel("catalyst") === 3 && bannerSubText === "돌연변이: " + aug.mutation.name + " Lv.3!" && wave === 2;
       const saved = loadSave().seenMutations.join(",") === "catalyst" && runMutations.join(",") === "catalyst";
       resetGame(); const fresh = !isMutated("catalyst") && runMutations.length === 0 && saveData.seenMutations.includes("catalyst");
       return { ok: oldOk && cleaned && ok1 && saved && fresh,
-        detail: "옛 저장 읽힘 " + oldOk + ", 이상한 값 정리 " + cleaned + " / 고르면 돌연변이 · 레벨 그대로 · 안내 띠 " + ok1 + " / 저장 " + saved + " / 새 판 초기화 (도감 기록은 남음) " + fresh };
+        detail: "옛 저장 읽힘 " + oldOk + ", 이상한 값 정리 " + cleaned + " / 고르면 돌연변이 · Lv.3 · 안내 띠 " + ok1 + " / 저장 " + saved + " / 새 판 초기화 (도감 기록은 남음) " + fresh };
     },
   },
   {
@@ -2351,14 +2351,14 @@ module.exports = [
     },
   },
   {
-    name: "[돌연변이 B] 고른 뒤 보라 안내 띠 \"돌연변이: …!\", 증강 목록 · 일시정지 창은 돌연변이 이름 (보라), 결과 화면에 이번 판 돌연변이, 도감 \"돌연변이\" 쪽 (5 키, 얻은 것만 내용, 나머지 ???)",
+    name: "[돌연변이 B] 고른 뒤 보라 안내 띠 \"돌연변이: … Lv.3!\", 증강 목록 · 일시정지 창은 돌연변이 이름 (보라), 결과 화면에 이번 판 돌연변이, 도감 \"돌연변이\" 쪽 (5 키, 얻은 것만 내용, 나머지 ???)",
     run: function () {
       const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
       startGame(); spawnQueue = []; enemies = [];
       ownedAugments = { compound: 2, catalyst: 1 };
       choices = [makeMutationCard(AUGMENTS[0]), AUGMENTS[1], SUPPLIES[0]]; gameState = "choosing"; choosingTime = 1;
       chooseAugment(0);
-      const banner = bannerIsMutation && bannerSubText === "돌연변이: 연속 복리!";
+      const banner = bannerIsMutation && bannerSubText === "돌연변이: 연속 복리 Lv.3!";
       startWave(wave + 1); const bannerReset = !bannerIsMutation;
       const names = augmentDisplayName(AUGMENTS[0]) === "연속 복리" && augmentDisplayName(AUGMENTS.find((a) => a.id === "catalyst")) === "촉매";
       // 그림: 돌연변이 표시가 있으면 목록 그림이 달라진다
@@ -2384,7 +2384,7 @@ module.exports = [
     },
   },
   {
-    name: "[돌연변이 B] 디버그 지급 창(G)의 증강마다 \"변이\" 버튼: 켜고 끄기 (가진 증강만), 모바일 모드의 \"지급\" 버튼으로 연 창에서도 눌림",
+    name: "[돌연변이 B] 디버그 지급 창(G)의 증강마다 \"변이\" 버튼: 켜고 끄기 (가진 증강만, 켜면 바로 Lv.3), 모바일 모드의 \"지급\" 버튼으로 연 창에서도 눌림",
     run: new Function(FIND_PIN + `
       saveData.mobileMode = true; unlockOwner(findPin());
       startGame(); spawnQueue = []; enemies = [];
@@ -2398,12 +2398,12 @@ module.exports = [
       const mutBtn = (id) => cells[idx(id)].querySelector(".give-mut");
       const lockedOthers = mutBtn("catalyst").disabled && !mutBtn("compound").disabled;
       mutBtn("compound").click();
-      const on = isMutated("compound") && mutBtn("compound").classList.contains("give-mut-on") && cells[idx("compound")].querySelector(".give-plus").textContent.indexOf("연속 복리") === 0;
+      const on = isMutated("compound") && getAugmentLevel("compound") === 3 && mutBtn("compound").classList.contains("give-mut-on") && cells[idx("compound")].querySelector(".give-plus").textContent.indexOf("연속 복리") === 0;
       mutBtn("compound").click();
       const off = !isMutated("compound") && !mutBtn("compound").classList.contains("give-mut-on");
       // 레벨을 0 으로 지우면 돌연변이도 함께 지워진다
       mutBtn("compound").click();
-      cells[idx("compound")].querySelector(".give-minus").click(); cells[idx("compound")].querySelector(".give-minus").click();
+      for (let i = 0; i < 3; i++) cells[idx("compound")].querySelector(".give-minus").click();   // 켜면 Lv.3 이 되므로 세 번
       const gone = !isMutated("compound") && getAugmentLevel("compound") === 0;
       closeDebugGivePanel(); debugMode = false;
       return { ok: open && lockedOthers && on && off && gone, detail: "모바일 지급 버튼으로 열림 " + open + " / 안 가진 증강은 잠김 " + lockedOthers + " / 켜기 (이름 바뀜) " + on + " / 끄기 " + off + " / 레벨 0 이면 함께 지워짐 " + gone };

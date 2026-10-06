@@ -575,7 +575,8 @@ function debugRemoveAugment(aug) {
   debugSay(level === 0 ? aug.name + " 삭제" : aug.name + " Lv." + level);
 }
 
-// 증강 하나의 돌연변이를 켜고 끈다 (가지고 있을 때만. 디버그라서 Lv.2 조건 · 최대 개수는 따지지 않고, 도감 기록도 남기지 않는다)
+// 증강 하나의 돌연변이를 켜고 끈다 (가지고 있을 때만. 디버그라서 Lv.2 조건 · 최대 개수는 따지지 않고, 도감 기록도 남기지 않는다.
+// 켤 때는 실제 돌연변이처럼 바로 최대 레벨로, 끌 때는 레벨을 그대로 둔다)
 function debugToggleMutation(aug) {
   if (getAugmentLevel(aug.id) <= 0) return;
   if (isMutated(aug.id)) {
@@ -584,6 +585,7 @@ function debugToggleMutation(aug) {
     debugSay(aug.name + " 돌연변이 끔");
   } else {
     mutatedAugments[aug.id] = true;
+    ownedAugments[aug.id] = aug.levels.length;
     runMutations.push(aug.id);
     debugSay(aug.mutation.name + " 돌연변이 켬");
   }
@@ -1498,10 +1500,12 @@ function makeMutationCard(aug) {
   return { isMutation: true, aug: aug, id: aug.id + ":mutation", name: m.name, concept: m.concept, formula: m.formula, desc: m.desc, color: "purple" };
 }
 
-// 증강 aug 를 돌연변이시킨다 (레벨은 그대로, 앞으로 레벨업도 된다). 도감 기록도 남긴다
+// 증강 aug 를 돌연변이시킨다. 레벨은 곧바로 최대 (Lv.3) 로 올라가서, 그 증강은 더 이상 카드 후보에 나오지 않는다
+// (pickChoices 가 최대 레벨 증강을 빼므로). 도감 기록도 남긴다
 function mutateAugment(aug) {
   if (isMutated(aug.id)) return;
   mutatedAugments[aug.id] = true;
+  ownedAugments[aug.id] = aug.levels.length;
   runMutations.push(aug.id);
   if (saveData.seenMutations.indexOf(aug.id) < 0) {
     saveData.seenMutations.push(aug.id);
@@ -1806,10 +1810,10 @@ function confirmChoice() {
 
 // 카드 한 장의 효과를 적용하고, 안내 띠에 쓸 글자를 돌려준다 { text, mutation }
 function applyCard(aug) {
-  // 돌연변이 카드: 그 증강이 돌연변이한다 (레벨은 그대로)
+  // 돌연변이 카드: 그 증강이 돌연변이하고 바로 최대 레벨이 된다
   if (aug.isMutation) {
     mutateAugment(aug.aug);
-    return { text: "돌연변이: " + aug.name + "!", mutation: true };
+    return { text: "돌연변이: " + aug.name + " Lv." + aug.aug.levels.length + "!", mutation: true };
   }
   // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
   if (aug.isSupply) {
@@ -4549,10 +4553,10 @@ function drawMutationCardBody(card, w, h) {
     ctx.fillText(desc.lines[n], 0, top + CARD_DESC_TOP + n * desc.lineHeight);
   }
 
-  // 6) 아래쪽: 레벨은 그대로라는 표시
-  const level = getAugmentLevel(card.aug.id);
+  // 6) 아래쪽: 지금 레벨 → 최대 레벨로 변이한다는 표시
+  const level = getAugmentLevel(card.aug.id), max = card.aug.levels.length;
   drawOutlinedRoundRect(-80, top + h - 46, 160, 32, 16, purple);
-  drawOutlinedText("Lv." + level + " 그대로 변이", 0, top + h - 30, 17);
+  drawOutlinedText(level < max ? "Lv." + level + " → Lv." + max + " 변이" : "Lv." + max + " 그대로 변이", 0, top + h - 30, 17);
 }
 
 // 선택 화면에 돌연변이 카드가 있는지
