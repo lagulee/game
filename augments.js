@@ -488,6 +488,15 @@ const AUGMENTS = [
     modifyDamage: function (damage, stats, info) {
       const k = info.bullet ? info.bullet.arithK : undefined;
       if (k === undefined) return damage; // 번호가 없는 총알(파편 등)은 그대로
+      // =========================================================
+      // 돌연변이 "가우스의 합": 한 주기의 마지막 발 (k = ARITH_CYCLE − 1 = 9) 은
+      //   d × 9 대신 d × (0 + 1 + 2 + … + 9) 를 더한다.
+      //   1 부터 n 까지의 합 = n(n + 1) ÷ 2  (가우스의 방법: 1+n, 2+(n−1), … 짝을 지으면 (n+1) 이 n/2 쌍)
+      //   n = 9 → 9 × 10 ÷ 2 = 45  →  추가 대미지 45d (d = 4 이면 +180)
+      // =========================================================
+      if (stats.mutated && k === ARITH_CYCLE - 1) {
+        return damage + stats.d * gaussSum(k) * info.bullet.damageScale;
+      }
       return damage + stats.d * k * info.bullet.damageScale;
     },
   },
@@ -1029,6 +1038,14 @@ function timeStopInfo() {
 function timeStopActive() {
   const info = timeStopInfo();
   return info !== null && info.active;
+}
+
+
+// =============================================================
+// 가우스의 합: 0 + 1 + 2 + … + n = n(n + 1) ÷ 2
+// =============================================================
+function gaussSum(n) {
+  return n * (n + 1) / 2;
 }
 
 

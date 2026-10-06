@@ -2508,4 +2508,25 @@ module.exports = [
         " / 10.1초 원래대로 " + near(after.basic, 1) + " / 일시정지 · 카드 고르기 중 시계 멈춤 " + (pausedSame && chooseSame) + " / 돌연변이 전 없음 " + none };
     },
   },
+  {
+    name: "[돌연변이 C] 가우스의 합: 주기의 마지막 발 (k = 9) 만 추가 대미지 d × (0+1+…+9) = 45d, 나머지 발은 d × k 그대로, 돌연변이 전엔 9d",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const e = createEnemy("basic", 300, 300, 1);
+      const d = ARITH_D[2];
+      const run = (mut) => {
+        ownedAugments = { arithmetic: 3 }; mutatedAugments = mut ? { arithmetic: true } : {};
+        const out = [];
+        for (let k = 0; k < ARITH_CYCLE; k++) { lastHitEnemy = null; out.push(calcDamage(e, { damageScale: 1, arithK: k }) - player.damage); }
+        return out;
+      };
+      const plain = run(false), mut = run(true);
+      const okPlain = plain.every((v, k) => v === d * k);
+      const okMut = mut.every((v, k) => v === (k === ARITH_CYCLE - 1 ? d * 45 : d * k));
+      // 3방향 탄의 약한 총알 (배율 0.5) 도 같은 비율
+      lastHitEnemy = null; const half = calcDamage(e, { damageScale: 0.5, arithK: 9 }) - player.damage * 0.5;
+      return { ok: okPlain && okMut && half === d * 45 * 0.5 && gaussSum(9) === 45 && gaussSum(100) === 5050,
+        detail: "전: +" + plain.join(",") + " / 가우스: +" + mut.join(",") + " / 배율 0.5 총알 +" + half + " / 1+…+100 = " + gaussSum(100) };
+    },
+  },
 ];
