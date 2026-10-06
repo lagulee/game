@@ -13,7 +13,8 @@
 //     - 자석형·블랙홀: 더 멀리서부터 피한다
 //   old (예전 봇)
 //     - 가장 가까운 적에게서 멀어지고, 벽에 막히면 가운데를 중심으로 돈다
-//   공통: 카드는 무작위, 화면 없이 update(1/60) 을 직접 불러 실제보다 훨씬 빠르게 돌린다
+//   공통: 카드는 무작위 (돌연변이 카드가 나오면 그것을 고른다 — 사람도 대박 카드는 고를 테니까),
+//         화면 없이 update(1/60) 을 직접 불러 실제보다 훨씬 빠르게 돌린다
 //
 // 사용법 (프로젝트 폴더에서)
 //   NODE_PATH=$(npm root -g) node tools/balance.js
@@ -27,6 +28,12 @@
 //   발동 스킬 비교: --skills none,dash,shockwave,absoluteZero --levels 6,10,20 --runs 40
 //     (스킬을 산 상태로 시작. 봇은 위험할 때 스킬을 쓴다 → runLevel 의 inDanger)
 //   증강 기여도: --contrib 10 --runs 20  (레벨 (10,10) 에서 증강마다 "첫 카드로 얻는 판" vs "안 나오는 판")
+//   돌연변이 비교: --mutation off,on --levels 6,10,20 --runs 30
+//     (off = 확률 0, on = 지금 확률. 한 판에 얻은 돌연변이 수 평균도 보여 준다)
+//   돌연변이 기여도: --mutcontrib 10 --runs 20 --at 10
+//     (레벨 (10,10), 10웨이브를 깬 뒤의 카드 선택에서 그 증강을 Lv.2 이상으로 맞추고
+//      "그 돌연변이를 받은 판" vs "돌연변이 없이 같은 증강만 받은 판" — 같은 씨앗, 10웨이브에 닿은 판만 20쌍.
+//      두 쪽 모두 저절로 나오는 돌연변이는 끈다. --only square,leChatelier 로 일부만)
 // =============================================================
 
 const { chromium } = require("playwright");
@@ -261,10 +268,11 @@ function runLevel(opts) {
   }
 
   const results = [];
-  for (let run = 0; run < opts.runs; run++) {
-    // 같은 레벨이면 예전과 같은 씨앗 (체력·공격력이 다르면 둘을 섞은 씨앗)
+  const runCount = opts.seedList ? opts.seedList.length : opts.runs;
+  for (let run = 0; run < runCount; run++) {
+    // 같은 레벨이면 예전과 같은 씨앗 (체력·공격력이 다르면 둘을 섞은 씨앗). seedList 를 주면 그 씨앗들
     const seedLevel = opts.v === opts.p ? opts.v : opts.v * 31 + opts.p * 1009;
-    __reseed(1000 + run * 7919 + seedLevel * 104729 + opts.seed * 15485863);
+    __reseed(opts.seedList ? opts.seedList[run] : 1000 + run * 7919 + seedLevel * 104729 + opts.seed * 15485863);
     saveData = defaultSave();
     saveData.upgrades = { vitality: opts.v, power: opts.p };
     if (opts.skill) { saveData.ownedSkills = [opts.skill]; saveData.equippedSkill = opts.skill; }
@@ -273,9 +281,26 @@ function runLevel(opts) {
     let frames = 0;
     const MAX_FRAMES = 60 * 60 * 60; // 게임 시간 1시간이면 멈춤 (안전장치)
     let firstPick = true;
+    let offered = 0, eligible = 0, eligibleBoss = 0, reached = false;
     while (gameState !== "gameover" && gameState !== "clear" && frames < MAX_FRAMES) {
       if (gameState === "choosing") {
         choosingTime = 1;
+        // 돌연변이 기여도: forceAt 웨이브를 깬 뒤의 선택에서 그 증강을 Lv.2 이상으로 (forceMutate 면 돌연변이까지)
+        if (opts.forceAug && wave === opts.forceAt && !reached) {
+          reached = true;
+          const aug = AUGMENTS.find((a) => a.id === opts.forceAug);
+          ownedAugments[aug.id] = Math.min(aug.levels.length, Math.max(getAugmentLevel(aug.id), 2));
+          if (opts.forceMutate) mutateAugment(aug);
+        }
+        // 돌연변이 통계: 후보가 있던 선택 수 (보스 직후 따로), 돌연변이 카드가 나온 수
+        if (mutationCandidates().length > 0) { if (bossKilledThisWave) eligibleBoss++; else eligible++; }
+        const mutIndex = choices.findIndex((c) => c.isMutation);
+        if (mutIndex >= 0) {
+          offered++;
+          chooseAugment(mutIndex);      // 돌연변이 카드는 고른다
+          firstPick = false;
+          continue;
+        }
         // 기여도 측정: 첫 카드는 반드시 opts.force 증강
         if (firstPick && opts.force) {
           const forced = AUGMENTS.find((a) => a.id === opts.force);
@@ -293,17 +318,106 @@ function runLevel(opts) {
       update(1 / 60);
       frames++;
     }
-    results.push({ wave: wave, clear: gameState === "clear", coins: lastRunCoins, time: runTime, cards: wave - 1 });
+    results.push({ wave: wave, clear: gameState === "clear", coins: lastRunCoins, time: runTime, cards: wave - 1,
+      mutations: runMutations.length, offered: offered, eligible: eligible, eligibleBoss: eligibleBoss, reached: reached });
   }
   if (banned.length) AUGMENTS.push(banned[0]);
   return results;
 }
+
+// 돌연변이가 있는 증강 이름표 (augments.js 의 순서)
+const AUGMENT_IDS = ["compound", "variance", "timeDilation", "arithmetic", "square", "multiShot", "fission",
+  "catalyst", "knockback", "fourier", "gravityLens", "halfLife", "exothermic", "leChatelier"];
 
 (async () => {
   const server = await startServer(path.resolve(__dirname, ".."));
   server.setOverrides(OVERRIDES);
   const browser = await chromium.launch();
   const errors = [];
+
+  // 상수를 바꿔 끼운 서버로 탭 하나 열기 (돌연변이 모드에서 설정마다 다른 서버)
+  async function openPage(overrides) {
+    const own = await startServer(path.resolve(__dirname, ".."));
+    own.setOverrides(Object.assign({}, OVERRIDES, overrides));
+    const page = await browser.newPage();
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(initScript);
+    await page.goto(own.url + "index.html");
+    page.on("close", () => own.close());
+    return page;
+  }
+  // 일을 n 개씩 동시에 처리 (결과는 순서대로)
+  async function pool(items, n, work) {
+    const out = new Array(items.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (next < items.length) { const i = next++; out[i] = await work(items[i]); }
+    }));
+    return out;
+  }
+  const NO_MUTATION = { MUTATION_CHANCE: 0, MUTATION_BOSS_CHANCE: 0 };
+  const avgOf = (list, key) => list.reduce((a, x) => a + x[key], 0) / list.length;
+
+  // ---- 돌연변이 비교 모드: --mutation off,on ----
+  if (args.mutation !== undefined) {
+    const settings = args.mutation.split(",");
+    const jobs = [];
+    for (const level of LEVELS) for (const set of settings) jobs.push({ level, set });
+    const rows = await pool(jobs, PARALLEL, async (job) => {
+      const page = await openPage(job.set === "off" ? NO_MUTATION : {});
+      const r = await page.evaluate(runLevel, { v: job.level.v, p: job.level.p, runs: RUNS, bot: BOT, seed: SEED });
+      await page.close();
+      return { level: job.level.label, set: job.set, wave: avgOf(r, "wave"), mutations: avgOf(r, "mutations"), offered: avgOf(r, "offered"),
+        eligible: avgOf(r, "eligible"), eligibleBoss: avgOf(r, "eligibleBoss"), atLeastOne: r.filter((x) => x.mutations > 0).length,
+        dist: [0, 1, 2].map((k) => r.filter((x) => x.mutations === k).length) };
+    });
+    console.log("돌연변이 비교: 봇 " + BOT + " / 판 수 " + RUNS + " / 씨앗 " + SEED + " / 바꾼 상수 " + (Object.keys(OVERRIDES).length ? JSON.stringify(OVERRIDES) : "없음"));
+    console.log("레벨 | 설정 | 평균 웨이브 | 한 판 돌연변이 평균 | 0개/1개/2개 판 | 후보가 있던 선택 (보통 + 보스 직후) 평균");
+    for (const row of rows) {
+      console.log("(" + row.level + "," + row.level + ") | " + row.set + " | " + row.wave.toFixed(1) + " | " + row.mutations.toFixed(2) + " | " + row.dist.join("/") +
+        " | " + row.eligible.toFixed(1) + " + " + row.eligibleBoss.toFixed(1));
+    }
+    if (errors.length) console.log("페이지 오류: " + errors.slice(0, 3).join(" / "));
+    console.log("JSON " + JSON.stringify(rows));
+    await browser.close();
+    server.close();
+    return;
+  }
+
+  // ---- 돌연변이 기여도 모드: --mutcontrib 레벨 ----
+  if (args.mutcontrib !== undefined) {
+    const lv = Number(args.mutcontrib), at = Number(args.at || 10);
+    const ids = args.only ? args.only.split(",") : AUGMENT_IDS;   // --only square,catalyst 처럼 일부만
+    const rows = await pool(ids, PARALLEL, async (id) => {
+      const page = await openPage(NO_MUTATION);
+      const pairs = [];
+      let base = 0;
+      // 씨앗을 10개씩 돌려 보고, at 웨이브에 닿은 판만 짝으로 모은다 (최대 RUNS × 6 판까지 시도)
+      while (pairs.length < RUNS && base < RUNS * 6) {
+        const seeds = Array.from({ length: 10 }, (_, i) => 500000 + (base + i) * 7919 + SEED * 15485863);
+        base += 10;
+        const without = await page.evaluate(runLevel, { v: lv, p: lv, bot: BOT, seed: SEED, seedList: seeds, forceAug: id, forceAt: at, forceMutate: false });
+        const keep = seeds.filter((_, i) => without[i].reached);
+        if (keep.length === 0) continue;
+        const withMut = await page.evaluate(runLevel, { v: lv, p: lv, bot: BOT, seed: SEED, seedList: keep, forceAug: id, forceAt: at, forceMutate: true });
+        const reachedWithout = without.filter((x) => x.reached);
+        for (let i = 0; i < keep.length && pairs.length < RUNS; i++) pairs.push({ without: reachedWithout[i].wave, with: withMut[i].wave });
+      }
+      await page.close();
+      const w = pairs.reduce((a, x) => a + x.with, 0) / pairs.length, wo = pairs.reduce((a, x) => a + x.without, 0) / pairs.length;
+      return { id, pairs: pairs.length, with: w, without: wo, diff: w - wo, wins: pairs.filter((x) => x.with > x.without).length, losses: pairs.filter((x) => x.with < x.without).length };
+    });
+    console.log("돌연변이 기여도: 레벨 (" + lv + "," + lv + "), " + at + "웨이브를 깬 뒤 받음, 짝 " + RUNS + "개 (같은 씨앗), 봇 " + BOT + ", 씨앗 " + SEED);
+    console.log("증강 | 받은 판 | 안 받은 판 | 차이 | 더 감/덜 감 (판)");
+    for (const row of rows) {
+      console.log(row.id + " | " + row.with.toFixed(2) + " | " + row.without.toFixed(2) + " | " + (row.diff >= 0 ? "+" : "") + row.diff.toFixed(2) + " | " + row.wins + "/" + row.losses + (row.pairs < RUNS ? " (짝 " + row.pairs + "개뿐)" : ""));
+    }
+    if (errors.length) console.log("페이지 오류: " + errors.slice(0, 3).join(" / "));
+    console.log("JSON " + JSON.stringify(rows));
+    await browser.close();
+    server.close();
+    return;
+  }
 
   // ---- 증강 기여도 모드: --contrib 레벨 ----
   if (args.contrib !== undefined) {
