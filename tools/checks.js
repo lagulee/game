@@ -971,6 +971,38 @@ module.exports = [
     `),
   },
   {
+    name: "[로비] \"?\" 설명 창: 톱니 아래 ? 버튼으로 열기 (세 탭 모두), X · Esc · 창 밖 클릭으로 닫기, 열린 동안 뒤 화면 안 눌림, 난이도 · 모드 8칸 모두 help 글, 도감 쪽 버튼과 안 겹침",
+    run: new Function(PRESS + `
+      const cr = canvas.getBoundingClientRect();
+      const click = (gx, gy) => {
+        const o = { clientX: cr.left + canvas.clientLeft + gx * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + gy * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      const clickRect = (r) => click(r.x + r.w / 2, r.y + r.h / 2);
+      saveData.tutorialPrompted = true;
+      goToMenu();
+      const H = HELP_BUTTON, G = GEAR_BUTTON;
+      const below = H.x === G.x && H.y - H.r > G.y + G.r;   // 톱니 바로 아래
+      click(H.x, H.y); const opened = helpOpen && !settingsOpen; draw();
+      // 열린 동안: 시작 버튼 · Enter · ←→ 는 무시
+      clickRect(START_BUTTON); press("Enter"); press("ArrowRight");
+      const blocked = helpOpen && gameState === "menu";
+      press("Escape"); const closedByEsc = !helpOpen && gameState === "menu";
+      click(H.x, H.y); clickRect(helpCloseRect()); const closedByX = !helpOpen;
+      click(H.x, H.y); click(20, 270); const closedOutside = !helpOpen && gameState === "menu";
+      click(H.x, H.y); click(HELP_PANEL.x + 200, HELP_PANEL.y + 300); const insideStays = helpOpen; press("Escape");
+      // 도감 · 업그레이드 탭에서도 열림
+      let tabs = true;
+      for (const tab of ["collection", "upgrades"]) { openTab(tab); click(H.x, H.y); draw(); tabs = tabs && helpOpen; press("Escape"); tabs = tabs && !helpOpen && gameState === tab; }
+      const texts = DIFFICULTIES.concat(MODES).every((x) => Array.isArray(x.help) && x.help.length >= 2);
+      const last = collectionPageRect(COLLECTION_PAGES.length - 1);
+      const noOverlap = last.x + last.w < H.x - H.r;
+      goToMenu();
+      const ok = below && opened && blocked && closedByEsc && closedByX && closedOutside && insideStays && tabs && texts && noOverlap;
+      return { ok: ok, detail: "톱니 아래 " + below + " / 열림 " + opened + " / 뒤 화면 막힘 " + blocked + " / Esc " + closedByEsc + ", X " + closedByX + ", 창 밖 " + closedOutside + ", 창 안은 그대로 " + insideStays +
+        " / 도감 · 업그레이드 탭 " + tabs + " / help 글 8칸 " + texts + " / 도감 쪽 버튼 끝 " + Math.round(last.x + last.w) + " < ? 버튼 " + (H.x - H.r) + " " + noOverlap };
+    `),
+  },
+  {
     name: "[로비] 게임 중(전투·카드 선택)에는 탭 바·톱니가 없음: 그 자리를 눌러도 아무 일 없음",
     run: new Function(PRESS + `
       const cr = canvas.getBoundingClientRect();

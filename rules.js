@@ -86,12 +86,14 @@ const RULE_MULTIPLIERS = ["enemyHpMult", "enemySpeedMult", "enemyDamageMult", "c
 
 // ---- 난이도 ----
 //   id, name: 이름표와 이름 / color: 로비 버튼 색 (game.js 의 COLORS) / desc: 도감 설명
+//   help: 로비 "?" 설명 창에 쓰는 짧은 줄들 (game.js 의 drawHelpOverlay)
 //   unlockWave: "보통 + 기본" 으로 이 웨이브에 닿아야 열린다 (0 = 처음부터)
 //   그 밖의 값: BASE_RULES 의 배율에 곱한다
 const DIFFICULTIES = [
   {
     id: "tutorial", name: "튜토리얼", color: "blue", unlockWave: 0, fixedMode: "basic",
     desc: "4웨이브짜리 연습 판. 이동 · 피하기 · 카드 · 보스를 차례로 알려 준다. 쓰러지지 않고, 처음 끝내면 코인 " + TUTORIAL_REWARD,
+    help: ["4웨이브 연습 판", "쓰러지지 않아요", "처음 끝내면 코인 " + TUTORIAL_REWARD + " (한 번만)"],
     rules: {
       waves: TUTORIAL_WAVES, exactCounts: true, noDeath: true, saveRecord: false, tutorial: true,
       useUpgrades: false, useSkills: false, enemyHpMult: 0.5, enemySpeedMult: 0.7, coinMult: 0, rerolls: 0,
@@ -101,15 +103,18 @@ const DIFFICULTIES = [
     id: "easy", name: "쉬움", color: "green", unlockWave: 0,
     enemyHpMult: EASY_HP, enemySpeedMult: EASY_SPEED, enemyDamageMult: EASY_DAMAGE, coinMult: EASY_COIN,
     desc: "연습용. 적 체력 × " + EASY_HP + ", 속도 × " + EASY_SPEED + ", 대미지 × " + EASY_DAMAGE + ". 대신 코인도 × " + EASY_COIN,
+    help: ["적이 약해요 (체력 × " + EASY_HP + ")", "대신 코인 × " + EASY_COIN],
   },
   {
     id: "normal", name: "보통", color: "yellow", unlockWave: 0,
     desc: "기본 난이도. 모든 배율 × 1",
+    help: ["기본 난이도", "기록 · 해금은 여기서 쌓여요"],
   },
   {
     id: "hard", name: "어려움", color: "red", unlockWave: HARD_UNLOCK,
     enemyHpMult: HARD_HP, enemySpeedMult: HARD_SPEED, enemyDamageMult: HARD_DAMAGE, coinMult: HARD_COIN,
     desc: "적 체력 × " + HARD_HP + ", 속도 × " + HARD_SPEED + ", 대미지 × " + HARD_DAMAGE + ". 코인 × " + HARD_COIN,
+    help: ["적 체력 × " + HARD_HP + " · 대미지 × " + HARD_DAMAGE, "대신 코인 × " + HARD_COIN],
   },
 ];
 
@@ -122,21 +127,42 @@ const MODES = [
   {
     id: "basic", name: "기본", color: "yellow", unlockWave: 0,
     desc: "지금 그대로. 웨이브마다 카드 3장 중 1장",
+    help: [
+      "처음이라면 여기서 시작!",
+      "웨이브를 깨면 카드 3장 중 1장을 골라요",
+      "다시 뽑기 " + REROLL_COUNT + "번 · 업그레이드 · 스킬 모두 사용",
+    ],
     rules: {},
   },
   {
     id: "plenty", name: "풍요", color: "green", unlockWave: PLENTY_UNLOCK,
     desc: "카드 " + PLENTY_SHOW + "장 중 " + PLENTY_PICK + "장을 고른다. 대신 적 체력 × " + PLENTY_HP + ", 코인 × " + PLENTY_COIN,
+    help: [
+      "카드가 " + PLENTY_SHOW + "장 나오고 그중 " + PLENTY_PICK + "장을 골라요",
+      "증강이 빨리 모이는 대신 적이 단단해요",
+      "적 체력 × " + PLENTY_HP + " · 코인 × " + PLENTY_COIN,
+    ],
     rules: { choiceShow: PLENTY_SHOW, choicePick: PLENTY_PICK, enemyHpMult: PLENTY_HP, coinMult: PLENTY_COIN },
   },
   {
     id: "chaos", name: "혼돈", color: "purple", unlockWave: CHAOS_UNLOCK,
     desc: "카드를 고르지 못하고 웨이브마다 무작위 증강 " + CHAOS_AUTO + "개를 자동으로 받는다. 돌연변이 확률 " + CHAOS_MUTATION + "배, 다시 뽑기 없음, 코인 × " + CHAOS_COIN,
+    help: [
+      "카드를 고를 수 없어요! 웨이브를 깨면",
+      "무작위 증강 " + CHAOS_AUTO + "개를 자동으로 받아요 (운 시험)",
+      "돌연변이 확률 " + CHAOS_MUTATION + "배 · 다시 뽑기 없음 · 코인 × " + CHAOS_COIN,
+    ],
     rules: { autoAugments: CHAOS_AUTO, mutationMult: CHAOS_MUTATION, rerolls: 0, coinMult: CHAOS_COIN },
   },
   {
     id: "daily", name: "오늘의 도전", color: "orange", unlockWave: DAILY_UNLOCK, fixedDifficulty: "normal",
     desc: "날짜가 같으면 누구나 같은 적 배치 · 같은 카드. 업그레이드 · 스킬 없이 체력 " + DAILY_HP + ", 공격력 " + DAILY_DAMAGE + " 으로. 난이도는 보통 고정, 코인은 하루 첫 판만",
+    help: [
+      "하루에 한 판! 같은 날엔 누구나",
+      "같은 적 · 같은 카드로 겨뤄요 (날짜가 바뀌면 새 판)",
+      "체력 " + DAILY_HP + " · 공격력 " + DAILY_DAMAGE + " 고정 (업그레이드 · 스킬 없음)",
+      "난이도는 보통 고정 · 코인은 하루 첫 판만",
+    ],
     lobbyDesc: [
       "하루에 한 판! 오늘은 누구나 같은 적 · 같은 카드로 겨뤄요 (내일은 새 판)",
       "업그레이드 · 스킬 없이 체력 " + DAILY_HP + " · 공격력 " + DAILY_DAMAGE + " 으로 시작  ·  코인은 하루 첫 판만",

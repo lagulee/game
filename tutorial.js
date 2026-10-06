@@ -206,5 +206,5 @@ function drawTutorialBubble() {
 // ---- 로비: 처음 켠 사람에게 한 번만 "튜토리얼부터 해볼까요?" 말풍선 ----
 // (튜토리얼을 끝냈거나, 이미 한 번 보여 줬으면 (판을 시작하면 본 것으로 친다) 보이지 않는다)
 function tutorialPromptVisible() {
-  return gameState === "menu" && !settingsOpen && !saveData.tutorialDone && !saveData.tutorialPrompted;
+  return gameState === "menu" && !settingsOpen && !helpOpen && !saveData.tutorialDone && !saveData.tutorialPrompted;
 }

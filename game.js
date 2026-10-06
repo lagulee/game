@@ -240,6 +240,7 @@ const SCORE_PER_HP_LEFT = 10;
 const LOBBY_TOP_BAR_Y = 34;
 // 오른쪽 위 설정 톱니 버튼 (가운데 x, y 와 반지름. 지름 44px)
 const GEAR_BUTTON = { x: 922, y: LOBBY_TOP_BAR_Y, r: 22 };
+const HELP_BUTTON = { x: 922, y: LOBBY_TOP_BAR_Y + 54, r: 22 };   // "?" 버튼 (톱니 바로 아래): 난이도 · 모드 설명 창
 // 가운데 큰 "게임 시작" 버튼 (로비에서 가장 큰 버튼. 위에 난이도 · 모드 줄이 있다)
 const START_BUTTON = { x: 330, y: 250, w: 300, h: 80 };
 // 로비 제목 스티커 가운데 높이
@@ -278,6 +279,12 @@ const LOBBY_TABS = [
 
 // 설정 창 (가운데 패널) 크기
 const SETTINGS_PANEL = { x: 170, y: 18, w: 620, h: 504 };
+const HELP_PANEL = { x: 50, y: 18, w: 860, h: 504 };          // "?" 설명 창
+const HELP_DIFF_Y = 100;                                         // 설명 창 안: 난이도 칸들의 위쪽 (패널 위에서부터)
+const HELP_DIFF_H = 96;                                          // 난이도 칸 높이
+const HELP_MODE_Y = 220;                                         // 설명 창 안: 모드 칸들의 위쪽
+const HELP_MODE_H = 130;                                         // 모드 칸 높이 (2 × 2 로 놓는다)
+const HELP_GAP = 10;                                             // 칸 사이 간격
 // 설정 창 오른쪽 칸: 항목(제목 + 버튼 + 설명) 하나의 높이 (px)
 const SETTINGS_ROW = 92;
 
@@ -375,7 +382,7 @@ window.addEventListener("keydown", function (event) {
   if (event.code === "Tab") {
     event.preventDefault();
     if ((gameState === "playing" && !paused) || gameState === "choosing") toggleHud();
-    else if (gameState === "upgrades" && !settingsOpen) switchUpgradeSection();
+    else if (gameState === "upgrades" && !settingsOpen && !helpOpen) switchUpgradeSection();
     return;
   }
 
@@ -959,6 +966,7 @@ let menuTime = 0;
 
 // 설정 창이 열려 있는지 (로비 화면 위에 겹쳐 뜬다. 탭이 아니다)
 let settingsOpen = false;
+let helpOpen = false;      // "?" 난이도 · 모드 설명 창이 열려 있는지
 
 // 마우스가 올라가 있는 로비 버튼 이름표 (없으면 null), 눌린 버튼과 눌림 효과 남은 시간 (초)
 let hoverButton = null;
@@ -1990,6 +1998,7 @@ function goToMenu() {
   resumeTimer = 0;
   menuTime = 0;
   settingsOpen = false;
+  helpOpen = false;
   resetArmTimer = 0;
   lobbyToast = "";
   lobbyToastTimer = 0;
@@ -2030,6 +2039,7 @@ function moveTab(step) {
 function startGame() {
   canvas.style.cursor = "default";
   settingsOpen = false;
+  helpOpen = false;
   // 로비의 "튜토리얼부터 해볼까요?" 말풍선은 한 판이라도 시작하면 다시 안 보인다
   if (!saveData.tutorialPrompted) { saveData.tutorialPrompted = true; writeSave(); }
   // 로비에서 고른 난이도 + 모드로 이번 판의 규칙을 정한다 (rules.js)
@@ -2054,8 +2064,21 @@ function closeSettings() {
   resetArmTimer = 0;     // 닫으면 "한 번 더 누르면 초기화" 대기도 취소
 }
 
+// "?" 설명 창 열기 / 닫기
+function openHelp() {
+  helpOpen = true;
+}
+function closeHelp() {
+  helpOpen = false;
+}
+
 // 로비에서 키를 눌렀을 때. 처리한 키면 true 를 돌려준다
 function handleLobbyKey(code) {
+  // "?" 설명 창도 Esc 로 닫기만 한다
+  if (helpOpen) {
+    if (code === "Escape") closeHelp();
+    return true;
+  }
   // 설정 창이 열려 있으면 Esc 로 닫기만 한다 (뒤의 화면은 키를 받지 않는다)
   if (settingsOpen) {
     if (code === "Escape") closeSettings();
@@ -2114,6 +2137,12 @@ function settingsTuningRect() {
   return { x: P.x + 34, y: P.y + P.h - 56, w: 290, h: 40 };      // 왼쪽 아래: 숫자 조절판 열기
 }
 
+// "?" 설명 창의 닫기(X) 버튼
+function helpCloseRect() {
+  const P = HELP_PANEL;
+  return { x: P.x + P.w - 54, y: P.y + 10, w: 44, h: 44 };
+}
+
 // 지금 화면에서 누를 수 있는 로비 버튼 목록 { id, rect }.
 // 그리기와 클릭 판정이 모두 이 목록의 사각형을 쓴다.
 function lobbyButtons() {
@@ -2128,8 +2157,18 @@ function lobbyButtons() {
       { id: "settings:tuning", rect: settingsTuningRect() },
     ];
   }
-  const G = GEAR_BUTTON;
-  const list = [{ id: "gear", rect: { x: G.x - G.r, y: G.y - G.r, w: G.r * 2, h: G.r * 2 } }];
+  // "?" 설명 창이 열려 있으면 닫기 버튼만 (창 밖을 눌러도 닫힌다)
+  if (helpOpen) {
+    return [
+      { id: "help:close", rect: helpCloseRect() },
+      { id: "help:outside", rect: { x: 0, y: 0, w: CANVAS_WIDTH, h: CANVAS_HEIGHT }, outsideOf: HELP_PANEL },
+    ];
+  }
+  const G = GEAR_BUTTON, H = HELP_BUTTON;
+  const list = [
+    { id: "gear", rect: { x: G.x - G.r, y: G.y - G.r, w: G.r * 2, h: G.r * 2 } },
+    { id: "help", rect: { x: H.x - H.r, y: H.y - H.r, w: H.r * 2, h: H.r * 2 } },
+  ];
   // 탭 칸을 하나씩 버튼으로 넣는 반복문 (잠긴 탭은 눌러도 반응하지 않으니 빼 둔다)
   for (let i = 0; i < LOBBY_TABS.length; i++) {
     if (!LOBBY_TABS[i].locked) list.push({ id: "tab:" + LOBBY_TABS[i].id, rect: tabRect(i) });
@@ -2167,7 +2206,7 @@ function lobbyButtons() {
 function lobbyButtonAt(x, y) {
   const list = lobbyButtons();
   for (let i = 0; i < list.length; i++) {
-    if (insideRect(x, y, list[i].rect)) return list[i].id;
+    if (insideRect(x, y, list[i].rect) && !(list[i].outsideOf && insideRect(x, y, list[i].outsideOf))) return list[i].id;
   }
   return null;
 }
@@ -2176,6 +2215,8 @@ function lobbyButtonAt(x, y) {
 function runLobbyButton(id) {
   if (id === "start") startGame();
   else if (id === "gear") openSettings();
+  else if (id === "help") openHelp();
+  else if (id === "help:close" || id === "help:outside") closeHelp();
   else if (id === "settings:close") closeSettings();
   else if (id === "settings:hud") toggleHud();
   else if (id === "settings:mobile") toggleMobileMode();
@@ -5471,6 +5512,14 @@ function drawLobbyTopBar() {
     drawOutlinedCircle(G.x, G.y, G.r, hoverColor("gear", COLORS.brown));
     drawGearIcon(G.x, G.y, G.r * 0.66, COLORS.white, hoverColor("gear", COLORS.brown));
   });
+
+  // "?" 버튼 (톱니 아래, 같은 모양): 난이도 · 모드 설명 창
+  const H = HELP_BUTTON;
+  drawScaled(H.x, H.y, buttonScale("help"), function () {
+    drawOutlinedCircle(H.x + 3, H.y + 3, H.r, COLORS.outline, 0.1);   // 그림자
+    drawOutlinedCircle(H.x, H.y, H.r, hoverColor("help", COLORS.brown));
+    drawOutlinedText("?", H.x, H.y + 2, 28);
+  });
 }
 
 // ---- 아래쪽 탭 바 (전투·도감·업그레이드 화면이 모두 이 함수 하나를 쓴다) ----
@@ -5757,6 +5806,7 @@ const COLLECTION_PAGES = [
 ];
 // 도감 위쪽 쪽 버튼 크기와 높이, 내용 패널 위치
 const COLLECTION_PAGE_BUTTON = { w: 150, h: 34, gap: 14, y: 76 };
+const COLLECTION_PAGE_MARGIN = 72;   // 도감 쪽 버튼 줄의 양옆 여백 (오른쪽 위 "?" 버튼 자리)
 const COLLECTION_PANEL = { x: 24, y: 122, w: 912, h: 314 };
 
 // 지금 보고 있는 도감 쪽
@@ -5765,8 +5815,8 @@ let collectionPage = "enemies";
 // i 번째 쪽 버튼 사각형
 function collectionPageRect(i) {
   const B = COLLECTION_PAGE_BUTTON, n = COLLECTION_PAGES.length;
-  // 쪽이 많으면 버튼을 좁혀서 한 줄에 (양옆 30px 여백)
-  const w = Math.min(B.w, (CANVAS_WIDTH - 60 - (n - 1) * B.gap) / n);
+  // 쪽이 많으면 버튼을 좁혀서 한 줄에 (양옆 COLLECTION_PAGE_MARGIN 여백. 오른쪽 위 "?" 버튼과 겹치지 않게)
+  const w = Math.min(B.w, (CANVAS_WIDTH - 2 * COLLECTION_PAGE_MARGIN - (n - 1) * B.gap) / n);
   const total = n * w + (n - 1) * B.gap;
   return { x: (CANVAS_WIDTH - total) / 2 + i * (w + B.gap), y: B.y, w: w, h: B.h };
 }
@@ -6015,6 +6065,71 @@ function drawSettingsOverlay() {
   drawOutlinedText("Esc 또는 X 버튼으로 닫기", rx, P.y + P.h - 24, 15, "left");
 }
 
+// ---- "?" 설명 창: 위에 난이도 4칸, 아래에 모드 4칸 (2 × 2). 글은 rules.js 의 help ----
+function drawHelpOverlay() {
+  // 1) 반투명 어두운 배경 + 가운데 패널 (설정 창과 같은 모양)
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = COLORS.outline;
+  ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  ctx.restore();
+  const P = HELP_PANEL;
+  drawStickerRect(P.x, P.y, P.w, P.h, 26, COLORS.background, 8);
+
+  // 2) 제목 스티커 + 닫기(X)
+  ctx.save();
+  ctx.translate(P.x + 150, P.y + 8);
+  ctx.rotate(-0.04);
+  drawStickerRect(-120, -26, 240, 52, 18, COLORS.brown, 5);
+  drawOutlinedText("난이도 · 모드 설명", 0, 2, 26);
+  ctx.restore();
+  drawCloseButton(helpCloseRect(), "help:close");
+  drawFitText("난이도는 적이 얼마나 센지, 모드는 판의 규칙을 바꿔요. 둘은 마음대로 섞을 수 있어요 (오늘의 도전은 보통 고정)",
+    P.x + P.w / 2, P.y + 64, 16, P.w - 60, COLORS.outline);
+
+  // 3) 난이도 4칸 (한 줄)
+  const left = P.x + 30, inner = P.w - 60;
+  drawOutlinedText("난이도", left, P.y + HELP_DIFF_Y - 12, 17, "left", COLORS.brown);
+  const dw = (inner - (DIFFICULTIES.length - 1) * HELP_GAP) / DIFFICULTIES.length;
+  for (let i = 0; i < DIFFICULTIES.length; i++) {
+    drawHelpItem(DIFFICULTIES[i], left + i * (dw + HELP_GAP), P.y + HELP_DIFF_Y, dw, HELP_DIFF_H, 13);
+  }
+
+  // 4) 모드 4칸 (2 × 2)
+  drawOutlinedText("모드", left, P.y + HELP_MODE_Y - 12, 17, "left", COLORS.brown);
+  const mw = (inner - HELP_GAP) / 2;
+  for (let i = 0; i < MODES.length; i++) {
+    const col = i % 2, row = Math.floor(i / 2);
+    drawHelpItem(MODES[i], left + col * (mw + HELP_GAP), P.y + HELP_MODE_Y + row * (HELP_MODE_H + HELP_GAP), mw, HELP_MODE_H, 15);
+  }
+}
+
+// 설명 창의 칸 하나: 흰 바탕, 왼쪽 위 이름 딱지 (그 색), 오른쪽 위 해금 표시, 아래에 help 줄들
+function drawHelpItem(item, x, y, w, h, size) {
+  drawOutlinedRoundRect(x, y, w, h, 16, COLORS.white, SMALL_OUTLINE_WIDTH);
+  const open = isUnlocked(item);
+  ctx.font = "17px " + FONT_FAMILY;
+  const tagW = Math.min(w - 20, ctx.measureText(item.name).width + 28);
+  drawOutlinedRoundRect(x + 10, y + 8, tagW, 26, 12, COLORS[item.color], SMALL_OUTLINE_WIDTH);
+  drawOutlinedText(item.name, x + 10 + tagW / 2, y + 22, fitTextSize(item.name, 17, tagW - 10));
+  const lines = item.help || [item.desc];
+  const top = y + 40, gap = size + 6;
+  for (let i = 0; i < lines.length; i++) {
+    drawFitText(lines[i], x + 14, top + i * gap + size / 2, size, w - 28, COLORS.outline, "left");
+  }
+  // 잠겨 있으면 자물쇠 + 해금 조건: 넓은 칸 (모드) 은 이름 딱지 오른쪽에, 좁은 칸 (난이도) 은 맨 아래 줄에
+  if (!open) {
+    const text = unlockText(item) + "에 열림";
+    const wide = w - tagW - 30 >= 150;
+    const ty = wide ? y + 22 : top + lines.length * gap + size / 2;
+    ctx.font = "12px " + FONT_FAMILY;
+    const tw = ctx.measureText(text).width;
+    const tx = wide ? x + w - 12 - tw : x + 30;
+    drawPadlock(tx - 12, ty, 6);
+    drawFitText(text, tx, ty, 12, w - 50, COLORS.gray, "left");
+  }
+}
+
 // ---- 로비 화면 전체: 지금 탭 내용 → 위쪽 줄 → 탭 바 → 알림 → 설정 창 순서로 겹쳐 그린다 ----
 function drawLobby() {
   if (gameState === "menu") drawMenu();
@@ -6023,6 +6138,7 @@ function drawLobby() {
   drawLobbyTopBar();
   drawTabBar();
   if (settingsOpen) drawSettingsOverlay();
+  if (helpOpen) drawHelpOverlay();
   drawLobbyToast();
 }
 
