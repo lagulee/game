@@ -123,6 +123,11 @@ function equippedSkill() {
   return id && skillOwned(id) ? skillById(id) : null;
 }
 
+// 이번 판 전투에서 쓸 수 있는 스킬 (규칙이 스킬을 막으면 null: 튜토리얼 · 오늘의 도전)
+function battleSkill() {
+  return currentRules.useSkills ? equippedSkill() : null;
+}
+
 // 스킬 카드를 눌렀을 때: 없으면 사고 (장착한 스킬이 없으면 바로 장착), 있으면 장착 / 해제
 //   결과: "bought" | "equipped" | "unequipped" | "poor"
 function pressSkill(skill) {

@@ -230,8 +230,16 @@ const SCORE_PER_HP_LEFT = 10;
 const LOBBY_TOP_BAR_Y = 34;
 // 오른쪽 위 설정 톱니 버튼 (가운데 x, y 와 반지름. 지름 44px)
 const GEAR_BUTTON = { x: 922, y: LOBBY_TOP_BAR_Y, r: 22 };
-// 가운데 큰 "게임 시작" 버튼 (로비에서 가장 큰 버튼)
-const START_BUTTON = { x: 330, y: 248, w: 300, h: 90 };
+// 가운데 큰 "게임 시작" 버튼 (로비에서 가장 큰 버튼. 위에 난이도 · 모드 줄이 있다)
+const START_BUTTON = { x: 330, y: 250, w: 300, h: 80 };
+// 로비 제목 스티커 가운데 높이
+const LOBBY_TITLE_Y = 98;
+// 난이도 · 모드 줄: 위쪽 끝 y, 높이, 칸(칩) 크기, 좌우 화살표 폭
+const LOBBY_ROWS = { difficulty: 154, mode: 200 };
+const LOBBY_ROW_H = 38;
+const LOBBY_CHIP_W = 104;
+const LOBBY_CHIP_GAP = 8;
+const LOBBY_ARROW_W = 34;
 // 시작 버튼이 숨 쉬듯 커졌다 작아지는 정도 (0.03 = 3%) 와 한 번 왕복하는 시간 (초)
 const START_PULSE_AMOUNT = 0.03;
 const START_PULSE_PERIOD = 1.5;
@@ -1545,7 +1553,7 @@ function pickChoices() {
   // 4) 돌연변이: 후보(Lv.2 이상 증강)가 있으면 확률 MUTATION_CHANCE (보스를 잡은 직후는 MUTATION_BOSS_CHANCE) 로
   //    3장 중 1장이 돌연변이 카드로 바뀐다. 후보가 없거나 확률이 0 이면 난수를 쓰지 않는다 (= 예전과 완전히 같은 뽑기)
   const mutants = mutationCandidates();
-  const chance = bossKilledThisWave ? MUTATION_BOSS_CHANCE : MUTATION_CHANCE;
+  const chance = (bossKilledThisWave ? MUTATION_BOSS_CHANCE : MUTATION_CHANCE) * currentRules.mutationMult;
   if (mutants.length > 0 && chance > 0 && Math.random() < chance) {
     const aug = mutants[Math.floor(Math.random() * mutants.length)];
     picks[mutationSlot(picks, aug)] = makeMutationCard(aug);
@@ -1742,8 +1750,10 @@ function commitRunProgress() {
   runCommitted = true;
   lastRunCoins = Math.floor(runCoins);
   saveData.coins += lastRunCoins;
-  runPrevBestWave = saveData.bestWave;
-  saveData.bestWave = Math.max(saveData.bestWave, wave);
+  // 최고 웨이브는 지금 판의 "난이도 + 모드" 기록에
+  const key = recordKey(currentRules.difficulty, currentRules.mode);
+  runPrevBestWave = saveData.bestWaves[key] || 0;
+  saveData.bestWaves[key] = Math.max(runPrevBestWave, wave);
   writeSave();
 }
 
@@ -1765,9 +1775,9 @@ function resumeGame() {
   resumeTimer = RESUME_DELAY;
 }
 
-// 지금 웨이브에서 1초에 버는 코인
+// 지금 웨이브에서 1초에 버는 코인 (× 지금 판의 코인 배율: 쉬움 0.7, 어려움 1.5 …)
 function coinRate(w) {
-  return COIN_PER_SECOND * (1 + COIN_WAVE_BONUS * (w - 1));
+  return COIN_PER_SECOND * (1 + COIN_WAVE_BONUS * (w - 1)) * currentRules.coinMult;
 }
 
 // 전투 중에만 불린다: 생존 시간과 코인을 쌓는다
@@ -1845,6 +1855,8 @@ function moveTab(step) {
 function startGame() {
   canvas.style.cursor = "default";
   settingsOpen = false;
+  // 로비에서 고른 난이도 + 모드로 이번 판의 규칙을 정한다 (rules.js)
+  currentRules = makeRules(selectedDifficulty().id, selectedMode().id);
   resetGame();
 }
 
@@ -1938,7 +1950,17 @@ function lobbyButtons() {
   for (let i = 0; i < LOBBY_TABS.length; i++) {
     if (!LOBBY_TABS[i].locked) list.push({ id: "tab:" + LOBBY_TABS[i].id, rect: tabRect(i) });
   }
-  if (gameState === "menu") list.push({ id: "start", rect: START_BUTTON });
+  if (gameState === "menu") {
+    list.push({ id: "start", rect: START_BUTTON });
+    // 난이도 · 모드 줄의 칸과 ◀ ▶
+    for (const row of ["difficulty", "mode"]) {
+      if (!lobbyRowVisible(row)) continue;
+      const items = lobbyRowItems(row);
+      for (let i = 0; i < items.length; i++) list.push({ id: row + ":" + items[i].id, rect: lobbyChipRect(row, i) });
+      list.push({ id: row + ":prev", rect: lobbyArrowRect(row, -1) });
+      list.push({ id: row + ":next", rect: lobbyArrowRect(row, 1) });
+    }
+  }
   if (gameState === "collection") {
     // 도감 위쪽 쪽 버튼
     for (let i = 0; i < COLLECTION_PAGES.length; i++) list.push({ id: "col:" + COLLECTION_PAGES[i].id, rect: collectionPageRect(i) });
@@ -1979,6 +2001,12 @@ function runLobbyButton(id) {
   else if (id.startsWith("sec:")) switchUpgradeSection(id.slice(4));
   else if (id.startsWith("skill:")) tryPressSkill(Number(id.slice(6)));
   else if (id.startsWith("col:")) collectionPage = id.slice(4);
+  else if (id.startsWith("difficulty:") || id.startsWith("mode:")) {
+    const [row, what] = id.split(":");
+    if (what === "prev") stepLobbyItem(row, -1);
+    else if (what === "next") stepLobbyItem(row, 1);
+    else selectLobbyItem(row, what);
+  }
 }
 
 // 로비 화면들의 시간 흐름 (장식 애니메이션, 알림, 초기화 대기, 버튼 효과, 탭 떠오르기)
@@ -2129,7 +2157,7 @@ function resetGame() {
   player.vy = 0;
   player.maxHp = PLAYER_MAX_HP;
   player.damage = BULLET_DAMAGE;
-  applyUpgrades();            // 영구 업그레이드 적용 (최대 체력, 공격력)
+  if (currentRules.useUpgrades) applyUpgrades();   // 영구 업그레이드 적용 (최대 체력, 공격력). 튜토리얼 · 오늘의 도전은 빼고
   player.hp = player.maxHp;
   player.fireTimer = 0;
   player.invincibleTimer = 0;
@@ -2512,7 +2540,7 @@ function killEnemy(enemy, cause) {
     healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
     bossesKilled += 1;
     bossKilledThisWave = true;   // 이 웨이브 뒤의 카드 선택은 돌연변이 확률이 높다
-    runCoins += BOSS_COIN_BONUS * chapterOf(wave); // 보스 보너스 코인
+    runCoins += BOSS_COIN_BONUS * chapterOf(wave) * currentRules.coinMult; // 보스 보너스 코인 (× 코인 배율)
   }
 
   // [훅] onKill: 적이 죽은 순간 증강에게 알린다 (핵분열, 발열 반응 등)
@@ -3526,6 +3554,8 @@ function drawHudPanel() {
 
   // 점수 (노란 글씨)
   drawOutlinedText("점수 " + score, p.x + 16, p.y + 84, 22, "left", COLORS.yellow);
+  // 지금 난이도 (· 모드) 를 오른쪽에 작은 딱지로
+  drawRulesTag(p.x + p.w - 14, p.y + 84, "right");
 
   // 이번 판에 번 코인 (동전 아이콘 + 내림한 정수)
   drawCoinIcon(p.x + 26, p.y + 112, 10);
@@ -3533,6 +3563,16 @@ function drawHudPanel() {
 
   // 남은 보급 효과 아이콘 (코인 줄 오른쪽 끝에서 왼쪽으로)
   drawEffectIcons(p.x + p.w - 24, p.y + 110, -1);
+}
+
+// 지금 판의 난이도 (· 모드) 작은 딱지. align "right" 면 x 가 오른쪽 끝, "left" 면 왼쪽 끝
+function drawRulesTag(x, y, align) {
+  const text = rulesLabel(currentRules.difficulty, currentRules.mode);
+  ctx.font = "13px " + FONT_FAMILY;
+  const w = ctx.measureText(text).width + 18;
+  const left = align === "right" ? x - w : x;
+  drawOutlinedRoundRect(left, y - 11, w, 22, 11, COLORS[difficultyById(currentRules.difficulty).color], SMALL_OUTLINE_WIDTH * 0.8);
+  drawOutlinedText(text, left + w / 2, y + 1, 13);
 }
 
 // ---- 남은 보급 효과 아이콘 (상태창) ----
@@ -3855,7 +3895,7 @@ function updateSkills(dt) {
 // 장착한 스킬을 쓴다 (Space · 오른쪽 클릭 · 모바일 스킬 버튼). 쓰면 true
 function tryUseSkill() {
   if (gameState !== "playing" || paused || resumeTimer > 0) return false;
-  const skill = equippedSkill();
+  const skill = battleSkill();
   if (!skill) return false;
   if (skillState.cooldown > 0) {
     skillState.deny = 0.25;          // 아직이면 아이콘이 살짝 흔들린다
@@ -3970,7 +4010,7 @@ function drawTimeStopHud() {
 
 // 화면 아래 가운데 스킬 아이콘: 쿨타임은 시계 방향으로 차오르고, 준비되면 한 번 튀어 오른다
 function drawSkillHud() {
-  const skill = equippedSkill();
+  const skill = battleSkill();
   if (!skill) return;
   const x = SKILL_ICON_X, y = SKILL_ICON_Y, r = SKILL_ICON_R;
   const ready = skillState.cooldown <= 0;
@@ -4531,8 +4571,9 @@ function drawOverlay() {
   ctx.fill();
   drawOutlinedRoundRect(-pw / 2, -ph / 2, pw, ph, 26, panelColor);
 
-  // 제목
+  // 제목 + 왼쪽 위에 이번 판 난이도 (· 모드)
   drawOutlinedText(title, 0, -128, 46);
+  drawRulesTag(-pw / 2 + 16, -ph / 2 + 22, "left");
 
   // 점수 (새 기록이면 "NEW!" 표시)
   drawOutlinedText("점수 " + score, 0, -80, 36, "center", COLORS.white);
@@ -5116,7 +5157,7 @@ function drawLobbyTopBar() {
   drawOutlinedText(coinText, 60, y + 1, 22, "left", COLORS.yellow);
 
   // 최고 웨이브 칸
-  const waveText = "최고 웨이브 " + saveData.bestWave;
+  const waveText = "최고 웨이브 " + bestWaveFor(selectedDifficulty().id, selectedMode().id);
   ctx.font = "18px " + FONT_FAMILY;
   const waveX = 16 + coinW + 12;
   const waveW = ctx.measureText(waveText).width + 52;
@@ -5207,6 +5248,94 @@ function drawLobbyToast() {
   ctx.restore();
 }
 
+// ---- 난이도 · 모드 줄 (로비 전투 탭, "게임 시작" 버튼 위) ----
+// row: "difficulty" 또는 "mode". 칸을 누르면 고르고, ◀ ▶ 는 옆의 열린 칸으로 넘긴다. 고른 것은 저장된다
+
+// 그 줄에 보여 줄 항목 (rules.js 의 DIFFICULTIES / MODES)
+function lobbyRowItems(row) {
+  return row === "difficulty" ? DIFFICULTIES : MODES;
+}
+// 그 줄에서 지금 고른 항목
+function lobbyRowSelected(row) {
+  return row === "difficulty" ? selectedDifficulty() : selectedMode();
+}
+// 모드 줄은 모드가 둘 이상일 때만 보인다
+function lobbyRowVisible(row) {
+  return lobbyRowItems(row).length > 1;
+}
+// i 번째 칸의 사각형 (줄 전체를 화면 가운데에)
+function lobbyChipRect(row, i) {
+  const n = lobbyRowItems(row).length;
+  const total = n * LOBBY_CHIP_W + (n - 1) * LOBBY_CHIP_GAP;
+  return { x: CANVAS_WIDTH / 2 - total / 2 + i * (LOBBY_CHIP_W + LOBBY_CHIP_GAP), y: LOBBY_ROWS[row], w: LOBBY_CHIP_W, h: LOBBY_ROW_H };
+}
+// ◀ (dir −1) / ▶ (dir 1) 버튼 사각형
+function lobbyArrowRect(row, dir) {
+  const n = lobbyRowItems(row).length;
+  const first = lobbyChipRect(row, 0), last = lobbyChipRect(row, n - 1);
+  const x = dir < 0 ? first.x - 8 - LOBBY_ARROW_W : last.x + last.w + 8;
+  return { x: x, y: LOBBY_ROWS[row], w: LOBBY_ARROW_W, h: LOBBY_ROW_H };
+}
+// 잠긴 항목의 해금 조건 글자
+function unlockText(item) {
+  return "보통 " + item.unlockWave + "웨이브";
+}
+// 칸을 눌렀을 때: 열려 있으면 고르고 저장, 잠겨 있으면 해금 조건 알림
+function selectLobbyItem(row, id) {
+  const item = lobbyRowItems(row).find(function (x) { return x.id === id; });
+  if (!item) return;
+  if (!isUnlocked(item)) {
+    showLobbyToast(item.name + ": 보통 난이도 · 기본 모드로 " + item.unlockWave + "웨이브에 도달하면 열려요");
+    return;
+  }
+  saveData[row] = id;
+  writeSave();
+}
+// ◀ ▶: 그 방향의 다음 열린 항목으로 (끝이면 그대로)
+function stepLobbyItem(row, dir) {
+  const items = lobbyRowItems(row);
+  let i = items.indexOf(lobbyRowSelected(row)) + dir;
+  while (i >= 0 && i < items.length && !isUnlocked(items[i])) i += dir;
+  if (i >= 0 && i < items.length) selectLobbyItem(row, items[i].id);
+}
+// 줄 하나 그리기: 왼쪽 이름표, ◀, 칸들 (고른 칸은 그 색, 잠긴 칸은 자물쇠 + 조건), ▶
+function drawLobbyRow(row, label) {
+  if (!lobbyRowVisible(row)) return;
+  const items = lobbyRowItems(row), selected = lobbyRowSelected(row);
+  const left = lobbyArrowRect(row, -1), right = lobbyArrowRect(row, 1);
+  drawOutlinedText(label, left.x - 10, left.y + LOBBY_ROW_H / 2 + 1, 16, "right", COLORS.brown);
+  for (const [r, dir] of [[left, -1], [right, 1]]) {
+    const id = row + ":" + (dir < 0 ? "prev" : "next");
+    drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id), function () {
+      drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 12, hoverColor(id, COLORS.brown), SMALL_OUTLINE_WIDTH);
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      drawOutlinedPolygon([[cx - 6 * dir, cy - 8], [cx + 7 * dir, cy], [cx - 6 * dir, cy + 8]], COLORS.white, SMALL_OUTLINE_WIDTH * 0.8);
+    });
+  }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i], r = lobbyChipRect(row, i), id = row + ":" + item.id;
+    const open = isUnlocked(item), on = item === selected;
+    drawScaled(r.x + r.w / 2, r.y + r.h / 2, buttonScale(id) * (on ? 1.06 : 1), function () {
+      const fill = on ? COLORS[item.color] : COLORS.dark;
+      drawOutlinedRoundRect(r.x, r.y, r.w, r.h, 14, hoverColor(id, fill), on ? OUTLINE_WIDTH : SMALL_OUTLINE_WIDTH);
+      if (open) {
+        drawOutlinedText(item.name, r.x + r.w / 2, r.y + r.h / 2 + 1, fitTextSize(item.name, 18, r.w - 12), "center", on ? COLORS.white : COLORS.dim);
+      } else {
+        // 잠김: 자물쇠 + 이름 (흐리게) 위, 해금 조건 아래
+        drawPadlock(r.x + 15, r.y + 13, 6);
+        drawOutlinedText(item.name, r.x + r.w / 2 + 8, r.y + 13, 14, "center", COLORS.dim);
+        drawFitText(unlockText(item), r.x + r.w / 2, r.y + 29, 11, r.w - 10, COLORS.gray);
+      }
+    });
+  }
+}
+
+// 지금 판 (또는 고른) 난이도 · 모드를 짧게: "보통" / "어려움 · 풍요"
+function rulesLabel(difficultyId, modeId) {
+  const d = difficultyById(difficultyId), m = modeById(modeId);
+  return m.id === "basic" ? d.name : d.name + " · " + m.name;
+}
+
 // ---- 전투 탭 (로비 가운데) ----
 function drawMenu() {
   // 1) 장식: 왼쪽에 플레이어, 오른쪽에 웨이브 1~3 적들이 둥실둥실 (탭 바 위에서만)
@@ -5237,14 +5366,18 @@ function drawMenu() {
   player.facing = Math.atan2(318 - player.y, 870 - player.x);
   drawPlayer();
 
-  // 2) 제목 스티커 (위쪽)
+  // 2) 제목 스티커 (위쪽. 아래에 난이도 · 모드 줄이 들어가도록 조금 작게)
   ctx.save();
-  ctx.translate(CANVAS_WIDTH / 2, 148);
+  ctx.translate(CANVAS_WIDTH / 2, LOBBY_TITLE_Y);
   ctx.rotate(-0.04 + Math.sin(menuTime * 1.5) * 0.01); // 아주 살짝 흔들흔들
-  drawStickerRect(-240, -64, 480, 128, 30, COLORS.yellow, 8);
-  drawOutlinedText("증강 슈터", 0, -10, 62);
-  drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 38, 21, "center", COLORS.white);
+  drawStickerRect(-200, -40, 400, 80, 24, COLORS.yellow, 7);
+  drawOutlinedText("증강 슈터", 0, -8, 42);
+  drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 25, 16, "center", COLORS.white);
   ctx.restore();
+
+  // 2-1) 난이도 줄, 모드 줄 (게임 시작 버튼 위)
+  drawLobbyRow("difficulty", "난이도");
+  drawLobbyRow("mode", "모드");
 
   // 3) 큰 "게임 시작" 버튼: 1.5초마다 3% 커졌다 작아지며 숨 쉰다
   const B = START_BUTTON;
@@ -5256,8 +5389,9 @@ function drawMenu() {
   });
 
   // 4) 시작 버튼 아래: 최고 기록과 조작 안내
-  drawOutlinedText("최고 기록: 웨이브 " + saveData.bestWave, CANVAS_WIDTH / 2, B.y + B.h + 30, 20, "center", COLORS.yellow);
-  drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 62, 15);
+  const d = selectedDifficulty(), m = selectedMode();
+  drawOutlinedText("최고 기록 (" + rulesLabel(d.id, m.id) + "): 웨이브 " + bestWaveFor(d.id, m.id), CANVAS_WIDTH / 2, B.y + B.h + 24, 19, "center", COLORS.yellow);
+  drawOutlinedText("Enter · Space 시작 · ←→ 탭 이동", CANVAS_WIDTH / 2, B.y + B.h + 52, 15);
 
   // 5) 장착한 스킬 (장착했을 때만 작게)
   const skill = equippedSkill();
@@ -5265,7 +5399,7 @@ function drawMenu() {
     const text = "장착 스킬: " + skill.name;
     ctx.font = "16px " + FONT_FAMILY;
     const tw = ctx.measureText(text).width;
-    const y = B.y + B.h + 92, x0 = CANVAS_WIDTH / 2 - (tw + 30) / 2;
+    const y = B.y + B.h + 80, x0 = CANVAS_WIDTH / 2 - (tw + 30) / 2;
     drawOutlinedCircle(x0 + 10, y, 12, COLORS[skill.color], SMALL_OUTLINE_WIDTH);
     drawSkillIcon(skill.icon, x0 + 10, y, 8, COLORS.white);
     drawOutlinedText(text, x0 + 30, y + 1, 16, "left");

@@ -146,19 +146,21 @@ const ENEMY_SPEED_BASE = tune("ENEMY_SPEED_BASE", 1.5);
 const ENEMY_SPEED_STEP = tune("ENEMY_SPEED_STEP", 0.025);
 const ENEMY_SPEED_MAX_MULT = tune("ENEMY_SPEED_MAX_MULT", 2.2);
 
-// w 웨이브의 속도 배율 = min(2.2, 1.5 × (1 + 0.025 × (w − 1)))
+// ※ 세 배율 모두 마지막에 지금 판의 규칙 (rules.js 의 currentRules: 난이도 · 모드) 배율을 곱한다. 보통 + 기본이면 × 1
+
+// w 웨이브의 속도 배율 = min(2.2, 1.5 × (1 + 0.025 × (w − 1))) × 규칙
 function waveSpeedMult(w) {
-  return Math.min(ENEMY_SPEED_MAX_MULT, ENEMY_SPEED_BASE * (1 + ENEMY_SPEED_STEP * (w - 1)));
+  return Math.min(ENEMY_SPEED_MAX_MULT, ENEMY_SPEED_BASE * (1 + ENEMY_SPEED_STEP * (w - 1))) * currentRules.enemySpeedMult;
 }
 
-// w 웨이브의 체력 배율 = 2.0 × (1 + 0.12 × (w − 1))
+// w 웨이브의 체력 배율 = 2.0 × (1 + 0.12 × (w − 1)) × 규칙
 function waveHpMult(w) {
-  return ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1) + ENEMY_HP_QUAD * (w - 1) * (w - 1));
+  return ENEMY_HP_BASE * (1 + ENEMY_HP_GROWTH * (w - 1) + ENEMY_HP_QUAD * (w - 1) * (w - 1)) * currentRules.enemyHpMult;
 }
 
-// w 웨이브의 접촉 대미지 배율 = 1.5 × (1 + 0.05 × (w − 1))
+// w 웨이브의 접촉 대미지 배율 = 1.5 × (1 + 0.05 × (w − 1)) × 규칙 (적 탄환 · 블랙홀 지평선도 이 배율)
 function waveDamageMult(w) {
-  return ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * (w - 1));
+  return ENEMY_DMG_BASE * (1 + ENEMY_DMG_GROWTH * (w - 1)) * currentRules.enemyDamageMult;
 }
 
 // 적 종류(type)가 w 웨이브에 태어났을 때의 속도·체력·접촉 대미지를 한 번에 계산

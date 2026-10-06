@@ -7,8 +7,13 @@
 //     창을 닫으면 그 판의 진행만 사라진다.
 //   - 저장 데이터가 없거나 깨졌으면 기본값(코인 0, 레벨 0)으로 시작한다.
 //
-// 저장 형식 (SAVE_VERSION = 1)
-//   { version: 1, coins: 120, upgrades: { vitality: 3, power: 2 }, bestWave: 7, hudCollapsed: false }
+// 저장 형식 (SAVE_VERSION = 2)
+//   { version: 2, coins: 120, upgrades: { vitality: 3, power: 2 }, bestWaves: { "normal:basic": 7, "hard:basic": 3 },
+//     difficulty: "normal", mode: "basic", hudCollapsed: false, ... }
+//   (bestWaves: 최고 웨이브를 "난이도:모드" 별로 따로. rules.js 의 recordKey)
+//   (difficulty · mode: 로비에서 고른 난이도 · 모드. 다음에 켜도 그대로)
+//   ※ 버전 1 (옛 저장) 에는 bestWave 숫자 하나만 있었다 → 읽을 때 "보통 + 기본" 기록 (bestWaves["normal:basic"]) 으로 옮긴다.
+//     코인 · 업그레이드 · 스킬 · 본 돌연변이 등 나머지는 그대로 읽는다.
 //   (hudCollapsed: 상태창을 접어 두었는지. 다음 판에도 그대로)
 //   (mobileMode: 모바일 모드(조이스틱·터치 버튼)를 켰는지)
 //   (spawnWarn: 적 등장 예고 표시를 보여 줄지. 기본 켜짐)
@@ -21,12 +26,14 @@
 const SAVE_KEY = "augmentShooterSave";
 
 // 저장 형식 버전. 나중에 저장 모양이 바뀌면 숫자를 올리고, 옛 데이터를 고쳐 읽는다.
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
+// 버전 1 의 bestWave 를 옮겨 넣을 기록 이름표 (= rules.js 의 recordKey("normal", "basic"))
+const LEGACY_RECORD_KEY = "normal:basic";
 
 // 기본 저장 데이터 (처음 하는 사람, 또는 데이터가 깨졌을 때)
 function defaultSave() {
-  return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWave: 0, hudCollapsed: false, mobileMode: false, spawnWarn: true,
-    ownedSkills: [], equippedSkill: null, seenMutations: [] };
+  return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWaves: {}, difficulty: "normal", mode: "basic",
+    hudCollapsed: false, mobileMode: false, spawnWarn: true, ownedSkills: [], equippedSkill: null, seenMutations: [] };
 }
 
 // 0 이상의 정수만 통과시키는 도우미 (이상한 값이면 기본값)
@@ -55,7 +62,20 @@ function loadSave() {
 
   // 항목 하나하나를 검사해서 올바른 것만 옮겨 담는다
   data.coins = cleanCount(parsed.coins, 0);
-  data.bestWave = cleanCount(parsed.bestWave, 0);
+  // 최고 웨이브: 조합마다 (이름표는 글자, 값은 0 이상의 정수만)
+  if (parsed.bestWaves && typeof parsed.bestWaves === "object") {
+    for (const key in parsed.bestWaves) {
+      const wave = cleanCount(parsed.bestWaves[key], 0);
+      if (wave > 0) data.bestWaves[key] = wave;
+    }
+  }
+  // 버전 1 → 2: 옛 bestWave 는 "보통 + 기본" 기록으로 옮긴다 (이미 더 큰 기록이 있으면 그대로)
+  if (parsed.version !== SAVE_VERSION && parsed.bestWave !== undefined) {
+    const old = cleanCount(parsed.bestWave, 0);
+    if (old > (data.bestWaves[LEGACY_RECORD_KEY] || 0)) data.bestWaves[LEGACY_RECORD_KEY] = old;
+  }
+  if (typeof parsed.difficulty === "string") data.difficulty = parsed.difficulty;
+  if (typeof parsed.mode === "string") data.mode = parsed.mode;
   data.hudCollapsed = parsed.hudCollapsed === true;  // true 가 아니면 펼친 상태
   data.mobileMode = parsed.mobileMode === true;      // true 가 아니면 꺼짐
   data.spawnWarn = parsed.spawnWarn !== false;       // false 가 아니면 켜짐 (적 등장 예고 표시)
@@ -79,7 +99,7 @@ function loadSave() {
       data.upgrades[id] = cleanCount(parsed.upgrades[id], 0);
     }
   }
-  // (버전이 달라도 지금은 위 항목만 읽으면 된다. 나중에 형식이 바뀌면 여기서 고쳐 읽는다)
+  // (읽은 데이터는 늘 지금 버전 모양: 다음에 저장하면 version 2 로 써진다)
   return data;
 }
 

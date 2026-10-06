@@ -145,7 +145,7 @@ function updateMobileControls() {
   const on = saveData.mobileMode === true;
   const fighting = gameState === "playing" && !paused && !isOverlayOpen() && !isDebugGiveOpen() && !isDebugBossOpen();
   const inGame = gameState === "playing" || gameState === "choosing";
-  const hasSkill = equippedSkill() !== null;
+  const hasSkill = battleSkill() !== null;
   const key = [on, fighting, debugMode, inGame, ownerUnlocked, hasSkill].join(",");
   if (key === mobileShownKey) return;
   mobileShownKey = key;

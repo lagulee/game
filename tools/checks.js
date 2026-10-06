@@ -628,11 +628,11 @@ module.exports = [
       const box = window.__fakeStorage;
       for (const k in box) delete box[k];
       const fresh = JSON.stringify(loadSave());
-      saveData = loadSave(); saveData.coins = 123; saveData.upgrades.vitality = 4; saveData.bestWave = 7; writeSave();
+      saveData = loadSave(); saveData.coins = 123; saveData.upgrades.vitality = 4; saveData.bestWaves["normal:basic"] = 7; writeSave();
       const back = loadSave();
-      const roundTrip = back.coins === 123 && back.upgrades.vitality === 4 && back.bestWave === 7 && back.version === SAVE_VERSION;
+      const roundTrip = back.coins === 123 && back.upgrades.vitality === 4 && back.bestWaves["normal:basic"] === 7 && back.version === SAVE_VERSION;
       box[SAVE_KEY] = "{깨진 데이터"; const broken = JSON.stringify(loadSave());
-      box[SAVE_KEY] = JSON.stringify({ coins: -5, bestWave: "많이", upgrades: { power: 2.7, vitality: NaN } });
+      box[SAVE_KEY] = JSON.stringify({ version: 2, coins: -5, bestWaves: { "normal:basic": "많이", "hard:basic": -3 }, upgrades: { power: 2.7, vitality: NaN } });
       const weird = loadSave();
       // 저장소가 아예 오류를 내는 환경
       const real = window.localStorage;
@@ -641,7 +641,7 @@ module.exports = [
       try { const d = loadSave(); wrote = writeSave(); if (d.coins !== 0) noThrow = false; } catch (e) { noThrow = false; }
       Object.defineProperty(window, "localStorage", { value: real, configurable: true });
       const def = JSON.stringify(defaultSave());
-      const ok = fresh === def && roundTrip && broken === def && weird.coins === 0 && weird.bestWave === 0 &&
+      const ok = fresh === def && roundTrip && broken === def && weird.coins === 0 && Object.keys(weird.bestWaves).length === 0 &&
         weird.upgrades.power === 2 && weird.upgrades.vitality === 0 && noThrow && wrote === false;
       return { ok: ok, detail: "기본 " + fresh + " / 다시 읽기 " + roundTrip + " / 깨진 데이터 → 기본 " + (broken === def) +
         " / 이상한 값 → " + JSON.stringify(weird) + " / 저장소 오류에도 동작 " + noThrow };
@@ -673,9 +673,9 @@ module.exports = [
       endGame("gameover");
       const saved = loadSave();
       const ok = Math.abs(t1 - 10) < 0.02 && Math.abs(c1 - 10) < 0.02 && Math.abs(t2 - t1) < 1e-9 &&
-        Math.abs(c5 - 96) < 0.02 && Math.abs(bossBonus - 150) < 1e-9 && saved.coins === expected && lastRunCoins === expected && saved.bestWave === 11;
+        Math.abs(c5 - 96) < 0.02 && Math.abs(bossBonus - 150) < 1e-9 && saved.coins === expected && lastRunCoins === expected && saved.bestWaves["normal:basic"] === 11;
       return { ok: ok, detail: "1웨이브 10초 → 시간 " + t1.toFixed(2) + ", 코인 " + c1.toFixed(2) + " / 카드·메뉴 10초 동안 시간 +" + (t2 - t1).toFixed(2) +
-        " / 5웨이브 100초 버텨도 코인 " + c5.toFixed(2) + " / 보스(챕터 3) +" + bossBonus.toFixed(2) + " / 저장 " + saved.coins + "코인, 최고 웨이브 " + saved.bestWave };
+        " / 5웨이브 100초 버텨도 코인 " + c5.toFixed(2) + " / 보스(챕터 3) +" + bossBonus.toFixed(2) + " / 저장 " + saved.coins + "코인, 최고 웨이브 " + saved.bestWaves["normal:basic"] };
     },
   },
   // ---------------- 성장 C: 업그레이드 ----------------
@@ -1059,13 +1059,13 @@ module.exports = [
     name: "[결과] 지난 최고 → 이번 웨이브, 기록을 깨면 신기록, 살 수 있는 업그레이드가 있으면 업그레이드 버튼 강조",
     run: function () {
       for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
-      saveData = loadSave(); saveData.bestWave = 3; saveData.coins = 0;
+      saveData = loadSave(); saveData.bestWaves["normal:basic"] = 3; saveData.coins = 0;
       startGame(); wave = 5; runCoins = 10; endGame("gameover");
-      const rec = runPrevBestWave === 3 && saveData.bestWave === 5 && wave > runPrevBestWave; draw();
+      const rec = runPrevBestWave === 3 && bestWaveFor("normal", "basic") === 5 && wave > runPrevBestWave; draw();
       const poor = !anyUpgradeAffordable();
       for (let i = 0; i < 30; i++) update(1 / 60); const animT = resultTime > 0.4;
       startGame(); wave = 4; runCoins = 100; endGame("gameover");
-      const noRec = runPrevBestWave === 5 && saveData.bestWave === 5 && !(wave > runPrevBestWave); draw();
+      const noRec = runPrevBestWave === 5 && bestWaveFor("normal", "basic") === 5 && !(wave > runPrevBestWave); draw();
       const rich = anyUpgradeAffordable();
       const ok = rec && noRec && poor && rich && animT;
       return { ok: ok, detail: "3→5 신기록 " + rec + " / 5→4 신기록 아님 " + noRec + " / 코인 10: 강조 안 함 " + poor + ", 코인 110: 강조 " + rich + " / 애니메이션 시간 " + animT };
@@ -2892,6 +2892,87 @@ module.exports = [
       const want = [1, 1.25, 1.5].map((m) => base * m);
       const ok = dmg.every((d, i) => Math.abs(d - want[i]) < 1e-6) && again === base;
       return { ok: ok, detail: "1·2·3번째 적 대미지 " + dmg.join(", ") + " (기대 " + want.join(", ") + ") / 새 총알 " + again };
+    },
+  },
+  // ---------------- 난이도 · 모드 A: 규칙 · 난이도 · 저장 v2 ----------------
+  {
+    name: "[난이도 A] 보통 + 기본 규칙은 BASE_RULES 그대로 (배율 모두 1), 쉬움 · 어려움 배율이 적 체력 · 속도 · 접촉 대미지 · 적 탄환 · 코인 · 보스 보너스에 곱해짐",
+    run: function () {
+      const base = makeRules("normal", "basic");
+      const plain = RULE_MULTIPLIERS.every((k) => base[k] === 1) && base.choiceShow === 3 && base.choicePick === 1 && base.useUpgrades && base.useSkills;
+      const measure = (diff) => {
+        saveData.bestWaves["normal:basic"] = 30; saveData.difficulty = diff;
+        startGame(); spawnQueue = []; enemies = [];
+        const e = createEnemy("basic", 300, 300, 5);
+        const b = spawnEnemyBullet(0, 0, 0, { damage: 10 });
+        const rate = coinRate(5);
+        return { hp: e.maxHp, speed: e.speed, contact: e.contactDamage, bullet: b.damage, coin: rate, rules: currentRules };
+      };
+      const n = measure("normal"), e = measure("easy"), h = measure("hard");
+      const near = (a, b) => Math.abs(a - b) < 1e-9;
+      const ratio = (x, k) => x[k] / n[k];
+      const easyOk = near(ratio(e, "hp"), 0.7) && near(ratio(e, "speed"), 0.9) && near(ratio(e, "contact"), 0.7) && near(ratio(e, "bullet"), 0.7) && near(ratio(e, "coin"), 0.7);
+      const hardOk = near(ratio(h, "hp"), 1.4) && near(ratio(h, "speed"), 1.1) && near(ratio(h, "contact"), 1.3) && near(ratio(h, "bullet"), 1.3) && near(ratio(h, "coin"), 1.5);
+      // 보스 보너스도 코인 배율
+      saveData.difficulty = "hard"; startGame(); spawnQueue = []; wave = 11; runCoins = 0;
+      const boss = createEnemy("chargerKing", 300, 300, 11); enemies = [boss]; killEnemy(boss, {});
+      const bossOk = near(runCoins, BOSS_COIN_BONUS * 3 * 1.5);
+      saveData.difficulty = "normal";
+      return { ok: plain && easyOk && hardOk && bossOk, detail: "보통 = 기본 규칙 " + plain + " / 쉬움 체력 ×" + ratio(e, "hp").toFixed(2) + " 속도 ×" + ratio(e, "speed").toFixed(2) + " 대미지 ×" + ratio(e, "contact").toFixed(2) + " 적 탄환 ×" + ratio(e, "bullet").toFixed(2) + " 코인 ×" + ratio(e, "coin").toFixed(2) +
+        " / 어려움 체력 ×" + ratio(h, "hp").toFixed(2) + " 속도 ×" + ratio(h, "speed").toFixed(2) + " 대미지 ×" + ratio(h, "contact").toFixed(2) + " 코인 ×" + ratio(h, "coin").toFixed(2) + " / 보스 보너스 " + runCoins };
+    },
+  },
+  {
+    name: "[난이도 A] 로비 난이도 줄: 클릭 · ◀ ▶ 로 고르고 저장 (다음에도 유지), 어려움은 보통 15웨이브 전까지 잠김 (자물쇠 · 조건, 눌러도 안 골라짐, 화살표는 건너뜀)",
+    run: function () {
+      const cr = canvas.getBoundingClientRect();
+      const click = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); goToMenu(); draw();
+      const idx = (id) => DIFFICULTIES.findIndex((d) => d.id === id);
+      const def = selectedDifficulty().id === "normal";
+      click(lobbyChipRect("difficulty", idx("easy"))); const easy = selectedDifficulty().id === "easy" && loadSave().difficulty === "easy";
+      click(lobbyChipRect("difficulty", idx("hard"))); const lockedStay = selectedDifficulty().id === "easy" && lobbyToastTimer > 0 && !isUnlocked(difficultyById("hard"));
+      click(lobbyArrowRect("difficulty", 1)); const arrowNormal = selectedDifficulty().id === "normal";
+      click(lobbyArrowRect("difficulty", 1)); const skipLocked = selectedDifficulty().id === "normal";
+      saveData.bestWaves["normal:basic"] = 15; draw();
+      click(lobbyArrowRect("difficulty", 1)); const hardOpen = selectedDifficulty().id === "hard";
+      const persisted = loadSave().difficulty === "hard";
+      // 저장값이 잠긴 난이도여도 보통으로 시작
+      saveData.bestWaves["normal:basic"] = 3; const fallback = selectedDifficulty().id === "normal";
+      startGame(); const rulesNormal = currentRules.difficulty === "normal";
+      goToMenu();
+      const ok = def && easy && lockedStay && arrowNormal && skipLocked && hardOpen && persisted && fallback && rulesNormal;
+      return { ok: ok, detail: "처음 보통 " + def + " / 쉬움 클릭 · 저장 " + easy + " / 잠긴 어려움 클릭 → 그대로 + 알림 " + lockedStay + " / ▶ 보통 " + arrowNormal + ", 잠긴 칸 건너뜀 " + skipLocked +
+        " / 15웨이브 뒤 ▶ 어려움 " + hardOpen + ", 저장 " + persisted + " / 저장값이 잠긴 난이도면 보통 " + (fallback && rulesNormal) };
+    },
+  },
+  {
+    name: "[난이도 A] 저장 v2: 옛 저장 (버전 1) 의 bestWave 는 \"보통 + 기본\" 기록으로, 코인 · 업그레이드 · 스킬 · 본 돌연변이 · 설정은 그대로, 최고 기록은 조합마다 따로",
+    run: function () {
+      const box = window.__fakeStorage;
+      for (const k in box) delete box[k];
+      const v1 = { version: 1, coins: 777, upgrades: { vitality: 5, power: 3 }, bestWave: 12, hudCollapsed: true, mobileMode: true, spawnWarn: false,
+        ownedSkills: ["dash", "shockwave"], equippedSkill: "shockwave", seenMutations: ["compound", "fission"] };
+      box[SAVE_KEY] = JSON.stringify(v1);
+      const d = loadSave();
+      const moved = d.bestWaves["normal:basic"] === 12 && d.bestWave === undefined && d.version === 2;
+      const kept = d.coins === 777 && d.upgrades.vitality === 5 && d.upgrades.power === 3 && d.hudCollapsed && d.mobileMode && d.spawnWarn === false &&
+        d.ownedSkills.join() === "dash,shockwave" && d.equippedSkill === "shockwave" && d.seenMutations.join() === "compound,fission";
+      // 버전 표시가 없는 아주 옛 저장도
+      box[SAVE_KEY] = JSON.stringify({ coins: 5, bestWave: 4 }); const veryOld = loadSave().bestWaves["normal:basic"] === 4;
+      // 쓰고 다시 읽으면 버전 2 모양 그대로 (bestWave 없음)
+      saveData = d; writeSave(); const raw = JSON.parse(box[SAVE_KEY]);
+      const rewritten = raw.version === 2 && raw.bestWave === undefined && raw.bestWaves["normal:basic"] === 12;
+      const again = loadSave().bestWaves["normal:basic"] === 12;
+      // 조합마다 따로: 어려움으로 20웨이브 → hard:basic 만 바뀜
+      saveData.bestWaves["normal:basic"] = 15; saveData.difficulty = "hard";
+      startGame(); wave = 20; endGame("gameover");
+      const sep = bestWaveFor("hard", "basic") === 20 && bestWaveFor("normal", "basic") === 15 && runPrevBestWave === 0;
+      saveData.difficulty = "normal";
+      const ok = moved && kept && veryOld && rewritten && again && sep;
+      return { ok: ok, detail: "bestWave 12 → bestWaves[\"normal:basic\"] " + moved + " / 나머지 그대로 " + kept + " / 버전 없는 옛 저장 " + veryOld + " / 다시 쓰면 v2 모양 " + rewritten + ", 다시 읽기 " + again + " / 어려움 기록 따로 " + sep };
     },
   },
 ];
