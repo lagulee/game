@@ -19,6 +19,7 @@
 //     확률이 0 이면 돌연변이 판정에 난수를 쓰지 않으므로 예전과 한 글자도 다르지 않아야 한다.
 //   [돌연변이 난수] 확률을 아주 작게 (1e-9: 난수는 뽑지만 절대 안 걸림) 한 기록 = 확률 0 + "후보가 있을 때 난수 한 번 버리기" 기록
 //     → 돌연변이 판정이 바꾸는 것은 그 난수 한 번뿐이라는 증거
+//   ※ 푸리에 탄환 강화 (초점 · 관통 · 중첩) 이전 기록들은 BEFORE_FOURIER 를 넣어 예전 규칙으로 비교한다.
 //   [돌연변이] 지금 기본값 그대로 → golden/new-config-mutation.txt 와 같아야 한다
 //   [동작 검사] 훅, 디버그 모드, 새 적 행동 등을 하나씩 확인 (PASS / FAIL)
 //   [되돌리기] 바꾼 규칙의 상수를 옛 값으로 바꿔 끼우면(BEFORE_PRESSURE 등) 그때 저장한 기록과 상태가 같아야 한다
@@ -48,7 +49,9 @@ let server = null;
 // 적 등장 예고 이전과 같게: 예고 시간 0 = 나오는 순간에 자리를 정한다 (예전 기록과 비교할 때 늘 넣는다)
 // 돌연변이 이전과 같게: 확률 0 = 돌연변이 판정에 난수를 쓰지 않는다 (예전 기록과 비교할 때 늘 넣는다)
 const NO_MUTATION = { MUTATION_CHANCE: 0, MUTATION_BOSS_CHANCE: 0 };
-const NO_SPAWN_WARN = { SPAWN_WARN_TIME: 0, ...NO_MUTATION };
+// 푸리에 탄환 강화 이전과 같게: 초점 없음, 관통 [0, 0, 1], 중첩 없음 (예전 기록과 비교할 때 늘 넣는다)
+const BEFORE_FOURIER = { FOURIER_FOCUS_RANGE: 0, FOURIER_PIERCE: "[0, 0, 1]", FOURIER_PIERCE_GROWTH: 0 };
+const NO_SPAWN_WARN = { SPAWN_WARN_TIME: 0, ...NO_MUTATION, ...BEFORE_FOURIER };
 // 돌연변이 판정 난수만 뽑고 절대 걸리지 않는 확률
 const MUTATION_ROLL_ONLY = { MUTATION_CHANCE: 1e-9, MUTATION_BOSS_CHANCE: 1e-9 };
 const BEFORE_AUG_TUNE = {
@@ -356,7 +359,7 @@ function compare(label, actual, file) {
     console.log("새 설정 기록을 다시 만들었습니다.");
   }
   if (args[0] === "--record-new" || args[0] === "--record-spawnwarn") {
-    fs.writeFileSync(path.join(GOLDEN, "new-config-spawnwarn.txt"), await trace(browser, ROOT, "new", NO_MUTATION));
+    fs.writeFileSync(path.join(GOLDEN, "new-config-spawnwarn.txt"), await trace(browser, ROOT, "new", { ...NO_MUTATION, ...BEFORE_FOURIER }));
     console.log("등장 예고 기록을 다시 만들었습니다.");
   }
   if (args[0] === "--record-new" || args[0] === "--record-mutation") {
@@ -369,7 +372,7 @@ function compare(label, actual, file) {
     //   예: --compare-state new-config-mutation.txt ENZYME_STEP=0
     //   (돌연변이 효과를 하나 넣었을 때, 그 효과만 끄면 예전 기록과 같다는 것을 보이려고)
     const overrides = {};
-    for (const pair of (args[2] || "").split(",").filter(Boolean)) { const [k, v] = pair.split("="); overrides[k] = v; }
+    for (const pair of (args[2] || "").split(/,(?=[A-Z_][A-Z0-9_]*=)/).filter(Boolean)) { const i = pair.indexOf("="); overrides[pair.slice(0, i)] = pair.slice(i + 1); }
     const st = (text) => text.split("\n").filter((l) => !/ (menuDraw|draw) /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
     const now = st(await trace(browser, ROOT, "new", overrides)), want = st(fs.readFileSync(path.join(GOLDEN, args[1]), "utf8"));
     const same = now === want;
@@ -390,7 +393,7 @@ function compare(label, actual, file) {
   console.log("[기록 비교]");
   // 기록들을 동시에 만든 뒤 차례로 비교한다
   const [tOld, tNew, tWarn, rollOnly, burned, tMut] = await pool([
-    ["old", NO_SPAWN_WARN], ["new", NO_SPAWN_WARN], ["new", NO_MUTATION],
+    ["old", NO_SPAWN_WARN], ["new", NO_SPAWN_WARN], ["new", { ...NO_MUTATION, ...BEFORE_FOURIER }],
     ["new", MUTATION_ROLL_ONLY], ["new:burnroll", NO_MUTATION], ["new", {}],
   ], PARALLEL, (t) => trace(browser, ROOT, t[0], t[1]));
   allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개, 예고 0)", tOld, path.join(GOLDEN, "old-config.txt")) && allOk;

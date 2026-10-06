@@ -181,7 +181,12 @@ const FOURIER_OMEGA = 12;
 // 푸리에 탄환: 레벨별 충돌 반지름 증가 (px)
 const FOURIER_RADIUS_BONUS = [3, 5, 7];
 // 푸리에 탄환: 레벨별 관통 수 (1 이면 적 1마리를 뚫고 지나간다)
-const FOURIER_PIERCE = [0, 0, 1];
+const FOURIER_PIERCE = [1, 1, 2];
+// 푸리에 탄환: 관통할 때마다 그 총알의 다음 대미지가 이만큼 늘어난다 (0.25 = 한 마리 뚫을 때마다 +25%, 물결이 겹쳐 커진다)
+const FOURIER_PIERCE_GROWTH = 0.25;
+// 푸리에 탄환: "초점" — 조준한 적과의 거리가 이 값(px) 안으로 들어오면 물결이 거리에 비례해 잦아든다 (적 앞에서 0).
+//   그래서 가는 길에는 넓게 훑고, 마지막에는 똑바로 꽂힌다. 0 이면 예전처럼 끝까지 출렁인다
+const FOURIER_FOCUS_RANGE = 90;
 // 푸리에 탄환: 쏜 뒤 이 시간(초) 동안 진폭이 0 에서 A 까지 커진다.
 //   처음부터 A 로 흔들리면, 적이 늘 같은 거리(물결의 꼭대기)에서 쫓아올 때 모든 총알이 빗나갈 수 있다.
 //   가까운 적에게는 거의 곧게, 먼 적에게는 크게 물결치며 날아간다.
@@ -862,15 +867,15 @@ const AUGMENTS = [
     levels: [
       {
         amplitude: FOURIER_AMPLITUDE[0], radiusBonus: FOURIER_RADIUS_BONUS[0], pierce: FOURIER_PIERCE[0],
-        desc: "총알이 옆으로 A·sin(ωt) 만큼 물결치며 날아가 더 넓게 훑는다 (멀리 갈수록 크게). 진폭 15px, 충돌 반지름 +3px",
+        desc: "총알이 A·sin(ωt) 로 물결치며 훑다가, 조준한 적 " + FOURIER_FOCUS_RANGE + "px 앞에서 물결이 잦아들어 똑바로 꽂힌다. 적 " + FOURIER_PIERCE[0] + "마리 관통, 뚫을 때마다 대미지 +" + Math.round(FOURIER_PIERCE_GROWTH * 100) + "%",
       },
       {
         amplitude: FOURIER_AMPLITUDE[1], radiusBonus: FOURIER_RADIUS_BONUS[1], pierce: FOURIER_PIERCE[1],
-        desc: "물결이 커진다! 진폭 15 → 20px, 충돌 반지름 +5px",
+        desc: "물결이 커진다! 진폭 15 → 20px, 충돌 반지름 +3 → +5px (관통 " + FOURIER_PIERCE[1] + "마리, 뚫을 때마다 +" + Math.round(FOURIER_PIERCE_GROWTH * 100) + "%)",
       },
       {
         amplitude: FOURIER_AMPLITUDE[2], radiusBonus: FOURIER_RADIUS_BONUS[2], pierce: FOURIER_PIERCE[2],
-        desc: "진폭 25px, 충돌 반지름 +7px, 그리고 적 1마리를 뚫고 지나간다!",
+        desc: "진폭 25px, 충돌 반지름 +7px, 관통 " + FOURIER_PIERCE[1] + " → " + FOURIER_PIERCE[2] + "마리! 줄 선 적을 꿰뚫을수록 세진다",
       },
     ],
 
@@ -885,6 +890,21 @@ const AUGMENTS = [
     //   (앞으로 가는 속도는 그대로 두고, 옆 속도만 따로 더했다가 다음 프레임에 뺀다.
     //    그래서 중력 렌즈처럼 앞 방향을 휘게 하는 증강과 함께 써도 된다)
     // =========================================================
+    // 쏠 때: 조준한 적을 총알에 적어 둔다 (초점에 쓴다. 3방향 탄의 추가 총알 · 파편은 조준한 적이 없어 끝까지 출렁인다)
+    onFire: function (stats, info) {
+      if (FOURIER_FOCUS_RANGE > 0 && info.target) info.bullet.fourierTarget = info.target;
+    },
+
+    // 중첩: 이 총알이 뚫고 지나간 적 수만큼 대미지 × (1 + 0.25 × 뚫은 수)
+    modifyDamage: function (damage, stats, info) {
+      const pierced = info.bullet ? info.bullet.wavePierced || 0 : 0;
+      return damage * (1 + FOURIER_PIERCE_GROWTH * pierced);
+    },
+
+    onHit: function (stats, info) {
+      if (info.bullet.fourier) info.bullet.wavePierced = (info.bullet.wavePierced || 0) + 1;
+    },
+
     onBulletUpdate: function (bullet, stats, dt) {
       // 처음 한 번: 충돌 반지름을 키우고 관통 수를 정한다
       //   돌연변이 "공명" (보강 간섭): 진폭 × RESONANCE_AMP_MULT, 관통 + RESONANCE_PIERCE_BONUS (mutation.stats 로 들어온다)
@@ -904,7 +924,23 @@ const AUGMENTS = [
       const px = -fy / len, py = fx / len;
       // 옆 속도 = 이번 프레임의 옆 거리 변화 ÷ dt  (bullet.age 는 이미 이번 프레임만큼 늘어 있다)
       const t = bullet.age;
-      const lateral = dt > 0 ? (fourierOffset(amplitude, t) - fourierOffset(amplitude, t - dt)) / dt : 0;
+      let lateral;
+      if (FOURIER_FOCUS_RANGE > 0) {
+        // =========================================================
+        // 초점: 옆 거리 = A·sin(ωt) × 초점 배율
+        //   초점 배율 = (조준한 적까지 거리 ÷ FOURIER_FOCUS_RANGE), 1 을 넘으면 1
+        //   → 90px 밖에서는 그대로 물결치고, 90px 안에서는 거리에 비례해 줄어 적 앞에서 0 이 된다.
+        //   적은 움직이므로 지난 프레임의 옆 거리를 기억해 두고 "이번 옆 거리 − 지난 옆 거리" 만큼 옮긴다.
+        //   조준한 적이 죽으면 마지막 배율 그대로 (갑자기 튀지 않게)
+        // =========================================================
+        const target = bullet.fourierTarget;
+        if (target && !target.dead) f.focus = Math.min(1, distance(bullet.x, bullet.y, target.x, target.y) / FOURIER_FOCUS_RANGE);
+        const offset = fourierOffset(amplitude, t) * (f.focus === undefined ? 1 : f.focus);
+        lateral = dt > 0 ? (offset - (f.offset || 0)) / dt : 0;
+        f.offset = offset;
+      } else {
+        lateral = dt > 0 ? (fourierOffset(amplitude, t) - fourierOffset(amplitude, t - dt)) / dt : 0;
+      }
       f.latX = px * lateral;
       f.latY = py * lateral;
       bullet.vx = fx + f.latX;

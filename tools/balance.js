@@ -66,7 +66,8 @@ const PRESETS = {
 };
 const OVERRIDES = Object.assign({}, PRESETS[args.preset] || {});
 if (args.set) {
-  for (const pair of args.set.split(",")) {
+  // 쉼표로 나누되, 값 안의 쉼표 ([0, 0, 1] 같은 배열) 는 나누지 않는다: "이름=" 앞의 쉼표에서만
+  for (const pair of args.set.split(/,(?=[A-Z_][A-Z0-9_]*=)/)) {
     const [k, v] = pair.split("=");
     OVERRIDES[k] = v;
   }
@@ -426,7 +427,8 @@ const AUGMENT_IDS = ["compound", "variance", "timeDilation", "arithmetic", "squa
     page.on("pageerror", (e) => errors.push(e.message));
     await page.addInitScript(initScript);
     await page.goto(server.url + "index.html");
-    const ids = await page.evaluate(() => AUGMENTS.map((a) => [a.id, a.name]));
+    const ids = (await page.evaluate(() => AUGMENTS.map((a) => [a.id, a.name])))
+      .filter((x) => !args.only || args.only.split(",").includes(x[0]));   // --only fourier 처럼 일부만
     const avg = (r) => r.reduce((a, x) => a + x.wave, 0) / r.length;
     const rows = [];
     console.log("증강 기여도: 레벨 (" + lv + "," + lv + "), 증강마다 " + RUNS + "판씩 (같은 씨앗)");

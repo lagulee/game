@@ -1178,7 +1178,7 @@ module.exports = [
     },
   },
   {
-    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 15/20/25, 처음 0.25초는 0→A), 앞으로는 그대로, 늘 같은 거리의 적도 맞음, 충돌 반지름 +3/+5/+7, Lv.3 관통 1",
+    name: "[증강+] 푸리에 탄환: 옆으로 A·sin(ωt) 흔들림(진폭 15/20/25, 처음 0.25초는 0→A), 앞으로는 그대로, 늘 같은 거리의 적도 맞음, 충돌 반지름 +3/+5/+7, 관통 1/1/2",
     run: function () {
       const aug = AUGMENTS.find((a) => a.id === "fourier");
       const res = [];
@@ -1195,7 +1195,7 @@ module.exports = [
         const forward = (b.x - 100) / b.age;               // 앞으로 간 평균 속도
         res.push({ lv, maxDev: +maxDev.toFixed(1), worst: +worst.toFixed(1), forward: Math.round(forward), radius: b.radius, pierce: b.pierce });
       }
-      // Lv.3 관통: 일렬로 선 적 3마리 중 앞의 2마리
+      // Lv.3 관통 2: 일렬로 선 적 3마리 모두
       startGame(); spawnQueue = []; ownedAugments = { fourier: 3 };
       // (총알이 크게 흔들리므로 적을 촘촘히 세운다: 흔들림이 충돌 거리보다 작은 구간)
       const es = [0, 1, 2].map((i) => { const e = createEnemy("basic", 135 + i * 10, 270, 1); e.hp = e.maxHp = 1000; return e; });
@@ -1212,7 +1212,7 @@ module.exports = [
         near.push(g.hp < 1000 ? 1 : 0);
       }
       const ok = res.every((r, i) => Math.abs(r.maxDev - FOURIER_AMPLITUDE[i]) < 1.5 && r.worst < 3 && Math.abs(r.forward - BULLET_SPEED) < 2 &&
-        r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === [0, 0, 1][i]) && hits === "110" && near.join("") === "111";
+        r.radius === BULLET_RADIUS + [3, 5, 7][i] && r.pierce === FOURIER_PIERCE[i]) && hits === "111" && near.join("") === "111";
       return { ok: ok, detail: res.map((r) => "Lv" + r.lv + " 최대 흔들림 " + r.maxDev + "px(오차 " + r.worst + "), 앞 속도 " + r.forward + ", 반지름 " + r.radius + ", 관통 " + r.pierce).join(" / ") + " / Lv3 맞은 적 " + hits + " / 70·90·110px 작은 적 맞음 " + near.join("") };
     },
   },
@@ -2690,7 +2690,7 @@ module.exports = [
     },
   },
   {
-    name: "[돌연변이 C] 공명: 진폭 2배, 관통 +2 (Lv.3 이면 1 → 3), 방패에 막힌 총알은 관통하지 않음 (돌연변이 전 관통은 그대로)",
+    name: "[돌연변이 C] 공명: 진폭 2배, 관통 +2 (Lv.3 이면 2 → 4), 방패에 막힌 총알은 관통하지 않음 (돌연변이 전 관통은 그대로)",
     run: function () {
       const DT = 1 / 60;
       startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
@@ -2724,7 +2724,7 @@ module.exports = [
       };
       const sp = shield(false), sm = shield(true);
       debugMode = false; debugInvincible = false;
-      const ok = Math.abs(m2.off / p2.off - 2) < 0.05 && Math.abs(m3.off / p3.off - 2) < 0.05 && hitPlain === 2 && hitMut === 4 &&
+      const ok = Math.abs(m2.off / p2.off - 2) < 0.05 && Math.abs(m3.off / p3.off - 2) < 0.05 && hitPlain === 1 + FOURIER_PIERCE[2] && hitMut === 4 &&
         sp.shieldHit && sp.backHit && sm.shieldHit && !sm.backHit;
       return { ok: ok, detail: "흔들림 Lv2 " + p2.off.toFixed(1) + " → " + m2.off.toFixed(1) + "px, Lv3 " + p3.off.toFixed(1) + " → " + m3.off.toFixed(1) +
         "px / 일렬 4마리 중 맞힌 수 " + hitPlain + " → " + hitMut + " / 방패 뒤 적: 전 " + (sp.backHit ? "뚫음" : "막힘") + ", 공명 " + (sm.backHit ? "뚫음" : "막힘") };
@@ -2840,6 +2840,58 @@ module.exports = [
       const ok = fired && once && nextWave && crossOnly && dead && Math.abs(dmg - 10 * (1 + LECHATELIER_K[1] * 0.75)) < 1e-9 && plain;
       return { ok: ok, detail: "35 → 25 → 역반응 45, 무적 2초 " + fired + " / 같은 웨이브 한 번만 " + once + " / 다음 웨이브 다시 " + nextWave + " / 이미 30% 아래면 안 됨 " + crossOnly +
         " / 쓰러지는 맞음은 그대로 게임 오버 " + dead + " / 대미지 효과 그대로 ×" + (dmg / 10).toFixed(2) + " / 돌연변이 전 " + plain };
+    },
+  },
+  // ---------------- 푸리에 탄환 강화: 초점 · 관통 · 중첩 ----------------
+  {
+    name: "[푸리에+] 초점: 조준한 적 90px 안에서는 물결이 거리에 비례해 잦아들어 똑바로 꽂힘 (조준한 적이 없는 총알은 끝까지 출렁임), 작은 적도 맞음",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { fourier: 3 };
+      // 조준한 적: 오른쪽 360px 에 가만히 있는 작은 적. 총알을 (플레이어처럼) 조준해서 쏜다
+      player.x = 100; player.y = 270;
+      const g = createEnemy("splitterGrandchild", 460, 270, 1); g.hp = g.maxHp = 1e9; g.speed = 0; enemies = [g];
+      const b = createBullet(1, 0, { target: g });
+      const offs = [];
+      let hit = false;
+      for (let i = 0; i < 60 && !hit; i++) {
+        player.fireTimer = 1e9; player.x = 100; player.y = 270;
+        const dist = Math.hypot(g.x - b.x, g.y - b.y), off = Math.abs(b.y - 270);
+        offs.push({ dist, off });
+        update(DT); hit = g.hp < 1e9;
+      }
+      const far = Math.max(...offs.filter((o) => o.dist > 150).map((o) => o.off));          // 멀리서는 넓게 훑는다
+      const near = offs.filter((o) => o.dist < FOURIER_FOCUS_RANGE);
+      // 가까울수록 줄어든다 (잰 위치는 프레임 전, 배율은 한 프레임 앞선 거리라 총알 한 프레임 이동 8px 만큼 여유)
+      const focused = near.every((o) => o.off <= FOURIER_AMPLITUDE[2] * (o.dist + BULLET_SPEED / 60) / FOURIER_FOCUS_RANGE + 0.5);
+      // 조준한 적이 없는 총알 (3방향 탄의 추가 총알 같은) 은 그대로 진폭 25
+      bullets = []; const free = createBullet(1, 0, { x: 100, y: 100, fromAugment: true }); let maxFree = 0;
+      for (let i = 0; i < 40; i++) { player.fireTimer = 1e9; update(DT); maxFree = Math.max(maxFree, Math.abs(free.y - 100)); }
+      debugMode = false; debugInvincible = false;
+      const ok = hit && far > 15 && focused && near.length > 0 && Math.abs(maxFree - FOURIER_AMPLITUDE[2]) < 1.5;
+      return { ok: ok, detail: "멀리서 최대 흔들림 " + far.toFixed(1) + "px / 90px 안: " + near.map((o) => Math.round(o.dist) + "px→" + o.off.toFixed(1)).join(", ") + " / 작은 적 명중 " + hit + " / 조준 없는 총알 진폭 " + maxFree.toFixed(1) };
+    },
+  },
+  {
+    name: "[푸리에+] 중첩: 뚫고 지나간 적 수만큼 그 총알의 대미지 × (1 + 0.25 × 뚫은 수), 다른 총알은 그대로",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      ownedAugments = { fourier: 3 };
+      const es = [0, 1, 2].map((i) => { const e = createEnemy("basic", 135 + i * 10, 270, 1); e.hp = e.maxHp = 1e5; e.speed = 0; return e; });
+      enemies = es.slice(); bullets = [];
+      createBullet(1, 0, { x: 120, y: 270, fromAugment: true });
+      for (let i = 0; i < 20; i++) { player.fireTimer = 1e9; update(DT); }
+      const dmg = es.map((e) => Math.round((1e5 - e.hp) * 100) / 100);
+      const base = player.damage;
+      // 새 총알은 다시 1배부터
+      const fresh = createBullet(1, 0, { x: 120, y: 270, fromAugment: true }); fresh.fourier = { latX: 0, latY: 0 };
+      lastHitEnemy = null; const again = calcDamage(es[0], fresh);
+      debugMode = false; debugInvincible = false;
+      const want = [1, 1.25, 1.5].map((m) => base * m);
+      const ok = dmg.every((d, i) => Math.abs(d - want[i]) < 1e-6) && again === base;
+      return { ok: ok, detail: "1·2·3번째 적 대미지 " + dmg.join(", ") + " (기대 " + want.join(", ") + ") / 새 총알 " + again };
     },
   },
 ];
