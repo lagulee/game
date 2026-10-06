@@ -201,6 +201,10 @@ const CHOICE_INPUT_DELAY = 0.4;
 // 웨이브 시작 때 화면 위에 뜨는 안내 띠가 보이는 시간 (초)
 const BANNER_TIME = 1.8;
 
+// ---- 카드 다시 뽑기 (리롤). 한 판의 횟수는 rules.js 의 REROLL_COUNT ----
+const REROLL_BUTTON = { x: CANVAS_WIDTH / 2 - 110, y: 480, w: 220, h: 42 };   // 카드 아래 가운데
+const REROLL_CONFIRM_TIME = 3;   // 돌연변이가 떠 있을 때: 한 번 더 누르기를 기다리는 시간 (초)
+
 // ---- 돌연변이 카드 연출 ----
 const MUTATION_CARD_DELAY = 0.35;   // 돌연변이 카드는 다른 카드보다 이만큼 (초) 한 박자 늦게 튀어나온다
 const MUTATION_SHAKE_TIME = 0.45;   // 카드가 뜰 때 화면이 흔들리는 시간 (초)
@@ -387,6 +391,13 @@ window.addEventListener("keydown", function (event) {
       event.preventDefault();
       return;
     }
+  }
+
+  // 카드 선택 화면: R 키 = 다시 뽑기 (결과 화면의 R = 다시 시작 과는 화면이 달라서 겹치지 않는다)
+  if (gameState === "choosing" && event.code === "KeyR") {
+    if (rerollButtonVisible()) rerollChoices();
+    event.preventDefault();
+    return;
   }
 
   // 게임 오버나 클리어 화면: R 키 = 바로 다시 시작, M 키 = 로비(전투 탭)로, U 키 = 업그레이드 탭
@@ -850,6 +861,7 @@ canvas.addEventListener("click", function (event) {
   if (gameState === "choosing") {
     if (insideRect(pos.x, pos.y, hudArrowRect())) { toggleHud(); return; }
     if (activeTutorialStep() && insideRect(pos.x, pos.y, tutorialSkipRect())) { skipTutorialStep(); return; }
+    if (rerollButtonVisible() && insideRect(pos.x, pos.y, REROLL_BUTTON)) { rerollChoices(); return; }
     const index = cardIndexAt(pos.x, pos.y);
     if (index >= 0) chooseAugment(index);
     return;
@@ -1023,6 +1035,9 @@ let bossKilledThisWave = false;
 
 // 지금 선택 화면에 나와 있는 카드(증강 객체)들의 목록
 let choices = [];
+let rerollsLeft = 0;      // 이번 판에 남은 다시 뽑기 횟수
+let rerollArmTimer = 0;   // 돌연변이 카드가 떠 있을 때 "한 번 더 누르면 다시 뽑기" 를 기다리는 남은 시간 (0 = 평소)
+let rerollShake = 0;      // 횟수가 없는데 누르면 버튼이 흔들리는 남은 시간
 
 // 마우스가 올라가 있는 카드 번호 (없으면 -1)
 let hoverIndex = -1;
@@ -1527,20 +1542,36 @@ function shuffle(array) {
 //   1) 최대 레벨이 아닌 증강을 섞어서 최대 3장
 //   2) 증강이 3장보다 적으면, 남는 자리를 보급 카드(SUPPLIES)로 채운다
 //   3) 체력이 최대 체력의 40% 아래면, 3장 중 1장은 반드시 보급 카드
-function pickChoices() {
+//
+// options (다시 뽑기에서만 쓴다)
+//   exclude    : 이 카드 id 들은 되도록 빼고 뽑는다 (모자라면 다시 넣는다)
+//   noMutation : 돌연변이 확률을 굴리지 않는다 (다시 뽑기로 돌연변이를 노릴 수 없게)
+function pickChoices(options) {
+  const opt = options || {};
+  const exclude = opt.exclude || [];
+  const fresh = function (card) { return exclude.indexOf(card.id) < 0; };
   const candidates = AUGMENTS.filter(function (aug) {
-    return getAugmentLevel(aug.id) < aug.levels.length;
+    return getAugmentLevel(aug.id) < aug.levels.length && fresh(aug);
   });
   // 1) 섞은 뒤 앞에서부터 CHOICE_COUNT 장만 자른다
   const picks = shuffle(candidates).slice(0, CHOICE_COUNT);
 
   // 2) 남는 자리를 보급 카드로 채운다 (보급 카드끼리는 겹치지 않게 섞어서)
   if (picks.length < CHOICE_COUNT && SUPPLIES.length > 0) {
-    const supplies = shuffle(SUPPLIES.slice());
+    const supplies = shuffle(SUPPLIES.filter(fresh));
     // 자리가 남아 있는 동안 보급 카드를 하나씩 넣는 반복문
     for (const supply of supplies) {
       if (picks.length >= CHOICE_COUNT) break;
       picks.push(supply);
+    }
+  }
+  // 2-1) 다시 뽑기: 그래도 모자라면 뺐던 카드를 다시 넣는다 (증강 먼저, 그다음 보급)
+  if (exclude.length > 0 && picks.length < CHOICE_COUNT) {
+    const back = AUGMENTS.filter(function (aug) { return getAugmentLevel(aug.id) < aug.levels.length && !fresh(aug); })
+      .concat(SUPPLIES.filter(function (card) { return !fresh(card); }));
+    for (const card of back) {
+      if (picks.length >= CHOICE_COUNT) break;
+      picks.push(card);
     }
   }
 
@@ -1557,7 +1588,7 @@ function pickChoices() {
 
   // 4) 돌연변이: 후보(Lv.2 이상 증강)가 있으면 확률 MUTATION_CHANCE (보스를 잡은 직후는 MUTATION_BOSS_CHANCE) 로
   //    3장 중 1장이 돌연변이 카드로 바뀐다. 후보가 없거나 확률이 0 이면 난수를 쓰지 않는다 (= 예전과 완전히 같은 뽑기)
-  const mutants = mutationCandidates();
+  const mutants = opt.noMutation ? [] : mutationCandidates();
   const chance = (bossKilledThisWave ? MUTATION_BOSS_CHANCE : MUTATION_CHANCE) * currentRules.mutationMult;
   if (mutants.length > 0 && chance > 0 && Math.random() < chance) {
     const aug = mutants[Math.floor(Math.random() * mutants.length)];
@@ -1630,6 +1661,47 @@ function openChoiceScreen() {
   gameState = "choosing";
   choosingTime = 0;
   hoverIndex = -1;
+  rerollArmTimer = 0;
+}
+
+// ---- 카드 다시 뽑기 ----
+// 3장을 모두 새로 뽑는다 (지금 카드는 되도록 빼고). 돌연변이 확률은 다시 굴리지 않는다.
+// 돌연변이 카드가 떠 있으면 첫 번째 누름은 "한 번 더 누르면 다시 뽑기" 확인만 한다 (돌연변이가 사라지니까)
+// 돌려주는 값: "rerolled" | "armed" | "none" (횟수 없음) | "wait" (카드가 막 나타난 직후)
+function rerollChoices() {
+  if (gameState !== "choosing") return "none";
+  if (choosingTime < CHOICE_INPUT_DELAY) return "wait";
+  if (rerollsLeft <= 0) { rerollShake = 0.35; return "none"; }
+  if (choicesHaveMutation() && rerollArmTimer <= 0) {
+    rerollArmTimer = REROLL_CONFIRM_TIME;
+    return "armed";
+  }
+  const before = choices.map(function (c) { return c.isMutation ? c.aug.id : c.id; });
+  choices = pickChoices({ exclude: before, noMutation: true });
+  rerollsLeft -= 1;
+  rerollArmTimer = 0;
+  choosingTime = 0;        // 새 카드가 다시 튀어나온다 (나타난 직후의 입력 무시도 다시)
+  hoverIndex = -1;
+  return "rerolled";
+}
+
+// 다시 뽑기 버튼을 보여 줄지 (이번 판에 다시 뽑기가 있을 때만: 튜토리얼 · 혼돈 모드는 없음)
+function rerollButtonVisible() {
+  return gameState === "choosing" && currentRules.rerolls > 0;
+}
+
+// 다시 뽑기 버튼 (카드 아래 가운데). 남은 횟수, 돌연변이 확인 중이면 보라색 + 안내
+function drawRerollButton() {
+  if (!rerollButtonVisible()) return;
+  const r = REROLL_BUTTON;
+  const can = rerollsLeft > 0;
+  const armed = rerollArmTimer > 0;
+  const shake = rerollShake > 0 ? Math.sin(rerollShake * 60) * 6 * (rerollShake / 0.35) : 0;
+  ctx.save();
+  ctx.translate(shake, 0);
+  drawStickerRect(r.x, r.y, r.w, r.h, 20, armed ? COLORS.purple : can ? COLORS.blue : COLORS.gray, 4);
+  drawOutlinedText("다시 뽑기 (" + rerollsLeft + ") · R", r.x + r.w / 2, r.y + r.h / 2 + 1, 20);
+  ctx.restore();
 }
 
 // 보급 카드 하나의 효과를 쓴다 (카드 선택, 디버그 지급)
@@ -2224,6 +2296,8 @@ function resetGame() {
   mutatedAugments = {};
   runMutations = [];
   tutorial = newTutorialState();   // 튜토리얼 안내도 처음부터
+  rerollsLeft = currentRules.rerolls;   // 다시 뽑기 횟수 (한 판에)
+  rerollArmTimer = 0;
   // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
   for (const aug of AUGMENTS) {
     if (aug.reset) aug.reset();
@@ -2710,6 +2784,8 @@ function update(dt) {
   } else if (gameState === "choosing") {
     // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
     choosingTime += dt;
+    rerollArmTimer = Math.max(0, rerollArmTimer - dt);
+    rerollShake = Math.max(0, rerollShake - dt);
     updateTutorial(dt);
     updatePopups(dt);
     updateParticles(dt);
@@ -4398,12 +4474,15 @@ function drawChoiceScreen() {
   // 위쪽 제목 (돌연변이 카드가 있으면 "돌연변이 발생!")
   if (choicesHaveMutation()) drawOutlinedText("돌연변이 발생!", CANVAS_WIDTH / 2, 48, 42, "center", lightenColor(COLORS.purple, 0.35));
   else drawOutlinedText("웨이브 " + wave + " 클리어!", CANVAS_WIDTH / 2, 48, 40, "center", COLORS.yellow);
-  drawOutlinedText("증강을 하나 고르세요  (클릭 또는 1 · 2 · 3 키)", CANVAS_WIDTH / 2, 88, 20);
+  // 부제: 돌연변이가 떠 있을 때 다시 뽑기를 한 번 누르면, 그 자리에 확인 안내 (보라)
+  if (rerollArmTimer > 0) drawOutlinedText("돌연변이가 사라져요. 한 번 더 누르면 다시 뽑기", CANVAS_WIDTH / 2, 88, 20, "center", lightenColor(COLORS.purple, 0.5));
+  else drawOutlinedText("증강을 하나 고르세요  (클릭 또는 1 · 2 · 3 키)", CANVAS_WIDTH / 2, 88, 20);
 
   // 카드를 한 장씩 그리는 반복문
   for (let i = 0; i < choices.length; i++) {
     drawCard(choices[i], i);
   }
+  drawRerollButton();
 }
 
 // ---- 일시정지 창 ----

@@ -28,6 +28,8 @@
 //   발동 스킬 비교: --skills none,dash,shockwave,absoluteZero --levels 6,10,20 --runs 40
 //     (스킬을 산 상태로 시작. 봇은 위험할 때 스킬을 쓴다 → runLevel 의 inDanger)
 //   증강 기여도: --contrib 10 --runs 20  (레벨 (10,10) 에서 증강마다 "첫 카드로 얻는 판" vs "안 나오는 판")
+//   카드 고르기 방식: --cardbot focus (가진 증강의 레벨업 카드 먼저, 없으면 다시 뽑기를 쓰고, 그래도 없으면 무작위)
+//     리롤 비교: --cardbot focus --levels 10 --runs 40 와 --set REROLL_COUNT=0 를 견준다
 //   돌연변이 비교: --mutation off,on --levels 6,10,20 --runs 30
 //     (off = 확률 0, on = 지금 확률. 한 판에 얻은 돌연변이 수 평균도 보여 준다)
 //   돌연변이 기여도: --mutcontrib 10 --runs 20 --at 10
@@ -282,7 +284,7 @@ function runLevel(opts) {
     let frames = 0;
     const MAX_FRAMES = 60 * 60 * 60; // 게임 시간 1시간이면 멈춤 (안전장치)
     let firstPick = true;
-    let offered = 0, eligible = 0, eligibleBoss = 0, reached = false;
+    let offered = 0, eligible = 0, eligibleBoss = 0, reached = false, rerolls = 0;
     while (gameState !== "gameover" && gameState !== "clear" && frames < MAX_FRAMES) {
       if (gameState === "choosing") {
         choosingTime = 1;
@@ -302,6 +304,12 @@ function runLevel(opts) {
           firstPick = false;
           continue;
         }
+        // focus: 가진 증강의 레벨업 카드 → 없으면 다시 뽑기 → 그래도 없으면 무작위
+        if (opts.cardBot === "focus" && !(firstPick && opts.force)) {
+          const ups = choices.map((c, i) => (!c.isSupply && getAugmentLevel(c.id) > 0 ? i : -1)).filter((i) => i >= 0);
+          if (ups.length > 0) { chooseAugment(ups[Math.floor(Math.random() * ups.length)]); firstPick = false; continue; }
+          if (Object.keys(ownedAugments).length > 0 && rerollsLeft > 0 && rerollChoices() === "rerolled") { rerolls++; continue; }
+        }
         // 기여도 측정: 첫 카드는 반드시 opts.force 증강
         if (firstPick && opts.force) {
           const forced = AUGMENTS.find((a) => a.id === opts.force);
@@ -320,7 +328,7 @@ function runLevel(opts) {
       frames++;
     }
     results.push({ wave: wave, clear: gameState === "clear", coins: lastRunCoins, time: runTime, cards: wave - 1,
-      mutations: runMutations.length, offered: offered, eligible: eligible, eligibleBoss: eligibleBoss, reached: reached });
+      mutations: runMutations.length, offered: offered, eligible: eligible, eligibleBoss: eligibleBoss, reached: reached, rerolls: rerolls });
   }
   if (banned.length) AUGMENTS.push(banned[0]);
   return results;
@@ -496,14 +504,14 @@ const AUGMENT_IDS = ["compound", "variance", "timeDilation", "arithmetic", "squa
     while (next < LEVELS.length) {
       const idx = next++;
       const level = LEVELS[idx];
-      const r = await page.evaluate(runLevel, { v: level.v, p: level.p, runs: RUNS, bot: BOT, seed: SEED });
+      const r = await page.evaluate(runLevel, { v: level.v, p: level.p, runs: RUNS, bot: BOT, seed: SEED, cardBot: args.cardbot });
       const waves = r.map((x) => x.wave), coins = r.map((x) => x.coins);
       const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
       rows[idx] = {
         level: level.label, vitality: level.v, power: level.p, avgWave: avg(waves), min: Math.min(...waves), max: Math.max(...waves),
         clears: r.filter((x) => x.clear).length, avgTime: avg(r.map((x) => x.time)),
         avgCoins: avg(coins), minCoins: Math.min(...coins), coins40: coins.filter((c) => c >= 40).length,
-        avgCards: avg(r.map((x) => x.cards)),
+        avgCards: avg(r.map((x) => x.cards)), avgRerolls: avg(r.map((x) => x.rerolls)),
         pass5: r.filter((x) => x.wave >= 6 || x.clear).length,   // 5웨이브(첫 보스)를 넘긴 판 수
       };
     }

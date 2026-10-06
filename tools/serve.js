@@ -47,7 +47,7 @@ function startServer(root) {
         url: "http://127.0.0.1:" + server.address().port + "/",
         // 다음에 여는 페이지부터 적용할 상수 목록 (없는 이름이 있으면 바로 알려 준다)
         setOverrides(map) {
-          const all = ["game.js", "enemies.js", "waves.js", "upgrades.js", "augments.js", "save.js", "skills.js"]
+          const all = ["game.js", "enemies.js", "waves.js", "upgrades.js", "augments.js", "save.js", "skills.js", "tutorial.js", "rules.js"]
             .map((f) => fs.readFileSync(path.join(root, f), "utf8")).join("\n");
           for (const name in map) {
             if (!new RegExp("(^|\\n)const " + name + " = ").test(all)) throw new Error("상수를 찾을 수 없음: " + name);

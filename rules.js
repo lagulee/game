@@ -27,6 +27,9 @@
 // 둘을 합칠 때: 배율끼리는 곱하고, 그 밖의 값은 모드가 덮어쓴다.
 // =============================================================
 
+// 카드 선택 화면의 "다시 뽑기" 횟수 (한 판에)
+const REROLL_COUNT = 2;
+
 // ---- 규칙의 기본값 (보통 + 기본) ----
 const BASE_RULES = {
   enemyHpMult: 1,
@@ -36,7 +39,7 @@ const BASE_RULES = {
   choiceShow: 3,
   choicePick: 1,
   mutationMult: 1,
-  rerolls: 0,
+  rerolls: REROLL_COUNT,
   useUpgrades: true,
   useSkills: true,
   waves: null,
@@ -59,7 +62,7 @@ const DIFFICULTIES = [
     desc: "4웨이브짜리 연습 판. 이동 · 피하기 · 카드 · 보스를 차례로 알려 준다. 쓰러지지 않고, 처음 끝내면 코인 " + TUTORIAL_REWARD,
     rules: {
       waves: TUTORIAL_WAVES, exactCounts: true, noDeath: true, saveRecord: false, tutorial: true,
-      useUpgrades: false, useSkills: false, enemyHpMult: 0.5, enemySpeedMult: 0.7, coinMult: 0,
+      useUpgrades: false, useSkills: false, enemyHpMult: 0.5, enemySpeedMult: 0.7, coinMult: 0, rerolls: 0,
     },
   },
   {

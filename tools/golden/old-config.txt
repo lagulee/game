@@ -193,7 +193,7 @@ C f2480 {"st":"playing","w":1,"sc":900,"hp":99820,"p":[880.265,55.509,75.563,-75
 C f2500 {"st":"playing","w":1,"sc":900,"hp":99820,"p":[858.787,52.546,-191.103,0,2.135],"e":[[770.448,192.206,2.642,90]],"b":[],"pop":[15,17],"par":0,"own":"{\"compound\":1,\"timeDilation\":1}","ch":[],"best":0}
 C f2520 {"st":"choosing","w":1,"sc":1000,"hp":99820,"p":[793.083,52.546,-220,0,1.685],"e":[],"b":[],"pop":[17,20],"par":7,"own":"{\"compound\":1,\"timeDilation\":1}","ch":["timeDilation","variance","compound"],"best":0}
 C f2540 {"st":"choosing","w":1,"sc":1000,"hp":99820,"p":[793.083,52.546,-220,0,1.685],"e":[],"b":[],"pop":[17,20],"par":7,"own":"{\"compound\":1,\"timeDilation\":1}","ch":["timeDilation","variance","compound"],"best":0}
-C f2550 draw f851e91d
+C f2550 draw b6ed1e1f
 C f2560 {"st":"playing","w":2,"sc":1000,"hp":99820,"p":[783.416,53.879,-180,40,2.923],"e":[],"b":[],"pop":[20],"par":0,"own":"{\"compound\":2,\"timeDilation\":1}","ch":["timeDilation","variance","compound"],"best":0}
 C f2580 {"st":"playing","w":2,"sc":1000,"hp":99820,"p":[764.639,108.435,0,220,1.571],"e":[],"b":[],"pop":[],"par":0,"own":"{\"compound\":2,\"timeDilation\":1}","ch":["timeDilation","variance","compound"],"best":0}
 C f2600 {"st":"playing","w":2,"sc":1000,"hp":99820,"p":[764.639,181.768,0,220,1.571],"e":[],"b":[],"pop":[],"par":0,"own":"{\"compound\":2,\"timeDilation\":1}","ch":["timeDilation","variance","compound"],"best":0}

@@ -3068,4 +3068,69 @@ module.exports = [
         " / 모바일: " + mobile + " / 다시 로비 말풍선 없음 " + promptGone + " / 판을 한 번 시작하면 안 보임 " + (again && afterStart) };
     },
   },
+  // ---------------- 난이도 · 모드 C: 다시 뽑기 ----------------
+  {
+    name: "[리롤] 한 판에 2번, 3장이 모두 바뀜 (지금 카드는 빼고), 다시 뽑은 카드는 돌연변이 확률을 굴리지 않음, 횟수 없으면 흔들림, 새 판은 다시 2번, 튜토리얼은 버튼 없음",
+    run: function () {
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { compound: 1 };
+      openChoiceScreen(); choosingTime = 1;
+      const left0 = rerollsLeft;
+      const a = choices.map((c) => c.id);
+      const early = (choosingTime = 0.1, rerollChoices()); choosingTime = 1;   // 나타난 직후는 무시
+      press("KeyR"); const b = choices.map((c) => c.id);
+      const allNew = b.every((id) => a.indexOf(id) < 0) && b.length === 3;
+      choosingTime = 1; press("KeyR"); const c = choices.map((x) => x.id);
+      choosingTime = 1; const third = rerollChoices(); const d = choices.map((x) => x.id);
+      const counts = left0 === REROLL_COUNT && rerollsLeft === 0 && third === "none" && c.join() === d.join() && rerollShake > 0;
+      // 돌연변이 확률을 크게 해도 다시 뽑은 카드에는 돌연변이가 없다 (처음 뽑기에는 있다)
+      ownedAugments = { compound: 2, variance: 2, catalyst: 2 }; mutatedAugments = {};
+      currentRules.mutationMult = 1000;
+      let firstHas = 0, rerollHas = 0;
+      for (let i = 0; i < 100; i++) {
+        rerollsLeft = 2; openChoiceScreen(); choosingTime = 1;
+        if (choicesHaveMutation()) firstHas++;
+        rerollChoices(); choosingTime = 1; rerollChoices();   // 돌연변이가 있으면 두 번 눌러야 한다
+        if (choicesHaveMutation()) rerollHas++;
+      }
+      currentRules.mutationMult = 1;
+      // 새 판은 다시 2번, 튜토리얼은 0번 (버튼 없음)
+      startGame(); const fresh = rerollsLeft === REROLL_COUNT;
+      saveData.difficulty = "tutorial"; startGame(); openChoiceScreen(); const tut = rerollsLeft === 0 && !rerollButtonVisible();
+      saveData.difficulty = "normal";
+      const ok = early === "wait" && allNew && counts && firstHas === 100 && rerollHas === 0 && fresh && tut;
+      return { ok: ok, detail: a.join(",") + " → " + b.join(",") + " (모두 바뀜 " + allNew + ") / 2번 뒤 남은 0, 세 번째는 그대로 · 흔들림 " + counts +
+        " / 처음 뽑기 돌연변이 " + firstHas + "/100, 다시 뽑기 " + rerollHas + "/100 / 새 판 다시 2번 " + fresh + " / 튜토리얼 버튼 없음 " + tut };
+    },
+  },
+  {
+    name: "[리롤] 돌연변이 카드가 있으면 첫 번째 누름은 확인만 (\"돌연변이가 사라져요\"), 3초 안에 한 번 더 누르면 다시 뽑기, 버튼 클릭 · R키, 결과 화면의 R (다시 시작) 과 안 겹침",
+    run: function () {
+      const DT = 1 / 60;
+      const press = (code) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: code })); window.dispatchEvent(new KeyboardEvent("keyup", { code: code })); };
+      const cr = canvas.getBoundingClientRect();
+      const click = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { compound: 2 };
+      openChoiceScreen(); choices[1] = makeMutationCard(AUGMENTS[0]); choosingTime = 1;
+      const ids0 = choices.map((c) => c.id).join();
+      click(REROLL_BUTTON); draw();
+      const armed = rerollArmTimer > 0 && choices.map((c) => c.id).join() === ids0 && rerollsLeft === 2;
+      click(REROLL_BUTTON);
+      const done = !choicesHaveMutation() && rerollsLeft === 1 && rerollArmTimer === 0;
+      // 확인 대기는 3초 뒤 풀린다
+      choices[0] = makeMutationCard(AUGMENTS[0]); choosingTime = 1;
+      press("KeyR"); const armedKey = rerollArmTimer > 0;
+      for (let i = 0; i < Math.round(3.1 / DT); i++) update(DT);
+      const expired = rerollArmTimer === 0 && choicesHaveMutation();
+      press("KeyR"); const armedAgain = rerollArmTimer > 0 && choicesHaveMutation() && rerollsLeft === 1;
+      // 결과 화면의 R = 다시 시작 (다시 뽑기 아님)
+      gameState = "playing"; endGame("gameover");
+      press("KeyR"); const restart = gameState === "playing" && wave === 1 && rerollsLeft === REROLL_COUNT;
+      const ok = armed && done && armedKey && expired && armedAgain && restart;
+      return { ok: ok, detail: "첫 클릭: 확인만 " + armed + " / 두 번째: 다시 뽑음 (돌연변이 사라짐, 남은 1) " + done + " / R키도 확인 " + armedKey + " / 3초 지나면 풀림 " + expired + ", 다시 확인부터 " + armedAgain + " / 결과 화면 R = 다시 시작 " + restart };
+    },
+  },
 ];
