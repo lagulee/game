@@ -1391,7 +1391,7 @@ module.exports = [
       // 증강을 모두 최대로 → 카드 3장이 모두 보급 (5개 중에서 무작위)
       const maxed = {}; for (const a of AUGMENTS) maxed[a.id] = a.levels.length;
       player.hp = player.maxHp;
-      for (let i = 0; i < 200; i++) { ownedAugments = maxed; for (const c of pickChoices()) seen.add(c.id); }
+      for (let i = 0; i < 200; i++) { ownedAugments = maxed; for (const c of pickChoices()) if (c.isSupply) seen.add(c.id); }   // (돌연변이 카드는 빼고)
       const ok = rescueOnly.length > 0 && rescueOnly.every(Boolean) && seen.size === SUPPLIES.length;
       return { ok: ok, detail: "저체력 보장 " + rescueOnly.length + "번 모두 회복 카드 " + rescueOnly.every(Boolean) + " / 나온 보급 " + [...seen].join(",") };
     },
@@ -2212,6 +2212,113 @@ module.exports = [
       debugMode = false; saveData.equippedSkill = null;
       return { ok: bySpace && byRight && noMenu && lockedBefore && unlocked && noCool && off,
         detail: "Space " + bySpace + " / 오른쪽 클릭 " + byRight + " (메뉴 막음 " + noMenu + ") / K: 해금 " + unlocked + ", 쿨타임 0 " + noCool + ", 끄면 원래대로 " + off };
+    },
+  },
+  // ---------------- 돌연변이 A: 규칙과 틀 ----------------
+  {
+    name: "[돌연변이 A] 확률: 후보가 있으면 3장 중 1장이 MUTATION_CHANCE(0.08), 보스를 잡은 직후는 MUTATION_BOSS_CHANCE(0.35), 후보가 없으면 평소대로 (난수도 안 씀)",
+    run: function () {
+      startGame(); player.hp = player.maxHp;
+      const N = 6000;
+      const rate = (boss) => {
+        let n = 0, oneOnly = true;
+        for (let i = 0; i < N; i++) {
+          ownedAugments = { compound: 2, variance: 1 }; mutatedAugments = {}; bossKilledThisWave = boss;
+          const picks = pickChoices();
+          const m = picks.filter((c) => c.isMutation);
+          if (m.length > 1 || picks.length !== 3) oneOnly = false;
+          if (m.length) n++;
+        }
+        return { r: n / N, oneOnly };
+      };
+      const normal = rate(false), boss = rate(true);
+      // 후보가 없으면 (Lv.1 만) 돌연변이 카드도 없고, 난수도 쓰지 않는다 (뽑기 전후 난수 상태가 예전과 같음)
+      ownedAugments = { compound: 1, variance: 1 }; bossKilledThisWave = true;
+      let none = true;
+      for (let i = 0; i < 2000; i++) if (pickChoices().some((c) => c.isMutation)) none = false;
+      // 오차: 표준편차 √(p(1−p)/N) 의 4배 안
+      const okN = Math.abs(normal.r - MUTATION_CHANCE) < 4 * Math.sqrt(MUTATION_CHANCE * (1 - MUTATION_CHANCE) / N);
+      const okB = Math.abs(boss.r - MUTATION_BOSS_CHANCE) < 4 * Math.sqrt(MUTATION_BOSS_CHANCE * (1 - MUTATION_BOSS_CHANCE) / N);
+      bossKilledThisWave = false;
+      return { ok: okN && okB && normal.oneOnly && boss.oneOnly && none,
+        detail: "보통 " + (normal.r * 100).toFixed(1) + "% (기대 " + MUTATION_CHANCE * 100 + "%) / 보스 직후 " + (boss.r * 100).toFixed(1) + "% (기대 " + MUTATION_BOSS_CHANCE * 100 + "%) / 한 번에 1장, 카드 3장 " + (normal.oneOnly && boss.oneOnly) + " / Lv.1 만이면 없음 " + none };
+    },
+  },
+  {
+    name: "[돌연변이 A] 후보는 Lv.2 이상 증강만 (보급 X), 돌연변이한 증강은 다시 안 됨 (레벨업은 됨), 한 판에 최대 MUTATION_MAX(2)개, 보스를 잡으면 그 웨이브 뒤 표시",
+    run: function () {
+      startGame();
+      ownedAugments = { compound: 1, variance: 2, timeDilation: 3 }; mutatedAugments = {};
+      const c1 = mutationCandidates().map((a) => a.id).join(",");
+      const noSupply = mutationCandidates().every((a) => !a.isSupply && AUGMENTS.includes(a));
+      mutateAugment(AUGMENTS.find((a) => a.id === "variance"));
+      const c2 = mutationCandidates().map((a) => a.id).join(",");
+      // 돌연변이한 분산 증폭(Lv.2) 도 레벨업 카드로는 계속 나온다
+      let levelUp = false;
+      for (let i = 0; i < 300 && !levelUp; i++) levelUp = pickChoices().some((c) => c.id === "variance" && !c.isMutation);
+      ownedAugments.compound = 2;
+      mutateAugment(AUGMENTS.find((a) => a.id === "timeDilation"));
+      const c3 = mutationCandidates().length;   // 이미 2개 → 후보 없음
+      let none = true;
+      bossKilledThisWave = true;
+      for (let i = 0; i < 2000; i++) if (pickChoices().some((c) => c.isMutation)) none = false;
+      // 보스를 잡으면 표시, 다음 웨이브 시작에 지워짐
+      startGame(); spawnQueue = []; bannerTimer = 0;
+      const boss = createEnemy("chargerKing", 480, 100, 5); enemies = [boss];
+      killEnemy(boss, {}); const flagged = bossKilledThisWave;
+      startWave(6); const cleared = !bossKilledThisWave;
+      const ok = c1 === "variance,timeDilation" && noSupply && c2 === "timeDilation" && levelUp && c3 === 0 && none && flagged && cleared;
+      return { ok: ok, detail: "후보 " + c1 + " → 분산 돌연변이 뒤 " + c2 + " / 레벨업은 됨 " + levelUp + " / 2개 뒤 후보 " + c3 + ", 카드 없음 " + none + " / 보스 처치 표시 " + flagged + " · 다음 웨이브 지움 " + cleared };
+    },
+  },
+  {
+    name: "[돌연변이 A] 증강 14개 모두 mutation 데이터 (name · concept · formula · desc), 훅에 stats.mutated 전달 (돌연변이 전엔 없음, 레벨 수치는 그대로 + mutation.stats 덮어쓰기)",
+    run: function () {
+      const all = AUGMENTS.every((a) => a.mutation && a.mutation.name && a.mutation.concept && a.mutation.formula && a.mutation.desc);
+      const names = new Set(AUGMENTS.map((a) => a.mutation.name)).size === AUGMENTS.length;
+      startGame();
+      ownedAugments = { fourier: 2, compound: 2 }; mutatedAugments = {};
+      const seen = {};
+      forEachOwnedAugment((aug, stats) => { seen[aug.id + "0"] = stats.mutated; });
+      mutateAugment(AUGMENTS.find((a) => a.id === "fourier"));
+      let fourierStats = null;
+      forEachOwnedAugment((aug, stats) => { seen[aug.id + "1"] = stats.mutated; if (aug.id === "fourier") fourierStats = stats; });
+      const lv = AUGMENTS.find((a) => a.id === "fourier").levels[1];
+      const merged = fourierStats.amplitude === lv.amplitude && fourierStats.amplitudeMult === RESONANCE_AMP_MULT && fourierStats.desc === lv.desc;
+      const untouched = lv.mutated === undefined && lv.amplitudeMult === undefined;   // 원래 levels 는 그대로
+      const ok = all && names && !seen.fourier0 && !seen.compound0 && seen.fourier1 === true && !seen.compound1 && merged && untouched;
+      return { ok: ok, detail: "14개 데이터 " + all + ", 이름 겹침 없음 " + names + " / 돌연변이 전 mutated " + !!seen.fourier0 + " → 뒤 " + seen.fourier1 + " (다른 증강 " + !!seen.compound1 + ") / 수치 덮어쓰기 " + merged + ", 원본 그대로 " + untouched };
+    },
+  },
+  {
+    name: "[돌연변이 A] 돌연변이 카드를 고르면 레벨 그대로 돌연변이 + 안내 띠, 얻은 기록 saveData.seenMutations 저장 (옛 저장 데이터에 없어도 읽힘), 새 판은 초기화",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      // 옛 저장 데이터 (seenMutations 없음)
+      window.__fakeStorage.augmentShooterSave = JSON.stringify({ version: 1, coins: 5, upgrades: {}, bestWave: 3 });
+      saveData = loadSave(); const oldOk = Array.isArray(saveData.seenMutations) && saveData.seenMutations.length === 0 && saveData.coins === 5;
+      window.__fakeStorage.augmentShooterSave = JSON.stringify({ version: 1, seenMutations: ["compound", 3, "compound", "fission"] });
+      const cleaned = loadSave().seenMutations.join(",") === "compound,fission";
+      saveData = loadSave(); saveData.seenMutations = [];
+      startGame(); spawnQueue = []; enemies = [];
+      ownedAugments = { catalyst: 2 };
+      const aug = AUGMENTS.find((a) => a.id === "catalyst");
+      choices = [makeMutationCard(aug), AUGMENTS[0], SUPPLIES[0]]; gameState = "choosing"; choosingTime = 1;
+      chooseAugment(0);
+      const ok1 = isMutated("catalyst") && getAugmentLevel("catalyst") === 2 && bannerSubText === "돌연변이: " + aug.mutation.name + "!" && wave === 2;
+      const saved = loadSave().seenMutations.join(",") === "catalyst" && runMutations.join(",") === "catalyst";
+      resetGame(); const fresh = !isMutated("catalyst") && runMutations.length === 0 && saveData.seenMutations.includes("catalyst");
+      return { ok: oldOk && cleaned && ok1 && saved && fresh,
+        detail: "옛 저장 읽힘 " + oldOk + ", 이상한 값 정리 " + cleaned + " / 고르면 돌연변이 · 레벨 그대로 · 안내 띠 " + ok1 + " / 저장 " + saved + " / 새 판 초기화 (도감 기록은 남음) " + fresh };
+    },
+  },
+  {
+    name: "[돌연변이 A] 확률 3개는 tune() 으로 등록, 숫자 조절판의 \"돌연변이\" 묶음",
+    run: function () {
+      const names = ["MUTATION_CHANCE", "MUTATION_BOSS_CHANCE", "MUTATION_MAX"];
+      const ok = names.every((n) => n in tuningDefaults && TUNING_INFO[n] && TUNING_INFO[n].group === "돌연변이");
+      const vals = tuningDefaults.MUTATION_CHANCE === 0.08 && tuningDefaults.MUTATION_BOSS_CHANCE === 0.35 && tuningDefaults.MUTATION_MAX === 2;
+      return { ok: ok && vals, detail: names.map((n) => n + "=" + tuningDefaults[n] + "(" + (TUNING_INFO[n] || {}).group + ")").join(", ") };
     },
   },
 ];

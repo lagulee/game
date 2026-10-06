@@ -533,7 +533,7 @@ function debugGiveAugment(aug) {
 function debugRemoveAugment(aug) {
   const level = getAugmentLevel(aug.id) - 1;
   if (level < 0) return;
-  if (level === 0) delete ownedAugments[aug.id];
+  if (level === 0) { delete ownedAugments[aug.id]; delete mutatedAugments[aug.id]; }   // 지우면 돌연변이도 사라진다
   else ownedAugments[aug.id] = level;
   debugSay(level === 0 ? aug.name + " 삭제" : aug.name + " Lv." + level);
 }
@@ -541,6 +541,7 @@ function debugRemoveAugment(aug) {
 // 가진 증강을 모두 지운다
 function debugRemoveAllAugments() {
   ownedAugments = {};
+  mutatedAugments = {};
   debugSay("증강 모두 삭제");
 }
 
@@ -970,6 +971,12 @@ let bannerIsBoss = false;
 // 예: { compound: 2, variance: 1 } → 복리 탄환 Lv.2, 분산 증폭 Lv.1
 let ownedAugments = {};
 
+// 돌연변이 (augments.js 의 mutation): 이번 판에 돌연변이한 증강 { id: true }, 얻은 순서 (결과 화면에 보여 준다)
+let mutatedAugments = {};
+let runMutations = [];
+// 이번 웨이브에 보스를 잡았는지 (잡은 직후의 카드 선택은 돌연변이 확률이 MUTATION_BOSS_CHANCE)
+let bossKilledThisWave = false;
+
 // 지금 선택 화면에 나와 있는 카드(증강 객체)들의 목록
 let choices = [];
 
@@ -1280,6 +1287,7 @@ function enrageFactor(enemy) {
 // n번째 웨이브를 시작하는 함수
 function startWave(n) {
   wave = n;
+  bossKilledThisWave = false;
 
   // 대기열 만들기: 배열은 0번 칸부터 시작하므로 n번째 웨이브는 WAVES[n - 1]
   // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
@@ -1369,8 +1377,55 @@ function forEachOwnedAugment(work) {
   for (const aug of AUGMENTS) {
     const level = getAugmentLevel(aug.id);
     if (level > 0) {
-      work(aug, aug.levels[level - 1]); // levels 는 0번 칸이 Lv.1
+      work(aug, augmentStats(aug, level));
     }
+  }
+}
+
+// ---- 돌연변이 ----
+
+// 이 증강이 이번 판에 돌연변이했는지
+function isMutated(id) {
+  return mutatedAugments[id] === true;
+}
+
+// 증강 aug 의 level 레벨 수치. 돌연변이했으면 levels 의 값 위에 mutation.stats 를 덮고 mutated: true 를 붙인 것
+// (매번 새로 만들지 않게, 레벨 칸 하나마다 한 번만 만들어 기억해 둔다)
+const mutatedStatsCache = new WeakMap();
+function augmentStats(aug, level) {
+  const stats = aug.levels[level - 1];   // levels 는 0번 칸이 Lv.1
+  if (!isMutated(aug.id)) return stats;
+  let merged = mutatedStatsCache.get(stats);
+  if (!merged) {
+    merged = Object.assign({}, stats, (aug.mutation && aug.mutation.stats) || {}, { mutated: true });
+    mutatedStatsCache.set(stats, merged);
+  }
+  return merged;
+}
+
+// 지금 돌연변이할 수 있는 증강 목록: Lv.MUTATION_MIN_LEVEL 이상, 아직 돌연변이 안 함, 이번 판 돌연변이가 MUTATION_MAX 개 미만
+// (보급 카드는 증강이 아니라서 처음부터 후보가 아니다)
+function mutationCandidates() {
+  if (Object.keys(mutatedAugments).length >= MUTATION_MAX) return [];
+  return AUGMENTS.filter(function (aug) {
+    return aug.mutation && getAugmentLevel(aug.id) >= MUTATION_MIN_LEVEL && !isMutated(aug.id);
+  });
+}
+
+// 돌연변이 카드 한 장 (카드 화면이 쓰는 이름 · 개념 · 수식 · 설명은 mutation 의 것)
+function makeMutationCard(aug) {
+  const m = aug.mutation;
+  return { isMutation: true, aug: aug, id: aug.id + ":mutation", name: m.name, concept: m.concept, formula: m.formula, desc: m.desc, color: "purple" };
+}
+
+// 증강 aug 를 돌연변이시킨다 (레벨은 그대로, 앞으로 레벨업도 된다). 도감 기록도 남긴다
+function mutateAugment(aug) {
+  if (isMutated(aug.id)) return;
+  mutatedAugments[aug.id] = true;
+  runMutations.push(aug.id);
+  if (saveData.seenMutations.indexOf(aug.id) < 0) {
+    saveData.seenMutations.push(aug.id);
+    writeSave();
   }
 }
 
@@ -1444,7 +1499,30 @@ function pickChoices() {
     if (picks.length < CHOICE_COUNT) picks.push(supply);
     else picks[picks.length - 1] = supply;
   }
+
+  // 4) 돌연변이: 후보(Lv.2 이상 증강)가 있으면 확률 MUTATION_CHANCE (보스를 잡은 직후는 MUTATION_BOSS_CHANCE) 로
+  //    3장 중 1장이 돌연변이 카드로 바뀐다. 후보가 없거나 확률이 0 이면 난수를 쓰지 않는다 (= 예전과 완전히 같은 뽑기)
+  const mutants = mutationCandidates();
+  const chance = bossKilledThisWave ? MUTATION_BOSS_CHANCE : MUTATION_CHANCE;
+  if (mutants.length > 0 && chance > 0 && Math.random() < chance) {
+    const aug = mutants[Math.floor(Math.random() * mutants.length)];
+    picks[mutationSlot(picks, aug)] = makeMutationCard(aug);
+  }
   return picks;
+}
+
+// 돌연변이 카드가 들어갈 자리
+//   같은 증강의 레벨업 카드가 있으면 그 자리 (같은 증강 카드가 두 장 나오지 않게)
+//   없으면 보급이 아닌 카드 중 무작위 (체력이 낮을 때 넣은 회복 카드는 남긴다), 그것도 없으면 회복 카드가 아닌 자리
+function mutationSlot(picks, aug) {
+  if (picks.length === 0) return 0;
+  const same = picks.indexOf(aug);
+  if (same >= 0) return same;
+  let slots = [];
+  for (let i = 0; i < picks.length; i++) if (!picks[i].isSupply) slots.push(i);
+  if (slots.length === 0) for (let i = 0; i < picks.length; i++) if (!picks[i].rescue) slots.push(i);
+  if (slots.length === 0) return picks.length - 1;
+  return slots[Math.floor(Math.random() * slots.length)];
 }
 
 // 웨이브를 깼을 때 회복하는 양 (함수로 둔 이유: 나중에 증강이나 난이도로 바꾸기 쉽게)
@@ -1523,6 +1601,14 @@ function chooseAugment(index) {
 
   const aug = choices[index];
   canvas.style.cursor = "default";
+
+  // 돌연변이 카드: 그 증강이 돌연변이한다 (레벨은 그대로)
+  if (aug.isMutation) {
+    mutateAugment(aug.aug);
+    startWave(wave + 1);
+    bannerSubText = "돌연변이: " + aug.name + "!";
+    return;
+  }
 
   // 보급 카드: 레벨 없이 바로 효과만 쓰고 끝 (몇 번이든 고를 수 있다)
   if (aug.isSupply) {
@@ -2035,6 +2121,8 @@ function resetGame() {
 
   // 가진 증강도 모두 없애고, 증강들이 세던 숫자(발사 번호 등)도 처음으로
   ownedAugments = {};
+  mutatedAugments = {};
+  runMutations = [];
   // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
   for (const aug of AUGMENTS) {
     if (aug.reset) aug.reset();
@@ -2357,6 +2445,7 @@ function killEnemy(enemy, cause) {
   if (enemyType(enemy).isBoss) {
     healPlayer(player.maxHp * BOSS_KILL_HEAL_RATIO);
     bossesKilled += 1;
+    bossKilledThisWave = true;   // 이 웨이브 뒤의 카드 선택은 돌연변이 확률이 높다
     runCoins += BOSS_COIN_BONUS * chapterOf(wave); // 보스 보너스 코인
   }
 
@@ -3931,7 +4020,7 @@ function drawCard(aug, i) {
   const pos = cardPosition(i);
   const level = getAugmentLevel(aug.id);           // 지금 레벨 (없으면 0)
   // 고르면 얻게 될 레벨의 정보 (보급 카드는 레벨이 없으니 카드 자체의 설명)
-  const info = aug.isSupply ? aug : aug.levels[level];
+  const info = aug.isSupply || aug.isMutation ? aug : aug.levels[level];
   const isHover = i === hoverIndex;
 
   // 등장 애니메이션: 카드마다 0.08초씩 늦게, 바운스하며 나타난다
@@ -3989,6 +4078,9 @@ function drawCard(aug, i) {
   if (aug.isSupply) {
     levelText = "보급";
     badgeColor = COLORS.orange;
+  } else if (aug.isMutation) {
+    levelText = "돌연변이";
+    badgeColor = COLORS.purple;
   }
   drawOutlinedRoundRect(-70, top + h - 46, 140, 32, 16, badgeColor);
   drawOutlinedText(levelText, 0, top + h - 30, 18);

@@ -12,6 +12,10 @@
 //   color   : 카드 띠 색. game.js 의 COLORS 팔레트 이름 ("yellow", "red", "green", "brown", "purple", "orange")
 //   order   : (생략 가능, 기본 0) modifyDamage 를 부르는 순서. 작은 수가 먼저.
 //             덧셈으로 늘리는 증강은 음수, 마지막에 계산해야 하는 증강은 큰 수를 준다.
+//   mutation: (생략 가능) 돌연변이 정보 { name, concept, formula, desc, stats }
+//             Lv.2 이상이면 카드 선택 때 낮은 확률로 "돌연변이 카드" 가 나오고, 고르면 이 증강이 돌연변이한다.
+//             stats 에 적은 값은 돌연변이한 뒤 levels 의 값 위에 덮어쓴다 (예: 진폭 2배)
+//             돌연변이한 증강의 훅에는 stats.mutated = true 가 들어온다 (돌연변이 전에는 없음 = false)
 //   levels  : 레벨별 수치와 설명을 담은 배열.
 //             [0] 칸 = Lv.1, [1] 칸 = Lv.2 ...
 //             같은 증강을 또 고르면 다음 칸으로 레벨업한다.
@@ -204,6 +208,61 @@ let exoBlasts = [];
 //   체력이 가득이면 1배, 체력이 0 에 가까우면 (1 + k)배
 const LECHATELIER_K = [0.5, 0.8, 1.2];
 
+// ---- 돌연변이 (카드 선택 때 낮은 확률로 "이미 가진 증강이 훨씬 강한 형태로" 바뀌는 카드) ----
+// 숫자 조절판 "돌연변이" 묶음에서도 바꿀 수 있다 (tune)
+// 카드를 뽑을 때 3장 중 1장이 돌연변이 카드로 바뀔 확률
+const MUTATION_CHANCE = tune("MUTATION_CHANCE", 0.08);
+// 보스를 잡은 직후의 카드 선택에서는 이 확률
+const MUTATION_BOSS_CHANCE = tune("MUTATION_BOSS_CHANCE", 0.35);
+// 한 판에 돌연변이할 수 있는 증강 수
+const MUTATION_MAX = tune("MUTATION_MAX", 2);
+// 이 레벨 이상인 증강만 돌연변이 후보가 된다
+const MUTATION_MIN_LEVEL = 2;
+
+// ---- 돌연변이 14종의 수치 ----
+// 연속 복리: n 상한 (원래 COMPOUND_MAX_N = 10)
+const COMPOUND_MUT_MAX_N = 20;
+// 블랙 스완: 이 확률로 BLACKSWAN_MULT 배 대미지
+const BLACKSWAN_CHANCE = 0.03;
+const BLACKSWAN_MULT = 10;
+// 시간 정지: TIMESTOP_PERIOD 초마다 TIMESTOP_DURATION 초 동안 모든 적 · 적 탄환 속도 배율이 TIMESTOP_FACTOR (보스는 TIMESTOP_BOSS_FACTOR)
+const TIMESTOP_PERIOD = 10;
+const TIMESTOP_DURATION = 2;
+const TIMESTOP_FACTOR = 0.05;
+const TIMESTOP_BOSS_FACTOR = 0.3;
+// 세제곱 증폭: 배율 상한 (원래 SQUARE_MAX_MULT)
+const CUBE_MAX_MULT = 15;
+// 프랙털 탄: 명중하면 작은 총알 FRACTAL_COUNT 개 (360° ÷ 3 = 120° 간격), 대미지는 맞힌 총알의 FRACTAL_SCALE 배
+const FRACTAL_COUNT = 3;
+const FRACTAL_SCALE = 0.4;
+// 임계 초과: 세대 제한과 감쇠 (원래 FISSION_MAX_GENERATION 2, FISSION_DECAY 0.6). 파편 동시 제한 FISSION_MAX_FRAGMENTS 는 그대로
+const FISSION_MUT_MAX_GENERATION = 4;
+const FISSION_MUT_DECAY = 1.0;
+// 효소: 명중할 때마다 발사 간격 ENZYME_STEP 씩 더 감소 (최대 ENZYME_MAX_STACKS 번), ENZYME_RESET_TIME 초 동안 못 맞히면 0
+const ENZYME_STEP = 0.03;
+const ENZYME_MAX_STACKS = 10;
+const ENZYME_RESET_TIME = 2;
+// 탄성 충돌: 부딪힌 적이 밀려나는 속도 비율, 같은 쌍이 다시 부딪힐 수 있기까지 (초)
+const ELASTIC_TRANSFER = 0.5;
+const ELASTIC_PAIR_COOLDOWN = 0.5;
+// 공명: 진폭 배율과 관통 추가
+const RESONANCE_AMP_MULT = 2;
+const RESONANCE_PIERCE_BONUS = 2;
+// 특이점: 명중한 자리에 SINGULARITY_TIME 초 동안 반경 SINGULARITY_RADIUS 안의 적을 끌어모으는 점 (동시에 최대 SINGULARITY_MAX 개)
+const SINGULARITY_TIME = 1;
+const SINGULARITY_RADIUS = 90;
+const SINGULARITY_MAX = 3;
+const SINGULARITY_PULL = 240;   // 끌어당기는 속도 (px/초, 점에 가까울수록 느려져 점 위에 멈춘다)
+// 연쇄 붕괴: 붕괴 중인 적이 죽으면 이 반경 안의 적에게 붕괴가 옮겨간다
+const CHAIN_DECAY_RADIUS = 80;
+// 폭발 연쇄: 폭발로 죽은 적도 다시 폭발 (EXO_CHAIN_MAX_GEN 세대까지, 세대마다 대미지 × EXO_CHAIN_SCALE)
+const EXO_CHAIN_MAX_GEN = 3;
+const EXO_CHAIN_SCALE = 0.7;
+// 역반응: 체력이 이 비율 아래로 내려가는 순간 (웨이브당 1번) 무적과 회복
+const REVERSE_THRESHOLD = 0.3;
+const REVERSE_INVINCIBLE_TIME = 2;
+const REVERSE_HEAL_RATIO = 0.2;
+
 // 모든 증강을 담는 배열(목록)
 const AUGMENTS = [
   {
@@ -212,6 +271,12 @@ const AUGMENTS = [
     concept: "수학 · 지수함수",
     formula: "(1 + r)ⁿ",
     color: "yellow",
+    mutation: {
+      name: "연속 복리",
+      concept: "수학 · 자연상수 e",
+      formula: "(1 + r)ⁿ, n ≤ " + COMPOUND_MUT_MAX_N,
+      desc: "이자를 쉬지 않고 붙이면 자연상수 e 가 나온다. n 상한 " + COMPOUND_MAX_N + " → " + COMPOUND_MUT_MAX_N + ", 적이 바뀌어도 n 이 0 이 아니라 절반(내림)으로 줄어든다",
+    },
     levels: [
       // Lv.1
       {
@@ -244,6 +309,12 @@ const AUGMENTS = [
     concept: "통계 · 평균과 분산",
     formula: "평균 1.1, 분산 ↑",
     color: "red",
+    mutation: {
+      name: "블랙 스완",
+      concept: "통계 · 극단값",
+      formula: Math.round(BLACKSWAN_CHANCE * 100) + "% → ×" + BLACKSWAN_MULT,
+      desc: "아주 드문 일이 세상을 바꾼다. " + Math.round(BLACKSWAN_CHANCE * 100) + "% 확률로 " + BLACKSWAN_MULT + "배 대미지! 나머지 배율을 낮춰서 평균은 그대로 " + VARIANCE_MEAN + "배",
+    },
     levels: [
       {
         maxMult: 2.5,
@@ -293,6 +364,12 @@ const AUGMENTS = [
     concept: "물리 · 특수 상대성 이론",
     formula: "√(1 − (v/c)²)",
     color: "green",
+    mutation: {
+      name: "시간 정지",
+      concept: "물리 · 쌍둥이 역설",
+      formula: TIMESTOP_PERIOD + "초마다 " + TIMESTOP_DURATION + "초 ×" + TIMESTOP_FACTOR,
+      desc: TIMESTOP_PERIOD + "초마다 " + TIMESTOP_DURATION + "초 동안 모든 적과 적 탄환이 거의 멈춘다 (속도 ×" + TIMESTOP_FACTOR + ", 보스 ×" + TIMESTOP_BOSS_FACTOR + "). 원래 효과도 그대로",
+    },
     levels: [
       {
         radius: TIME_RADIUS[0],
@@ -349,6 +426,12 @@ const AUGMENTS = [
     formula: "a + d·k",
     color: "purple",
     order: -10, // 덧셈이라 가장 먼저 (그 위에 복리·분산 같은 곱셈이 얹힌다)
+    mutation: {
+      name: "가우스의 합",
+      concept: "수학 · 1 + 2 + … + n",
+      formula: "n(n + 1) ÷ 2",
+      desc: "10발째(k = 9)는 추가 대미지가 d × (0 + 1 + … + 9) = 45d! 어린 가우스가 1부터 100까지 단숨에 더한 방법",
+    },
     levels: [
       {
         d: ARITH_D[0],
@@ -391,6 +474,12 @@ const AUGMENTS = [
     formula: "D² ÷ 10",
     color: "red",
     order: 100, // 다른 대미지 증강이 모두 적용된 "마지막 대미지"를 제곱해야 하므로 맨 마지막
+    mutation: {
+      name: "세제곱 증폭",
+      concept: "수학 · 거듭제곱",
+      formula: "D³ ÷ 기본²",
+      desc: "제곱이 아니라 세제곱! D → D³ ÷ 기본² (= D × (D/기본)²). 배율 상한 " + CUBE_MAX_MULT + "배",
+    },
     levels: [
       {
         every: SQUARE_EVERY[0],
@@ -434,6 +523,12 @@ const AUGMENTS = [
     concept: "수학 · 각도",
     formula: "360° ÷ n",
     color: "yellow",
+    mutation: {
+      name: "프랙털 탄",
+      concept: "수학 · 자기 닮음",
+      formula: "1 → " + FRACTAL_COUNT + " (120°)",
+      desc: "직접 쏜 총알이 적에게 맞으면 작은 총알 " + FRACTAL_COUNT + "개가 120° 간격으로 갈라져 나간다 (대미지 " + Math.round(FRACTAL_SCALE * 100) + "%, 다시 갈라지지 않음)",
+    },
     levels: [
       {
         n: MULTI_SHOT_COUNT[0],
@@ -475,6 +570,12 @@ const AUGMENTS = [
     concept: "물리 · 연쇄 반응",
     formula: "k > 1 → 폭주",
     color: "orange",
+    mutation: {
+      name: "임계 초과",
+      concept: "물리 · k > 1",
+      formula: "세대 " + FISSION_MUT_MAX_GENERATION + ", 감쇠 없음",
+      desc: "연쇄 반응이 멈추지 않는다! 세대 제한 " + FISSION_MAX_GENERATION + " → " + FISSION_MUT_MAX_GENERATION + ", 에너지 감쇠 " + FISSION_DECAY + " → " + FISSION_MUT_DECAY + " (줄지 않음)",
+    },
     levels: [
       {
         fragments: FISSION_FRAGMENTS[0],
@@ -549,6 +650,12 @@ const AUGMENTS = [
     concept: "화학 · 반응 속도",
     formula: "간격 × 0.85",
     color: "green",
+    mutation: {
+      name: "효소",
+      concept: "생물 · 기질 특이성",
+      formula: "간격 × (1 − " + ENZYME_STEP + "n)",
+      desc: "맞힐수록 반응이 빨라진다. 명중마다 발사 간격 " + Math.round(ENZYME_STEP * 100) + "% 씩 더 감소 (최대 " + ENZYME_MAX_STACKS + "번), " + ENZYME_RESET_TIME + "초 동안 못 맞히면 처음부터",
+    },
     levels: [
       {
         reduction: CATALYST_REDUCTION[0],
@@ -575,6 +682,12 @@ const AUGMENTS = [
     concept: "물리 · 작용 반작용",
     formula: "v₀ ÷ 감쇠율",
     color: "brown",
+    mutation: {
+      name: "탄성 충돌",
+      concept: "물리 · 운동량 전달",
+      formula: "m₁v₁ → m₂v₂",
+      desc: "밀려나던 적이 다른 적과 부딪히면 둘 다 기본 대미지만큼 피해, 부딪힌 적도 절반 속도로 밀려난다 (보스는 피해만)",
+    },
     levels: [
       {
         speed: KNOCKBACK_SPEED[0],
@@ -604,6 +717,13 @@ const AUGMENTS = [
     concept: "수학 · 삼각함수",
     formula: "A·sin(ωt)",
     color: "purple",
+    mutation: {
+      name: "공명",
+      concept: "물리 · 보강 간섭",
+      formula: "진폭 ×" + RESONANCE_AMP_MULT + ", 관통 +" + RESONANCE_PIERCE_BONUS,
+      desc: "같은 박자의 물결이 겹치면 커진다. 진폭 " + RESONANCE_AMP_MULT + "배, 관통 +" + RESONANCE_PIERCE_BONUS + " (방패에 막히면 관통하지 않음)",
+      stats: { amplitudeMult: RESONANCE_AMP_MULT, pierceBonus: RESONANCE_PIERCE_BONUS },
+    },
     levels: [
       {
         amplitude: FOURIER_AMPLITUDE[0], radiusBonus: FOURIER_RADIUS_BONUS[0], pierce: FOURIER_PIERCE[0],
@@ -658,6 +778,12 @@ const AUGMENTS = [
     concept: "물리 · 만유인력",
     formula: "a = G ÷ r²",
     color: "brown",
+    mutation: {
+      name: "특이점",
+      concept: "물리 · 블랙홀",
+      formula: "반경 " + SINGULARITY_RADIUS + " 끌어모음",
+      desc: "총알이 맞은 자리에 " + SINGULARITY_TIME + "초 동안 반경 " + SINGULARITY_RADIUS + "px 안의 적을 끌어모으는 점이 생긴다 (최대 " + SINGULARITY_MAX + "개, 보스 · 자석형은 안 끌림)",
+    },
     levels: [
       {
         range: GRAVITY_RANGE[0],
@@ -702,6 +828,12 @@ const AUGMENTS = [
     concept: "물리 · 지수 붕괴",
     formula: "N = N₀(1 − p)ᵗ",
     color: "purple",
+    mutation: {
+      name: "연쇄 붕괴",
+      concept: "물리 · 붕괴 계열",
+      formula: "붕괴 → 이웃에게",
+      desc: "붕괴 중인 적이 죽으면 반경 " + CHAIN_DECAY_RADIUS + "px 안의 적들에게 붕괴가 옮겨간다",
+    },
     levels: [
       {
         rate: HALFLIFE_RATE[0],
@@ -763,6 +895,12 @@ const AUGMENTS = [
     concept: "화학 · 에너지 방출",
     formula: "열 = 최대 체력 × q",
     color: "orange",
+    mutation: {
+      name: "폭발 연쇄",
+      concept: "화학 · 활성화 에너지",
+      formula: EXO_CHAIN_MAX_GEN + "세대 × " + EXO_CHAIN_SCALE,
+      desc: "폭발로 죽은 적도 다시 폭발한다! " + EXO_CHAIN_MAX_GEN + "세대까지, 세대마다 대미지 " + Math.round(EXO_CHAIN_SCALE * 100) + "%",
+    },
     levels: [
       {
         radius: EXO_RADIUS[0], ratio: EXO_RATIO[0],
@@ -819,6 +957,12 @@ const AUGMENTS = [
     concept: "화학 · 평형 이동",
     formula: "1 + k(1 − 체력 비율)",
     color: "yellow",
+    mutation: {
+      name: "역반응",
+      concept: "화학 · 가역 반응",
+      formula: "체력 " + Math.round(REVERSE_THRESHOLD * 100) + "% ↓ → 무적",
+      desc: "체력이 " + Math.round(REVERSE_THRESHOLD * 100) + "% 아래로 내려가는 순간 (웨이브당 1번) " + REVERSE_INVINCIBLE_TIME + "초 무적 + 최대 체력의 " + Math.round(REVERSE_HEAL_RATIO * 100) + "% 회복. 원래 효과도 그대로",
+    },
     levels: [
       {
         k: LECHATELIER_K[0],

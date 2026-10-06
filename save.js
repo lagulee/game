@@ -13,6 +13,8 @@
 //   (mobileMode: 모바일 모드(조이스틱·터치 버튼)를 켰는지)
 //   (spawnWarn: 적 등장 예고 표시를 보여 줄지. 기본 켜짐)
 //   (ownedSkills: 산 발동 스킬 이름표 목록 ["dash", ...] / equippedSkill: 장착한 스킬 이름표, 없으면 null)
+//   (seenMutations: 한 번이라도 얻은 돌연변이의 증강 이름표 목록 ["compound", ...]. 도감에서 내용을 보여 준다.
+//    옛 저장 데이터에 이 항목이 없으면 빈 목록으로 읽는다)
 // =============================================================
 
 // localStorage 안에서 쓰는 이름표
@@ -24,7 +26,7 @@ const SAVE_VERSION = 1;
 // 기본 저장 데이터 (처음 하는 사람, 또는 데이터가 깨졌을 때)
 function defaultSave() {
   return { version: SAVE_VERSION, coins: 0, upgrades: {}, bestWave: 0, hudCollapsed: false, mobileMode: false, spawnWarn: true,
-    ownedSkills: [], equippedSkill: null };
+    ownedSkills: [], equippedSkill: null, seenMutations: [] };
 }
 
 // 0 이상의 정수만 통과시키는 도우미 (이상한 값이면 기본값)
@@ -64,6 +66,12 @@ function loadSave() {
     }
   }
   // 장착한 스킬: 산 스킬 중 하나일 때만
+  // 얻은 돌연변이 목록 (글자만, 겹치지 않게)
+  if (Array.isArray(parsed.seenMutations)) {
+    for (const id of parsed.seenMutations) {
+      if (typeof id === "string" && data.seenMutations.indexOf(id) < 0) data.seenMutations.push(id);
+    }
+  }
   if (typeof parsed.equippedSkill === "string" && data.ownedSkills.indexOf(parsed.equippedSkill) >= 0) data.equippedSkill = parsed.equippedSkill;
   if (parsed.upgrades && typeof parsed.upgrades === "object") {
     // 업그레이드 이름표를 하나씩 보며 레벨이 올바른 숫자인 것만 담는 반복문

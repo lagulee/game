@@ -68,6 +68,10 @@ const TUNING_INFO = {
   UPGRADE_COST_GROWTH: { group: "코인 · 업그레이드", label: "업그레이드 비용 배율 (레벨당)", min: 1 },
   UPGRADE_HP_PER_LEVEL: { group: "코인 · 업그레이드", label: "체력 업그레이드 (레벨당 +)" },
   UPGRADE_DAMAGE_PER_LEVEL: { group: "코인 · 업그레이드", label: "공격력 업그레이드 (레벨당 +)" },
+  // ---- 돌연변이 ----
+  MUTATION_CHANCE: { group: "돌연변이", label: "돌연변이 카드 확률 (보통 카드 선택)" },
+  MUTATION_BOSS_CHANCE: { group: "돌연변이", label: "돌연변이 카드 확률 (보스를 잡은 직후)" },
+  MUTATION_MAX: { group: "돌연변이", label: "한 판에 돌연변이할 수 있는 증강 수", int: true },
 };
 
 // 저장된 조절 값 { 이름: 숫자 } (저장소를 못 쓰는 환경이면 빈 상자)

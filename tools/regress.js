@@ -15,6 +15,11 @@
 //   ※ 위 두 기록과 되돌리기 기록은 "적 등장 예고" 이전에 만든 것이라 SPAWN_WARN_TIME = 0 (예고 없음) 으로 돌린다.
 //     예고 시간이 0 이면 적이 나오는 순간에 자리를 정하므로 예전과 한 글자도 다르지 않아야 한다.
 //   [등장 예고] 지금 기본값(SPAWN_WARN_TIME 0.8) 그대로 → golden/new-config-spawnwarn.txt 와 같아야 한다
+//   ※ 위 기록들은 "돌연변이 증강" 이전에 만든 것이라 돌연변이 확률 0 (MUTATION_CHANCE · MUTATION_BOSS_CHANCE = 0) 으로 돌린다.
+//     확률이 0 이면 돌연변이 판정에 난수를 쓰지 않으므로 예전과 한 글자도 다르지 않아야 한다.
+//   [돌연변이 난수] 확률을 아주 작게 (1e-9: 난수는 뽑지만 절대 안 걸림) 한 기록 = 확률 0 + "후보가 있을 때 난수 한 번 버리기" 기록
+//     → 돌연변이 판정이 바꾸는 것은 그 난수 한 번뿐이라는 증거
+//   [돌연변이] 지금 기본값 그대로 → golden/new-config-mutation.txt 와 같아야 한다
 //   [동작 검사] 훅, 디버그 모드, 새 적 행동 등을 하나씩 확인 (PASS / FAIL)
 //   [되돌리기] 바꾼 규칙의 상수를 옛 값으로 바꿔 끼우면(BEFORE_PRESSURE 등) 그때 저장한 기록과 상태가 같아야 한다
 //   ※ 페이지는 tools/serve.js 의 작은 웹 서버로 연다 (상수를 바꿔 끼우려고)
@@ -41,7 +46,11 @@ let server = null;
 
 // 증강 균형 조정 이전 값 (촉매·시간 지연·3방향 탄·제곱 증폭·푸리에·분산·중력 렌즈·반감기)
 // 적 등장 예고 이전과 같게: 예고 시간 0 = 나오는 순간에 자리를 정한다 (예전 기록과 비교할 때 늘 넣는다)
-const NO_SPAWN_WARN = { SPAWN_WARN_TIME: 0 };
+// 돌연변이 이전과 같게: 확률 0 = 돌연변이 판정에 난수를 쓰지 않는다 (예전 기록과 비교할 때 늘 넣는다)
+const NO_MUTATION = { MUTATION_CHANCE: 0, MUTATION_BOSS_CHANCE: 0 };
+const NO_SPAWN_WARN = { SPAWN_WARN_TIME: 0, ...NO_MUTATION };
+// 돌연변이 판정 난수만 뽑고 절대 걸리지 않는 확률
+const MUTATION_ROLL_ONLY = { MUTATION_CHANCE: 1e-9, MUTATION_BOSS_CHANCE: 1e-9 };
 const BEFORE_AUG_TUNE = {
   ...NO_SPAWN_WARN,
   CATALYST_REDUCTION: "[0.2, 0.3, 0.4]", TIME_RADIUS: "[100, 130, 160]", MULTI_SHOT_AIMED_FULL: false,
@@ -94,6 +103,18 @@ function scenarioRunner(config) {
     let h = 2166136261;
     for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
     return (h >>> 0).toString(16);
+  }
+
+  // ":burnroll" 이 붙으면: 카드를 뽑은 뒤 돌연변이 후보가 있을 때 난수를 한 번 뽑아 버린다
+  //   (확률 0 으로 돌릴 때 이것을 붙이면, "난수는 뽑지만 절대 안 걸리는 확률" 과 같은 기록이 나와야 한다)
+  if (config.endsWith(":burnroll")) {
+    config = config.slice(0, -":burnroll".length);
+    const original = pickChoices;
+    window.pickChoices = function () {
+      const picks = original();
+      if (mutationCandidates().length > 0) Math.random();
+      return picks;
+    };
   }
 
   // ":base9" 가 붙으면: 증강 14개·보급 5개를 추가하기 전처럼 처음 증강 9개·보급 2개만 남기고,
@@ -320,8 +341,12 @@ function compare(label, actual, file) {
     console.log("새 설정 기록을 다시 만들었습니다.");
   }
   if (args[0] === "--record-new" || args[0] === "--record-spawnwarn") {
-    fs.writeFileSync(path.join(GOLDEN, "new-config-spawnwarn.txt"), await trace(browser, ROOT, "new"));
+    fs.writeFileSync(path.join(GOLDEN, "new-config-spawnwarn.txt"), await trace(browser, ROOT, "new", NO_MUTATION));
     console.log("등장 예고 기록을 다시 만들었습니다.");
+  }
+  if (args[0] === "--record-new" || args[0] === "--record-mutation") {
+    fs.writeFileSync(path.join(GOLDEN, "new-config-mutation.txt"), await trace(browser, ROOT, "new"));
+    console.log("돌연변이 기록을 다시 만들었습니다.");
   }
 
   if (args[0] === "--check-before-pressure") {
@@ -336,7 +361,16 @@ function compare(label, actual, file) {
   console.log("[기록 비교]");
   allOk = compare("옛 설정 (기본 적 3웨이브 + 증강 3개, 예고 0)", await trace(browser, ROOT, "old", NO_SPAWN_WARN), path.join(GOLDEN, "old-config.txt")) && allOk;
   allOk = compare("새 설정 (지금 waves.js, 예고 0)", await trace(browser, ROOT, "new", NO_SPAWN_WARN), path.join(GOLDEN, "new-config.txt")) && allOk;
-  allOk = compare("등장 예고 (지금 waves.js, 예고 0.8초)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config-spawnwarn.txt")) && allOk;
+  allOk = compare("등장 예고 (지금 waves.js, 예고 0.8초, 돌연변이 0)", await trace(browser, ROOT, "new", NO_MUTATION), path.join(GOLDEN, "new-config-spawnwarn.txt")) && allOk;
+  {
+    // 돌연변이 판정이 바꾸는 것은 난수 한 번뿐인지: "뽑기만 하고 안 걸리는 확률" == "확률 0 + 난수 한 번 버리기"
+    const rollOnly = await trace(browser, ROOT, "new", MUTATION_ROLL_ONLY);
+    const burned = await trace(browser, ROOT, "new:burnroll", NO_MUTATION);
+    const same = rollOnly === burned;
+    console.log("  " + (same ? "PASS" : "FAIL") + " 돌연변이 난수: 확률 1e-9 기록 = 확률 0 + 후보가 있을 때 난수 한 번 버리기 (" + rollOnly.split("\n").length + "줄)");
+    allOk = same && allOk;
+  }
+  allOk = compare("돌연변이 (지금 waves.js, 지금 기본값)", await trace(browser, ROOT, "new"), path.join(GOLDEN, "new-config-mutation.txt")) && allOk;
   // 옛 규칙 되돌리기 검사: 화면 그림(draw)은 HUD 글자 등이 바뀔 수 있으니 빼고, 상태 기록만 비교
   const stateOnly = (text) => text.split("\n").filter((l) => !/ draw /.test(l) && !/ menuDraw /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
   // 되돌리기 검사 목록: 바꾼 규칙을 옛 값으로 바꿔 끼우면, 그때 저장한 기록과 상태가 같아야 한다
