@@ -469,7 +469,7 @@ function handleDebugKey(event) {
   // [ ] : 웨이브 이동
   if ((event.code === "BracketLeft" || event.code === "BracketRight") && inGame) {
     const next = wave + (event.code === "BracketRight" ? 1 : -1);
-    if (next >= 1 && next <= WAVES.length) {
+    if (next >= 1 && next <= currentWaves().length) {
       enemies = [];
       bullets = [];
       enemyBullets = [];
@@ -826,6 +826,9 @@ canvas.addEventListener("click", function (event) {
       if (button === "resume") resumeGame();
       else if (button === "restart") { commitRunProgress(); resetGame(); }
       else if (button === "lobby") { commitRunProgress(); goToMenu(); }
+    } else if (activeTutorialStep() && insideRect(pos.x, pos.y, tutorialSkipRect())) {
+      // 튜토리얼 말풍선의 "건너뛰기"
+      skipTutorialStep();
     } else if (insideRect(pos.x, pos.y, hudArrowRect())) {
       // 상태창 오른쪽 위 화살표 = 접기 / 펼치기
       toggleHud();
@@ -846,6 +849,7 @@ canvas.addEventListener("click", function (event) {
   // 증강 선택 화면: 클릭한 카드 고르기 (상태창 화살표는 여기서도 접기/펼치기)
   if (gameState === "choosing") {
     if (insideRect(pos.x, pos.y, hudArrowRect())) { toggleHud(); return; }
+    if (activeTutorialStep() && insideRect(pos.x, pos.y, tutorialSkipRect())) { skipTutorialStep(); return; }
     const index = cardIndexAt(pos.x, pos.y);
     if (index >= 0) chooseAugment(index);
     return;
@@ -1302,6 +1306,7 @@ function spawnBatch(count) {
 // 표의 마릿수에 WAVE_COUNT_MULT 를 곱한 실제 마릿수 (반올림)
 // waveNumber 가 6 이상이면 WAVE_COUNT_MULT_LATE 도 곱한다 (주지 않으면 지금 웨이브)
 function scaledCount(count, waveNumber) {
+  if (currentRules.exactCounts) return count;   // 튜토리얼: 표의 마릿수 그대로
   const w = waveNumber === undefined ? wave : waveNumber;
   const late = w >= LATE_WAVE_FROM ? WAVE_COUNT_MULT_LATE : 1;
   return Math.round(count * WAVE_COUNT_MULT * late);
@@ -1333,7 +1338,7 @@ function startWave(n) {
 
   // 대기열 만들기: 배열은 0번 칸부터 시작하므로 n번째 웨이브는 WAVES[n - 1]
   // 묶음 { type, count } 마다 type 을 count 번 줄 세운다
-  const waveDef = WAVES[n - 1];
+  const waveDef = currentWaves()[n - 1];
   spawnQueue = [];
   // 등장 예고도 처음부터 (디버그로 웨이브를 옮길 때 남은 예고를 지운다)
   pendingSpawns = [];
@@ -1375,7 +1380,7 @@ function startWave(n) {
   if (bannerIsBoss) {
     // 보스 웨이브: "웨이브 5 · 보스: 돌진 대장!" (여러 마리면 "A & B", 마지막 웨이브면 "최종 보스")
     const names = bossQueue.map(function (id) { return ENEMY_TYPES[id].name; });
-    bannerText += (n === WAVES.length ? " · 최종 보스: " : " · 보스: ") + names.join(" & ") + "!";
+    bannerText += (n === currentWaves().length && !inTutorial() ? " · 최종 보스: " : " · 보스: ") + names.join(" & ") + "!";
   } else {
     const newNames = newEnemyNames(n);
     if (newNames.length > 0) {
@@ -1393,11 +1398,11 @@ function newEnemyNames(n) {
   const seen = {};
   // 앞 웨이브들을 하나씩 보는 반복문
   for (let i = 0; i < n - 1; i++) {
-    for (const group of waveGroups(WAVES[i])) seen[group.type] = true;
+    for (const group of waveGroups(currentWaves()[i])) seen[group.type] = true;
   }
   // 이번 웨이브에서 처음 보는 종류의 이름만 고른다 (같은 종류가 두 번 들어가지 않게)
   const names = [];
-  for (const group of waveGroups(WAVES[n - 1])) {
+  for (const group of waveGroups(currentWaves()[n - 1])) {
     if (!seen[group.type]) {
       seen[group.type] = true;
       names.push(ENEMY_TYPES[group.type].name);
@@ -1651,6 +1656,7 @@ function chooseAugment(index) {
 
   const aug = choices[index];
   canvas.style.cursor = "default";
+  tutorialOnPick();   // 튜토리얼: "카드를 골랐다"
 
   // 돌연변이 카드: 그 증강이 돌연변이한다 (레벨은 그대로)
   if (aug.isMutation) {
@@ -1726,8 +1732,8 @@ function endGame(result) {
   if (result === "clear") {
     score += player.hp * SCORE_PER_HP_LEFT;
   }
-  // 최고 점수를 넘었으면 새 기록으로 저장
-  isNewBest = score > bestScore;
+  // 최고 점수를 넘었으면 새 기록으로 저장 (기록을 남기지 않는 판 = 튜토리얼은 빼고)
+  isNewBest = currentRules.saveRecord && score > bestScore;
   if (isNewBest) {
     bestScore = score;
     saveBestScore(bestScore);
@@ -1748,6 +1754,14 @@ function endGame(result) {
 function commitRunProgress() {
   if (runCommitted) return;
   runCommitted = true;
+  // 기록을 남기지 않는 판 (튜토리얼): 끝까지 깼으면 처음 한 번만 보상 코인
+  if (!currentRules.saveRecord) {
+    lastRunCoins = 0;
+    runPrevBestWave = 0;
+    if (inTutorial() && gameState === "playing" && wave >= currentWaves().length && enemies.length === 0) finishTutorial();
+    writeSave();
+    return;
+  }
   lastRunCoins = Math.floor(runCoins);
   saveData.coins += lastRunCoins;
   // 최고 웨이브는 지금 판의 "난이도 + 모드" 기록에
@@ -1855,6 +1869,8 @@ function moveTab(step) {
 function startGame() {
   canvas.style.cursor = "default";
   settingsOpen = false;
+  // 로비의 "튜토리얼부터 해볼까요?" 말풍선은 한 판이라도 시작하면 다시 안 보인다
+  if (!saveData.tutorialPrompted) { saveData.tutorialPrompted = true; writeSave(); }
   // 로비에서 고른 난이도 + 모드로 이번 판의 규칙을 정한다 (rules.js)
   currentRules = makeRules(selectedDifficulty().id, selectedMode().id);
   resetGame();
@@ -1951,6 +1967,8 @@ function lobbyButtons() {
     if (!LOBBY_TABS[i].locked) list.push({ id: "tab:" + LOBBY_TABS[i].id, rect: tabRect(i) });
   }
   if (gameState === "menu") {
+    // 처음 켠 사람: "튜토리얼부터 해볼까요?" 말풍선 (누르면 튜토리얼을 고른다). 칸보다 위에 있어서 먼저 넣는다
+    if (tutorialPromptVisible()) list.push({ id: "tutorialPrompt", rect: tutorialPromptRect() });
     list.push({ id: "start", rect: START_BUTTON });
     // 난이도 · 모드 줄의 칸과 ◀ ▶
     for (const row of ["difficulty", "mode"]) {
@@ -2001,6 +2019,11 @@ function runLobbyButton(id) {
   else if (id.startsWith("sec:")) switchUpgradeSection(id.slice(4));
   else if (id.startsWith("skill:")) tryPressSkill(Number(id.slice(6)));
   else if (id.startsWith("col:")) collectionPage = id.slice(4);
+  else if (id === "tutorialPrompt") {
+    selectLobbyItem("difficulty", "tutorial");
+    saveData.tutorialPrompted = true;
+    writeSave();
+  }
   else if (id.startsWith("difficulty:") || id.startsWith("mode:")) {
     const [row, what] = id.split(":");
     if (what === "prev") stepLobbyItem(row, -1);
@@ -2045,7 +2068,7 @@ function checkWaveEnd() {
   player.tempEffects = [];
   enemyBullets = [];
 
-  if (wave >= WAVES.length) {
+  if (wave >= currentWaves().length) {
     // 마지막 웨이브였으면 클리어!
     endGame("clear");
   } else {
@@ -2068,6 +2091,7 @@ function hurtPlayer(damage) {
   }
   const hpBefore = player.hp;
   player.hp -= damage;
+  if (currentRules.noDeath && player.hp < 1) player.hp = 1;   // 튜토리얼: 쓰러지지 않는다
   player.invincibleTimer = PLAYER_INVINCIBLE_TIME; // 잠깐 무적
   // [훅] onPlayerHurt: 맞은 직후 증강에게 알린다 (돌연변이 "역반응")
   forEachOwnedAugment(function (aug, stats) {
@@ -2199,6 +2223,7 @@ function resetGame() {
   ownedAugments = {};
   mutatedAugments = {};
   runMutations = [];
+  tutorial = newTutorialState();   // 튜토리얼 안내도 처음부터
   // 모든 증강을 하나씩 보며 reset 함수가 있으면 부르는 반복문
   for (const aug of AUGMENTS) {
     if (aug.reset) aug.reset();
@@ -2652,6 +2677,9 @@ function update(dt) {
   }
 
   if (gameState === "playing") {
+    // 튜토리얼: 돌격형 예고선 안내가 떠 있는 동안 게임 전체가 느려진다 (보통 판은 × 1)
+    dt *= tutorialTimeScale();
+    updateTutorial(dt);   // 튜토리얼 안내 (튜토리얼이 아니면 아무것도 안 함)
     // 전투 중 (순서가 중요하다)
     waveTime += dt;       // 0) 과열 시계
     updateAugments(dt);   // 0-1) 증강의 매 프레임 훅 onUpdate (시간 정지 시계 등)
@@ -2682,6 +2710,7 @@ function update(dt) {
   } else if (gameState === "choosing") {
     // 카드 고르는 중: 게임은 멈추고, 남은 숫자 팝업·파티클만 마저 움직인다
     choosingTime += dt;
+    updateTutorial(dt);
     updatePopups(dt);
     updateParticles(dt);
   }
@@ -3533,7 +3562,7 @@ function drawHudPanel() {
 
   if (hudCollapsed()) {
     drawOutlinedRoundRect(p.x, p.y, p.w, p.h, 14, COLORS.brown);
-    const label = wave + " / " + WAVES.length;
+    const label = wave + " / " + currentWaves().length;
     drawOutlinedText(label, p.x + 12, p.y + p.h / 2 + 1, fitTextSize(label, 18, 70), "left");
     drawHpBar(p.x + 86, p.y + 10, hpBarWidth(HUD_WIDTH - 110), 20);
     drawHudArrow();
@@ -3545,7 +3574,7 @@ function drawHudPanel() {
   drawOutlinedRoundRect(p.x, p.y, p.w, p.h, 14, COLORS.brown);
 
   // 챕터와 웨이브 번호 (예: "챕터 2 · 웨이브 7 / 30"). 화살표 자리를 남기고, 길면 글자를 줄인다
-  const waveText = "챕터 " + chapterOf(wave) + " · 웨이브 " + wave + " / " + WAVES.length;
+  const waveText = (inTutorial() ? "튜토리얼" : "챕터 " + chapterOf(wave)) + " · 웨이브 " + wave + " / " + currentWaves().length;
   drawOutlinedText(waveText, p.x + 16, p.y + 22, fitTextSize(waveText, 22, p.w - 66), "left");
   drawHudArrow();
 
@@ -4549,7 +4578,7 @@ function drawOverlay() {
   if (gameState !== "gameover" && gameState !== "clear") return;
 
   const isClear = gameState === "clear";
-  const title = isClear ? "모든 웨이브 클리어!" : "게임 오버";
+  const title = inTutorial() ? (isClear ? "튜토리얼 완료!" : "튜토리얼") : isClear ? "모든 웨이브 클리어!" : "게임 오버";
   const panelColor = isClear ? COLORS.yellow : COLORS.red;
 
   // 화면 전체를 외곽선 색으로 반투명하게 덮는다
@@ -4588,8 +4617,11 @@ function drawOverlay() {
   drawOutlinedText("최고 점수 " + bestScore, 0, -48, 18);
 
   // 성장 체감: 지난 최고 기록과 이번 기록 (기록을 깼으면 아래에서 "신기록!" 스티커)
-  const newRecord = wave > runPrevBestWave;
-  const recordText = "지난 최고 기록: " + (runPrevBestWave > 0 ? "웨이브 " + runPrevBestWave : "없음") + "  →  이번: 웨이브 " + wave;
+  //   튜토리얼은 기록을 남기지 않으니 보상만 알린다
+  const newRecord = currentRules.saveRecord && wave > runPrevBestWave;
+  const recordText = !currentRules.saveRecord
+    ? (tutorial.reward > 0 ? "보상 +" + tutorial.reward + " 코인! 이제 보통 난이도로 도전해 보세요" : tutorial.cleared ? "보상은 이미 받았어요. 보통 난이도로 도전해 보세요" : "튜토리얼은 기록을 남기지 않아요")
+    : "지난 최고 기록: " + (runPrevBestWave > 0 ? "웨이브 " + runPrevBestWave : "없음") + "  →  이번: 웨이브 " + wave;
   drawOutlinedText(recordText, 0, -18, fitTextSize(recordText, 21, pw - 60), "center", newRecord ? COLORS.green : COLORS.yellow);
 
   // 코인: 생존 시간 / 번 코인 / 보유 코인 / 잡은 보스
@@ -5330,6 +5362,24 @@ function drawLobbyRow(row, label) {
   }
 }
 
+// 로비 "튜토리얼부터 해볼까요?" 말풍선 (튜토리얼 칸 위쪽 왼편)
+function tutorialPromptRect() {
+  return { x: 50, y: START_BUTTON.y + 4, w: 240, h: 42 };   // 시작 버튼 왼쪽 빈자리
+}
+function drawTutorialPrompt() {
+  if (!tutorialPromptVisible()) return;
+  const r = tutorialPromptRect();
+  const bob = Math.sin(menuTime * 3) * 3;   // 둥실둥실
+  const chip = lobbyChipRect("difficulty", DIFFICULTIES.findIndex(function (d) { return d.id === "tutorial"; }));
+  ctx.save();
+  ctx.translate(0, bob);
+  // 꼬리: 말풍선 위 → 튜토리얼 칸 쪽
+  drawOutlinedPolygon([[r.x + r.w - 70, r.y + 4], [chip.x + chip.w / 2, chip.y + chip.h + 4], [r.x + r.w - 30, r.y + 4]], COLORS.white, SMALL_OUTLINE_WIDTH);
+  drawStickerRect(r.x, r.y, r.w, r.h, 18, hoverColor("tutorialPrompt", COLORS.white), 4);
+  drawOutlinedText("튜토리얼부터 해볼까요?", r.x + r.w / 2, r.y + r.h / 2 + 1, 18, "center", COLORS.blue);
+  ctx.restore();
+}
+
 // 지금 판 (또는 고른) 난이도 · 모드를 짧게: "보통" / "어려움 · 풍요"
 function rulesLabel(difficultyId, modeId) {
   const d = difficultyById(difficultyId), m = modeById(modeId);
@@ -5361,7 +5411,7 @@ function drawMenu() {
 
   // 플레이어는 가운데 적을 조준하며 둥실둥실
   player.x = 170;
-  player.y = 320 + Math.sin(menuTime * 2.4) * 10;
+  player.y = 362 + Math.sin(menuTime * 2.4) * 10;
   player.invincibleTimer = 0;
   player.facing = Math.atan2(318 - player.y, 870 - player.x);
   drawPlayer();
@@ -5375,9 +5425,10 @@ function drawMenu() {
   drawOutlinedText("수학 · 과학 공식으로 살아남기", 0, 25, 16, "center", COLORS.white);
   ctx.restore();
 
-  // 2-1) 난이도 줄, 모드 줄 (게임 시작 버튼 위)
+  // 2-1) 난이도 줄, 모드 줄 (게임 시작 버튼 위), 처음 켠 사람에게 튜토리얼 말풍선
   drawLobbyRow("difficulty", "난이도");
   drawLobbyRow("mode", "모드");
+  drawTutorialPrompt();
 
   // 3) 큰 "게임 시작" 버튼: 1.5초마다 3% 커졌다 작아지며 숨 쉰다
   const B = START_BUTTON;
@@ -5735,6 +5786,7 @@ function draw() {
   drawEnrageWarning(); // "과열!" 경고 (웨이브가 너무 길어지면)
   drawBanner();     // 웨이브 시작 안내 띠
   drawChoiceScreen(); // 증강 카드 선택 화면
+  drawTutorialBubble(); // 튜토리얼 안내 말풍선 (화면 아래, 튜토리얼일 때만)
   drawOverlay();    // 게임 오버·클리어 안내
   drawPauseScreen(); // 일시정지 창 / 다시 움직이기 전 안내 (가장 위)
   drawDebug();      // 디버그 표시 (디버그 모드일 때만)

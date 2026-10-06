@@ -2975,4 +2975,97 @@ module.exports = [
       return { ok: ok, detail: "bestWave 12 → bestWaves[\"normal:basic\"] " + moved + " / 나머지 그대로 " + kept + " / 버전 없는 옛 저장 " + veryOld + " / 다시 쓰면 v2 모양 " + rewritten + ", 다시 읽기 " + again + " / 어려움 기록 따로 " + sep };
     },
   },
+  // ---------------- 난이도 · 모드 B: 튜토리얼 ----------------
+  {
+    name: "[튜토리얼] 4웨이브 따로 (1: 기본 적 3마리 느리게, 2: 돌격형 2, 3: 기본 + 사인파, 4: 돌진 대장), 영구 업그레이드 · 스킬 없음, 체력 1 아래로 안 내려감, 기록 · 코인 저장 안 함",
+    run: function () {
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.upgrades = { vitality: 10, power: 10 }; saveData.ownedSkills = ["dash"]; saveData.equippedSkill = "dash";
+      saveData.difficulty = "tutorial";
+      startGame();
+      const waves = currentWaves().length === 4 && currentRules.tutorial && currentRules.mode === "basic";
+      const counts = spawnQueue.length === 3 && spawnQueue.every((t) => t === "basic");
+      const slow = (() => { const e = createEnemy("basic", 0, 0, 1); currentRules = makeRules("normal", "basic"); const n = createEnemy("basic", 0, 0, 1); currentRules = makeRules("tutorial", "basic"); return Math.abs(e.speed / n.speed - 0.7) < 1e-9 && Math.abs(e.maxHp / n.maxHp - 0.5) < 1e-9; })();
+      const noUp = player.maxHp === PLAYER_MAX_HP && player.damage === BULLET_DAMAGE && battleSkill() === null;
+      startWave(2); const w2 = spawnQueue.join() === "charger,charger";
+      startWave(3); const w3 = spawnQueue.slice().sort().join() === "basic,basic,sine,sine";
+      startWave(4); const w4 = bossQueue.join() === "chargerKing";
+      player.invincibleTimer = 0; hurtPlayer(1e6); const alive = player.hp === 1 && gameState === "playing";
+      runCoins = 50; wave = 3; commitRunProgress();
+      const noSave = Object.keys(saveData.bestWaves).length === 0 && saveData.coins === 0 && lastRunCoins === 0;
+      saveData.difficulty = "normal"; goToMenu();
+      const ok = waves && counts && slow && noUp && w2 && w3 && w4 && alive && noSave;
+      return { ok: ok, detail: "4웨이브 · 모드 기본 " + waves + " / 1웨이브 기본 적 3마리 " + counts + " / 속도 0.7 · 체력 0.5 " + slow + " / 업그레이드 · 스킬 없음 " + noUp +
+        " / 2: 돌격형 2 " + w2 + ", 3: 기본 2 + 사인 2 " + w3 + ", 4: 돌진 대장 " + w4 + " / 100만 대미지에도 체력 1 " + alive + " / 기록 · 코인 저장 안 함 " + noSave };
+    },
+  },
+  {
+    name: "[튜토리얼] 끝까지 플레이: 이동 → 웨이브 클리어 → 카드 → 첫 예고선에서 느려짐 (피하면 다음) → 레벨업 안내 → 보스 안내 → 완료 보상 코인 100 (두 번째는 없음)",
+    run: function () {
+      const DT = 1 / 60;
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); saveData.difficulty = "tutorial";
+      const seen = [], slowAt = [];
+      const play = () => {
+        startGame();
+        const moves = [["KeyD"], ["KeyS"], ["KeyA"], ["KeyW"]];
+        for (let f = 0; f < 60 * 300 && gameState !== "clear"; f++) {
+          for (const k in keys) keys[k] = false;
+          for (const k of moves[Math.floor(f / 50) % 4]) keys[k] = true;
+          // 카드 화면은 사람처럼 0.5초 본 뒤 고른다
+          if (gameState === "choosing" && choosingTime >= 0.5) chooseAugment(0);
+          const step = activeTutorialStep();
+          if (step && seen[seen.length - 1] !== step.id) seen.push(step.id);
+          if (step && step.slow && slowAt.length === 0) slowAt.push(tutorialTimeScale());
+          update(DT);
+        }
+        for (const k in keys) keys[k] = false;
+      };
+      play();
+      const order = seen.join(",");
+      const done = gameState === "clear" && saveData.tutorialDone && saveData.coins === TUTORIAL_REWARD && tutorial.reward === TUTORIAL_REWARD;
+      draw();
+      const saved = loadSave().tutorialDone === true && loadSave().coins === TUTORIAL_REWARD;
+      play();
+      const once = gameState === "clear" && saveData.coins === TUTORIAL_REWARD && tutorial.reward === 0;
+      saveData.difficulty = "normal"; goToMenu();
+      const ok = order === "move,clear,card,dodge,levelup,boss" && slowAt[0] === TUTORIAL_SLOW && done && saved && once;
+      return { ok: ok, detail: "안내 순서 " + order + " / 예고선에서 속도 ×" + slowAt[0] + " / 완료 · 코인 100 " + done + ", 저장 " + saved + " / 두 번째는 보상 없음 " + once };
+    },
+  },
+  {
+    name: "[튜토리얼] 말풍선 \"건너뛰기\" 를 누르면 지금 안내를 넘김 (느린 화면도 풀림), 모바일 모드는 \"화면 왼쪽을 눌러 이동\", 로비의 \"튜토리얼부터 해볼까요?\" 는 처음 한 번만",
+    run: function () {
+      const cr = canvas.getBoundingClientRect();
+      const click = (r) => { const o = { clientX: cr.left + canvas.clientLeft + (r.x + r.w / 2) * canvas.clientWidth / 960, clientY: cr.top + canvas.clientTop + (r.y + r.h / 2) * canvas.clientHeight / 540 };
+        canvas.dispatchEvent(new MouseEvent("mousedown", o)); canvas.dispatchEvent(new MouseEvent("click", o)); };
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave();
+      goToMenu(); draw();
+      const promptFirst = tutorialPromptVisible();
+      click(tutorialPromptRect());
+      const picked = saveData.difficulty === "tutorial" && !tutorialPromptVisible() && loadSave().tutorialPrompted === true;
+      // 건너뛰기
+      startGame(); update(1 / 60); draw();
+      const s0 = activeTutorialStep().id;
+      click(tutorialSkipRect()); update(1 / 60);
+      const s1 = activeTutorialStep() ? activeTutorialStep().id : null;
+      // 돌진 예고 중 건너뛰기 → 느린 화면 풀림
+      tutorial.step = TUTORIAL_STEPS.findIndex((x) => x.id === "dodge"); tutorial.warnSeen = true;
+      const slowBefore = tutorialTimeScale();
+      click(tutorialSkipRect());
+      const slowAfter = tutorialTimeScale();
+      // 모바일 문구
+      saveData.mobileMode = true; tutorial.step = 0; const mobile = activeTutorialStep().text(); saveData.mobileMode = false; const pc = activeTutorialStep().text();
+      // 다시 로비: 말풍선 없음
+      saveData.difficulty = "normal"; goToMenu(); draw(); const promptGone = !tutorialPromptVisible();
+      // 처음부터 다시 켠 사람이 보통으로 바로 시작해도 다음엔 안 보임
+      for (const k in window.__fakeStorage) delete window.__fakeStorage[k];
+      saveData = loadSave(); const again = tutorialPromptVisible(); startGame(); goToMenu(); const afterStart = !tutorialPromptVisible();
+      const ok = promptFirst && picked && s0 === "move" && s1 === "clear" && slowBefore === TUTORIAL_SLOW && slowAfter === 1 &&
+        mobile.indexOf("화면 왼쪽을 눌러 이동") >= 0 && pc.indexOf("WASD") >= 0 && promptGone && again && afterStart;
+      return { ok: ok, detail: "처음 말풍선 " + promptFirst + ", 누르면 튜토리얼 선택 · 다시 안 보임 " + picked + " / 건너뛰기 " + s0 + " → " + s1 + " / 예고선 안내 건너뛰면 속도 ×" + slowBefore + " → ×" + slowAfter +
+        " / 모바일: " + mobile + " / 다시 로비 말풍선 없음 " + promptGone + " / 판을 한 번 시작하면 안 보임 " + (again && afterStart) };
+    },
+  },
 ];
