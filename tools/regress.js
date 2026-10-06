@@ -364,6 +364,20 @@ function compare(label, actual, file) {
     console.log("돌연변이 기록을 다시 만들었습니다.");
   }
 
+  if (args[0] === "--compare-state") {
+    // 상수를 바꿔 끼운 "새 설정" 기록이 저장된 기록과 상태가 같은지 (그림 줄은 빼고) 한 번 확인
+    //   예: --compare-state new-config-mutation.txt ENZYME_STEP=0
+    //   (돌연변이 효과를 하나 넣었을 때, 그 효과만 끄면 예전 기록과 같다는 것을 보이려고)
+    const overrides = {};
+    for (const pair of (args[2] || "").split(",").filter(Boolean)) { const [k, v] = pair.split("="); overrides[k] = v; }
+    const st = (text) => text.split("\n").filter((l) => !/ (menuDraw|draw) /.test(l)).map((l) => l.replace(/ draw [0-9a-f]+$/, "")).join("\n");
+    const now = st(await trace(browser, ROOT, "new", overrides)), want = st(fs.readFileSync(path.join(GOLDEN, args[1]), "utf8"));
+    const same = now === want;
+    console.log((same ? "PASS" : "FAIL") + " " + args[1] + " ← " + JSON.stringify(overrides) + (same ? ": 상태가 같음" : ": 상태가 다름"));
+    await browser.close(); server.close();
+    process.exit(same ? 0 : 1);
+  }
+
   if (args[0] === "--check-before-pressure") {
     // 한 번만 쓰는 확인: 압박 이전 값으로 바꿔 끼운 기록이 지금 저장된 기록과 "그림까지" 완전히 같은지
     const okOld = compare("압박 이전 값 → 옛 설정 기록", await trace(browser, ROOT, "old", BEFORE_PRESSURE), path.join(GOLDEN, "old-config.txt"));

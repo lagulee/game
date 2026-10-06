@@ -745,9 +745,39 @@ const AUGMENTS = [
       },
     ],
 
-    // 발사 간격 × (1 − 감소율)
+    // 돌연변이 "효소": 쌓인 수 n (명중마다 +1, 최대 ENZYME_MAX_STACKS) 와 마지막 명중 뒤 흐른 시간
+    enzymeStacks: 0,
+    enzymeIdle: 0,
+
+    reset: function () {
+      this.enzymeStacks = 0;
+      this.enzymeIdle = 0;
+    },
+
+    // 발사 간격 × (1 − 감소율). 효소는 그 위에 × (1 − 0.03 × n)
+    //   효소는 맞는 기질(적)을 만날수록 반응이 빨라진다 (n 이 10 이면 30% 더 빠르게)
     modifyFireInterval: function (interval, stats) {
-      return interval * (1 - stats.reduction);
+      const enzyme = stats.mutated ? 1 - ENZYME_STEP * this.enzymeStacks : 1;
+      return interval * (1 - stats.reduction) * enzyme;
+    },
+
+    onHit: function (stats) {
+      if (!stats.mutated) return;
+      this.enzymeStacks = Math.min(ENZYME_MAX_STACKS, this.enzymeStacks + 1);
+      this.enzymeIdle = 0;
+    },
+
+    // ENZYME_RESET_TIME(2)초 동안 한 발도 못 맞히면 처음부터
+    onUpdate: function (stats, dt) {
+      if (!stats.mutated) return;
+      this.enzymeIdle += dt;
+      if (this.enzymeIdle >= ENZYME_RESET_TIME) this.enzymeStacks = 0;
+    },
+
+    // 쌓인 수를 플레이어 오른쪽 아래에 작게
+    drawEffect: function (stats, info) {
+      if (!stats.mutated || this.enzymeStacks <= 0) return;
+      drawOutlinedText("효소 ×" + this.enzymeStacks, info.x + PLAYER_RADIUS + 8, info.y + PLAYER_RADIUS + 6, 14, "left", COLORS.green);
     },
   },
   {

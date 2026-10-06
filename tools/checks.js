@@ -2621,4 +2621,33 @@ module.exports = [
       return { ok: ok, detail: "전: 세대 1·2·3·4 파편이 죽이면 → " + results[false].join(", ") + " / 임계 초과 → " + results[true].join(", ") + " (세대:에너지) / 동시 40개 제한 " + capped };
     },
   },
+  {
+    name: "[돌연변이 C] 효소: 명중마다 발사 간격 3% 씩 더 감소 (최대 10번), 2초 동안 못 맞히면 0, 쌓인 수 표시",
+    run: function () {
+      const DT = 1 / 60;
+      startGame(); spawnQueue = []; bannerTimer = 0; debugMode = true; debugInvincible = true;
+      const cat = AUGMENTS.find((a) => a.id === "catalyst");
+      ownedAugments = { catalyst: 2 }; mutatedAugments = { catalyst: true };
+      const base = FIRE_INTERVAL * (1 - CATALYST_REDUCTION[1]);
+      const i0 = fireInterval();
+      const e = createEnemy("basic", 600, 270, 1); e.hp = e.maxHp = 1e6; e.speed = 0; enemies = [e];
+      const hit = () => { bullets = []; createBullet(1, 0, { x: 586, y: 270, fromAugment: true }); player.fireTimer = 1e9; update(DT); };
+      for (let i = 0; i < 4; i++) hit();
+      const i4 = fireInterval(), s4 = cat.enzymeStacks;
+      for (let i = 0; i < 12; i++) hit();
+      const i10 = fireInterval(), s10 = cat.enzymeStacks;
+      draw();
+      // 1.9초 동안 못 맞혀도 그대로, 2초가 되면 0
+      bullets = []; for (let i = 0; i < Math.round(1.9 / DT); i++) { player.fireTimer = 1e9; update(DT); }
+      const kept = cat.enzymeStacks === 10;
+      for (let i = 0; i < 8; i++) { player.fireTimer = 1e9; update(DT); }
+      const reset = cat.enzymeStacks === 0 && Math.abs(fireInterval() - base) < 1e-12;
+      // 돌연변이 전엔 명중해도 그대로
+      mutatedAugments = {}; for (let i = 0; i < 3; i++) hit(); const plain = cat.enzymeStacks === 0 && Math.abs(fireInterval() - base) < 1e-12;
+      debugMode = false; debugInvincible = false;
+      const near = (a, b) => Math.abs(a - b) < 1e-12;
+      const ok = near(i0, base) && s4 === 4 && near(i4, base * (1 - 0.12)) && s10 === 10 && near(i10, base * (1 - 0.3)) && kept && reset && plain;
+      return { ok: ok, detail: "간격 " + i0.toFixed(3) + " → 4번 명중 " + i4.toFixed(3) + " (×0.88) → 16번 명중 (최대 10) " + i10.toFixed(3) + " (×0.70) / 1.9초 그대로 " + kept + ", 2초 뒤 0 " + reset + " / 돌연변이 전 그대로 " + plain };
+    },
+  },
 ];
