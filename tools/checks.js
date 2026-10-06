@@ -2596,4 +2596,29 @@ module.exports = [
         " / 다시 안 갈라짐 " + noResplit + " / 파편 안 갈라짐 " + fragNo + " / 방패에 막힘 → 안 갈라짐 " + blockedNo + " / 돌연변이 전 " + plainNo + " / 핵분열과 섞어 10초 최대 총알 " + maxB + ", 멈추면 모두 사라짐 " + settled };
     },
   },
+  {
+    name: "[돌연변이 C] 임계 초과: 파편 세대 제한 2 → 4, 감쇠 0.6 → 1.0 (줄지 않음), 파편 동시 제한 40개는 그대로",
+    run: function () {
+      startGame(); spawnQueue = []; enemies = [];
+      const fis = AUGMENTS.find((a) => a.id === "fission");
+      const kill = (mut, killer) => {
+        bullets = [];
+        const e = createEnemy("basic", 480, 270, 1); e.maxHp = 100;
+        fis.onKill(Object.assign({}, fis.levels[2], mut ? { mutated: true } : {}), { enemy: e, x: 480, y: 270, bullet: killer });
+        return bullets.filter((b) => b.isFragment);
+      };
+      const frag = (gen, energy) => ({ isFragment: true, generation: gen, energy: energy });
+      const results = {};
+      for (const mut of [false, true]) {
+        results[mut] = [1, 2, 3, 4].map((gen) => { const f = kill(mut, frag(gen, 0.3)); return f.length ? f[0].generation + ":" + (f[0].energy).toFixed(2) : "-"; });
+      }
+      // 동시 제한: 이미 파편 39개면 1개만
+      bullets = []; for (let i = 0; i < 39; i++) { const b = createBullet(1, 0, { fromAugment: true }); b.isFragment = true; }
+      const e = createEnemy("basic", 480, 270, 1);
+      fis.onKill(Object.assign({}, fis.levels[2], { mutated: true }), { enemy: e, x: 480, y: 270, bullet: null });
+      const capped = bullets.filter((b) => b.isFragment).length === FISSION_MAX_FRAGMENTS;
+      const ok = results[false].join(",") === "2:0.18,-,-,-" && results[true].join(",") === "2:0.30,3:0.30,4:0.30,-" && capped;
+      return { ok: ok, detail: "전: 세대 1·2·3·4 파편이 죽이면 → " + results[false].join(", ") + " / 임계 초과 → " + results[true].join(", ") + " (세대:에너지) / 동시 40개 제한 " + capped };
+    },
+  },
 ];

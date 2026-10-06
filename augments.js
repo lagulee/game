@@ -679,10 +679,13 @@ const AUGMENTS = [
       let energy;      // 이번에 터질 파편의 에너지
       let generation;  // 이번에 터질 파편의 세대
 
+      // 돌연변이 "임계 초과" (k > 1): 세대 제한 2 → 4, 감쇠 0.6 → 1.0 (줄지 않음). 파편 동시 제한 40개는 그대로
+      const maxGeneration = stats.mutated ? FISSION_MUT_MAX_GENERATION : FISSION_MAX_GENERATION;
+      const decay = stats.mutated ? FISSION_MUT_DECAY : FISSION_DECAY;
       if (killer && killer.isFragment) {
         // 파편이 죽인 적: 세대 제한을 넘으면 더 이상 터지지 않는다
-        if (killer.generation >= FISSION_MAX_GENERATION) return;
-        energy = killer.energy * FISSION_DECAY; // 에너지 감쇠
+        if (killer.generation >= maxGeneration) return;
+        energy = killer.energy * decay; // 에너지 감쇠
         generation = killer.generation + 1;
       } else {
         // 보통 총알이 죽인 적: 1세대 파편
