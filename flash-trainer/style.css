@@ -1,5 +1,7 @@
+/* 한 가지 어두운 화면으로 고정 (게임 화면) */
+:root { --bg: #111; --fg: #eee; color-scheme: dark; }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #eee;
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
   font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
 #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 .hidden { display: none !important; }
@@ -14,7 +16,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color:
 #crosshair { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
   background: #0f8; border-radius: 1px; box-shadow: 0 0 0 1px #000; z-index: 3; pointer-events: none; }
 
-#hud { position: fixed; right: 12px; top: 12px; width: 270px; z-index: 3; font-size: 13px;
+#hud { position: fixed; right: calc(12px + env(safe-area-inset-right, 0px)); top: calc(12px + env(safe-area-inset-top, 0px)); width: 270px; z-index: 3; font-size: 13px;
   background: rgba(0,0,0,.55); padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
 #hud-mode { font-weight: 700; margin-bottom: 4px; }
 #hud-log { margin-top: 6px; max-height: 180px; overflow: hidden; font-size: 12px; color: #ccc; }
@@ -30,7 +32,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color:
 #toast:empty { display: none; }
 
 #menu { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
-  background: rgba(10,12,18,.82); overflow: auto; padding: 16px; }
+  background: rgba(10,12,18,.82); overflow: auto; padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .panel { width: min(920px, 100%); background: #1b1f29; border: 1px solid #333a4a; border-radius: 12px; padding: 20px 24px; }
 h1 { margin: 0 0 4px; font-size: 26px; color: #ff6b5f; }
 h2 { font-size: 16px; margin: 14px 0 8px; color: #9fd3ff; }
