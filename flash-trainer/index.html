@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>플래시 회피 훈련</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 3D 화면 -->
+  <canvas id="view"></canvas>
+
+  <!-- 눈뽕(플래시) 화면: 흰색, 불투명도로 세기를 표현 -->
+  <div id="flash-white"></div>
+  <!-- 니어사이트(레이나 Leer): 가장자리부터 흐리고 어둡게 -->
+  <div id="nearsight"></div>
+
+  <!-- 조준점 -->
+  <div id="crosshair"></div>
+
+  <!-- 게임 정보 (오른쪽 위) -->
+  <div id="hud" class="hidden">
+    <div id="hud-mode"></div>
+    <div id="hud-stats"></div>
+    <div id="hud-log"></div>
+  </div>
+
+  <!-- 감도 테스트 표시기 (가운데 위) -->
+  <div id="senstest" class="hidden">
+    <div class="big"><span id="st-angle">0.0</span>°</div>
+    <div id="st-turns"></div>
+    <div id="st-detail"></div>
+    <svg id="st-dial" viewBox="-50 -50 100 100" width="120" height="120">
+      <circle r="44" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2"/>
+      <line x1="0" y1="-44" x2="0" y2="-36" stroke="#ff5f5f" stroke-width="3"/>
+      <line id="st-needle" x1="0" y1="0" x2="0" y2="-40" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    <div class="hint">R: 0°로 초기화 · 마우스를 <b id="st-cm"></b> cm 움직이면 정확히 360°</div>
+  </div>
+
+  <!-- 아래쪽 안내 줄 -->
+  <div id="toast"></div>
+
+  <!-- 시작 · 설정 화면 -->
+  <div id="menu">
+    <div class="panel">
+      <h1>플래시 회피 훈련</h1>
+      <p class="sub">발로란트 감도(0.07°/카운트) · 수평 FOV 103° · 실제 눈뽕 시간으로 피하기 연습</p>
+
+      <div id="file-warning" class="warn hidden">
+        이 페이지를 파일로 직접 열면(file://) 브라우저 보안 때문에 게임 코드를 불러오지 못합니다.<br>
+        폴더에서 <code>python3 -m http.server 8000</code> 또는 <code>npx serve</code>를 실행하고
+        <code>http://localhost:8000/</code> 으로 여세요. (README 참고)
+      </div>
+
+      <div class="row">
+        <button id="btn-train" class="primary">훈련 시작</button>
+        <button id="btn-senstest">감도 테스트 모드</button>
+      </div>
+      <p class="sub small">시작하면 마우스가 잠깁니다. <b>Esc</b>로 이 화면으로 돌아옵니다. 이동: WASD · Shift 걷기</p>
+
+      <div class="cols">
+        <section>
+          <h2>감도</h2>
+          <label>마우스 DPI <input id="in-dpi" type="number" min="100" max="32000" step="50"></label>
+          <label>발로란트 감도 <input id="in-sens" type="number" min="0.001" max="10" step="0.001"></label>
+          <div class="calc">
+            <div>eDPI <b id="out-edpi"></b></div>
+            <div>cm/360 <b id="out-cm"></b></div>
+            <div>1카운트당(°) <b id="out-dpc"></b></div>
+          </div>
+
+          <h3>다른 게임 감도 변환</h3>
+          <div class="conv">
+            <select id="conv-game"></select>
+            <input id="conv-in" type="number" step="0.001" placeholder="원본 감도">
+            <span>→</span>
+            <b id="conv-out">-</b>
+            <button id="conv-apply">적용</button>
+          </div>
+          <p class="small">발로란트 감도 = 원본 감도 × (원본 yaw ÷ 0.07)</p>
+        </section>
+
+        <section>
+          <h2>훈련 난이도</h2>
+          <div id="flash-types"></div>
+          <label>던지는 거리(m) <span class="pair">
+            <input id="in-dmin" type="number" min="2" max="30" step="0.5"> ~
+            <input id="in-dmax" type="number" min="2" max="30" step="0.5"></span></label>
+          <label>윈드업 배율 <input id="in-windup" type="number" min="0.5" max="3" step="0.1">
+            <span class="small">(1.0 = 실제 값, 크게 하면 쉬움)</span></label>
+          <label>동시 투척 수 <input id="in-count" type="number" min="1" max="3" step="1"></label>
+          <label>라운드 간격(초) <span class="pair">
+            <input id="in-gapmin" type="number" min="0.5" max="10" step="0.5"> ~
+            <input id="in-gapmax" type="number" min="0.5" max="15" step="0.5"></span></label>
+          <label>등 뒤에서도 투척 <input id="in-behind" type="checkbox"></label>
+
+          <h2>소리</h2>
+          <label>효과음 <input id="in-vol" type="range" min="0" max="1" step="0.05"></label>
+          <label>이명(삐-) <input id="in-ring" type="range" min="0" max="1" step="0.05"></label>
+          <label>디버그 표시 <input id="in-debug" type="checkbox"></label>
+        </section>
+      </div>
+      <p class="small dim">설정은 이 브라우저에 자동 저장됩니다(localStorage). 수치 근거: docs/flash-spec.md</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+  <script>
+    // 모듈은 file:// 에서 막히므로, 그런 경우 안내문을 보여 준다
+    if (location.protocol === 'file:') document.getElementById('file-warning').classList.remove('hidden');
+  </script>
+</body>
+</html>

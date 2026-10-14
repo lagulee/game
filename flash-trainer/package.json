@@ -1,0 +1,11 @@
+{
+  "name": "flash-trainer",
+  "private": true,
+  "type": "module",
+  "description": "설치 · 빌드 불필요. 이 파일은 node 테스트가 src/*.js 를 ES 모듈로 읽게 하려고만 있다.",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test tests/unit.test.mjs",
+    "smoke": "node tests/smoke.mjs"
+  }
+}
