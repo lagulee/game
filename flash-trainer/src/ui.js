@@ -4,7 +4,7 @@
 
 import { DEFAULT_SETTINGS, OTHER_GAME_YAW } from './config/view.js';
 import { FLASH_TYPES, TRAINING_DEFAULTS } from './config/flash.js';
-import { COMBAT_DEFAULTS } from './config/combat.js';
+import { COMBAT_DEFAULTS, COMBAT_SETTINGS_VERSION, BOT_LEVELS } from './config/combat.js';
 import { eDPI, cmPer360, degPerCount, toValorantSens } from './input.js';
 
 const KEY = 'flash-trainer.settings.v1';
@@ -20,7 +20,9 @@ export function loadSettings() {
   const s = { ...DEFAULT_SETTINGS, ...saved };
   s.training = { ...TRAINING_DEFAULTS, ...(saved.training || {}) };
   s.training.enabled = { ...TRAINING_DEFAULTS.enabled, ...((saved.training || {}).enabled || {}) };
-  s.combat = { ...COMBAT_DEFAULTS, ...(saved.combat || {}) };
+  const savedCombat = saved.combatVersion === COMBAT_SETTINGS_VERSION ? (saved.combat || {}) : {};
+  s.combat = { ...COMBAT_DEFAULTS, ...savedCombat };
+  s.combatVersion = COMBAT_SETTINGS_VERSION;
   return s;
 }
 
@@ -72,7 +74,7 @@ export function bindMenu(settings, onChange) {
     $('in-windup').value = t.windupScale;
     $('in-fast').value = t.fastScale;
     $('in-botmode').value = settings.combat.botMode;
-    $('in-botreact').value = settings.combat.botReact;
+    $('in-botlevel').value = settings.combat.botLevel;
     $('in-botcount').value = settings.combat.alwaysCount;
     $('in-count').value = t.count;
     $('in-gapmin').value = t.gapMin;
@@ -108,7 +110,8 @@ export function bindMenu(settings, onChange) {
     t.fastScale = num($('in-fast').value, t.fastScale, 0.4, 1);
     const bm = $('in-botmode').value;
     settings.combat.botMode = ['off', 'peek', 'always'].includes(bm) ? bm : 'peek';
-    settings.combat.botReact = num($('in-botreact').value, settings.combat.botReact, 0.3, 5);
+    const bl = $('in-botlevel').value;
+    settings.combat.botLevel = BOT_LEVELS[bl] ? bl : 'easy';
     settings.combat.alwaysCount = Math.round(num($('in-botcount').value, settings.combat.alwaysCount, 1, 6));
     t.count = Math.round(num($('in-count').value, t.count, 1, 3));
     t.gapMin = num($('in-gapmin').value, t.gapMin, 0.5, 10);
@@ -122,6 +125,7 @@ export function bindMenu(settings, onChange) {
 
   $('in-map').addEventListener('change', read);
   $('in-botmode').addEventListener('change', read);
+  $('in-botlevel').addEventListener('change', read);
   for (const el of document.querySelectorAll('#menu input')) {
     if (el.id === 'conv-in') continue;
     el.addEventListener('input', read);

@@ -6,11 +6,11 @@
 //   - 탄 퍼짐: 발로란트의 고정 반동 패턴이 아니라 "연사할수록 넓어지는 원뿔"로 단순화
 //   - 이동 사격 부정확도, 재장전 시간, 봇 몸 크기 · 무빙
 //   - 피킹 봇: 플래시가 터지는 순간 폭발 지점 뒤쪽에서 튀어나와 좌우로 무빙한다.
-//     정해진 시간(botReact) 안에 못 잡으면 "당함"으로 기록한다(봇이 실제로 조준하지는 않는다).
+//     난이도별 제한 시간(BOT_LEVELS.react) 안에 못 잡으면 "당함"으로 기록한다(봇이 실제로 조준하지는 않는다).
 // =============================================================
 
 import * as THREE from '../vendor/three.module.min.js';
-import { GUN, BOT } from './config/combat.js';
+import { GUN, BOT, botLevel } from './config/combat.js';
 import { ARENA_HALF, segmentBlocked, segmentHit, pointInsideAny, MAP_BOXES } from './map.js';
 
 const DEG = Math.PI / 180;
@@ -26,7 +26,8 @@ export function damageFor(part) {
 
 /** 지금 쏘는 한 발의 퍼짐 각도(도) [근사] */
 export function spreadDeg(sprayCount, moveState) {
-  const spray = Math.min(GUN.maxSprayDeg, GUN.firstShotSpreadDeg + sprayCount * GUN.spreadPerShotDeg);
+  const extra = Math.max(0, sprayCount - (GUN.accurateShots - 1));
+  const spray = Math.min(GUN.maxSprayDeg, GUN.firstShotSpreadDeg + extra * GUN.spreadPerShotDeg);
   const move = moveState === 'run' ? GUN.moveSpreadDeg : moveState === 'walk' ? GUN.walkSpreadDeg : 0;
   return spray + move;
 }
@@ -244,15 +245,16 @@ export class Combat {
     bot.pz = Math.sin(spot.ang);
     bot.alive = true;
     bot.appearedAt = this.time;
-    bot.deadline = this.time + this.settings.combat.botReact;
+    bot.deadline = this.time + botLevel(this.settings.combat).react;
     bot.mesh.visible = true;
     this.placeBot(bot);
   }
 
   placeBot(bot) {
     const t = this.time - bot.appearedAt + bot.phase;
-    const w = BOT.strafeSpeed / BOT.strafeRange;
-    const off = Math.sin(t * w) * BOT.strafeRange;
+    const speed = botLevel(this.settings.combat).strafe;
+    const w = speed / BOT.strafeRange;
+    const off = speed > 0 ? Math.sin(t * w) * BOT.strafeRange : 0;
     bot.x = bot.bx + bot.px * off;
     bot.z = bot.bz + bot.pz * off;
     if (pointInsideAny([bot.x, 1, bot.z], 0.3)) { bot.x = bot.bx; bot.z = bot.bz; }

@@ -325,3 +325,14 @@ test('피킹 봇은 플래시 폭발 지점 뒤, 보이는 곳에 나온다', ()
   }
   setMap('course');
 });
+
+test('연사 처음 3발은 퍼지지 않음, 봇 난이도 기본은 쉬움(가만히, 3초)', async () => {
+  for (let i = 0; i < GUN.accurateShots; i++) close(spreadDeg(i, 'still'), 0);
+  assert.ok(spreadDeg(GUN.accurateShots, 'still') > 0);
+  const { botLevel, COMBAT_DEFAULTS, BOT_LEVELS } = await import('../src/config/combat.js');
+  const lv = botLevel(COMBAT_DEFAULTS);
+  close(lv.react, 3.0);
+  close(lv.strafe, 0);
+  assert.ok(BOT_LEVELS.hard.react < BOT_LEVELS.normal.react && BOT_LEVELS.normal.react < BOT_LEVELS.easy.react);
+  assert.equal(botLevel({ botLevel: '없는값' }), BOT_LEVELS.easy);
+});

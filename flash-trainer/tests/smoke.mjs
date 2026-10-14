@@ -145,7 +145,7 @@ const fight = await page.evaluate(async () => {
   ft.settings.training.enabled = { phoenix: true };
   ft.settings.training.count = 1;
   ft.settings.combat.botMode = 'peek';
-  ft.settings.combat.botReact = 3;
+  ft.settings.combat.botLevel = 'easy';
   ft.flashes.clear(); ft.combat.clear();
   ft.player.x = 0; ft.player.z = 0;
   const before = ft.training.history.length;
@@ -181,7 +181,7 @@ check(fight.kills === 1 && !fight.died && fight.shots === 1 && fight.heads >= 1,
 // 아무것도 안 하면 "당함"
 const lose = await page.evaluate(async () => {
   const ft = window.__ft;
-  ft.settings.combat.botReact = 0.5;
+  ft.settings.combat.botLevel = 'hard';
   const before = ft.training.history.length;
   ft.training.state = 'waiting'; ft.training.round = null; ft.training.nextAt = ft.flashes.time;
   const t0 = performance.now();
