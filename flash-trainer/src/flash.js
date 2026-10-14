@@ -160,12 +160,22 @@ export function choosePopPoint({ eye, yawDeg, distMin, distMax, allowBehind, rng
  * 반환: { typeId, pop: P, start: S, popTime, path(t), events:[{t, kind}], maxBlind, curveSide?, debugPoints }
  * popTime/events 의 t 는 "투사체가 손을 떠난 순간" 기준(던지는 모션 시간 제외).
  */
-export function planThrow(typeId, { eye, yawDeg, distMin, distMax, allowBehind, windupScale = 1, rng = Math.random }) {
+export function planThrow(typeId, { eye, yawDeg, distMin, distMax, allowBehind, windupScale = 1, fastScale = 1, rng = Math.random }) {
   const def = FLASH_TYPES[typeId];
+  // [훈련용 난이도] fastScale: 브리치를 뺀 플래시의 "던진 뒤 터질 때까지" 시간 전체(던지는 모션·비행·윈드업)를 줄인다.
+  //   1.0 = 실제 발로란트 값. 브리치는 벽 너머에서 오는 플래시라 실제 값을 유지한다.
+  const ts = typeId === 'breach' ? 1 : fastScale;
+  const out = planThrowScaled(typeId, def, { eye, yawDeg, distMin, distMax, allowBehind, scale: windupScale * ts, ts, rng });
+  out.throwAnim = def.throwAnim * ts;
+  return out;
+}
+
+function planThrowScaled(typeId, def, { eye, yawDeg, distMin, distMax, allowBehind, scale, ts, rng }) {
+  const windupScale = scale;
   for (let attempt = 0; attempt < 40; attempt++) {
     const P = choosePopPoint({ eye, yawDeg, distMin, distMax, allowBehind, rng });
     if (!P) continue;
-    const plan = PLANNERS[def.path](def, P, eye, windupScale, rng);
+    const plan = PLANNERS[def.path](def, P, eye, windupScale, rng, ts);
     if (plan) {
       plan.typeId = typeId;
       return plan;
@@ -209,8 +219,8 @@ const PLANNERS = {
   },
 
   // 스카이 매: 직선 비행 → 스카이가 재사용 → 윈드업 → 폭발
-  hawk(def, P, eye, scale, rng) {
-    const flight = def.flightMin + rng() * (def.flightMax - def.flightMin);
+  hawk(def, P, eye, scale, rng, ts = 1) {
+    const flight = (def.flightMin + rng() * (def.flightMax - def.flightMin)) * ts;
     const wind = def.popWindup * scale;
     const slow = 0.4; // [근사] 재사용 후에는 느려지며 터진다
     const u = norm(dirH(bearing(eye, P) + (rng() * 2 - 1) * 50));
@@ -230,8 +240,8 @@ const PLANNERS = {
   },
 
   // 요루: 벽에 던져 튕긴 뒤 0.6s 윈드업
-  bounce(def, P, eye, scale, rng) {
-    return planBounce(def, P, eye, def.bounceWindup * scale, def.speed, 0.25 + rng() * 0.35, rng, def.maxBlind);
+  bounce(def, P, eye, scale, rng, ts = 1) {
+    return planBounce(def, P, eye, def.bounceWindup * scale, def.speed, (0.25 + rng() * 0.35) * ts, rng, def.maxBlind);
   },
 
   // 케이/오: 포물선. 일부는 벽에 튕겨 0.8s 윈드업 규칙 적용
@@ -283,8 +293,8 @@ const PLANNERS = {
   },
 
   // 레이나 눈: 날아가서 도착 → 0.4s 윈드업 → 근시 시작
-  eye(def, P, eye, scale, rng) {
-    const travel = def.travel;
+  eye(def, P, eye, scale, rng, ts = 1) {
+    const travel = def.travel * ts;
     const wind = def.windup * scale;
     const u = dirH(bearing(eye, P) + (rng() * 2 - 1) * 60);
     const L = 5 + rng() * 4;
@@ -370,7 +380,7 @@ export class FlashSystem {
   launch(plan, roundId) {
     const def = FLASH_TYPES[plan.typeId];
     const f = {
-      plan, def, roundId, castAt: this.time, t: -def.throwAnim, state: 'windup-throw', mesh: null,
+      plan, def, roundId, castAt: this.time, t: -(plan.throwAnim ?? def.throwAnim), state: 'windup-throw', mesh: null,
       sound: null, eventsDone: 0, hp: def.hp || 0, eyeUntil: 0, nearSec: 0,
     };
     this.audio.throwSound(plan.start);
@@ -408,26 +418,33 @@ export class FlashSystem {
     }
   }
 
-  /** 좌클릭 사격: 레이나 눈만 맞출 수 있다 */
-  shoot(eye, fwd) {
-    this.audio.shot();
+  /**
+   * 총알 판정용: 광선(eye → dir)이 레이나 눈에 맞는지. 맞으면 { dist, apply(damage) }, 아니면 null.
+   * 벽 가림은 combat.js 가 거리 비교로 처리한다.
+   */
+  hitTestEyes(eye, dir) {
     let best = null;
     for (const f of this.active) {
-      if (f.def.kind !== 'nearsight' || !f.mesh.visible) continue;
+      if (f.def.kind !== 'nearsight' || f.state === 'done' || !f.mesh.visible) continue;
       const c = f.mesh.position;
       const oc = [c.x - eye[0], c.y - eye[1], c.z - eye[2]];
-      const along = oc[0] * fwd.x + oc[1] * fwd.y + oc[2] * fwd.z;
+      const along = oc[0] * dir[0] + oc[1] * dir[1] + oc[2] * dir[2];
       if (along <= 0) continue;
       const perp2 = dot(oc, oc) - along * along;
-      if (perp2 > 0.35 * 0.35) continue; // [근사] 맞는 판정 반지름 0.35m
-      if (segmentBlocked(eye, [c.x, c.y, c.z])) continue;
-      if (!best || along < best.along) best = { f, along };
+      if (perp2 > 0.3 * 0.3) continue; // [근사] 눈 판정 반지름 0.3m
+      if (!best || along < best.dist) {
+        best = {
+          dist: along,
+          kind: 'eye',
+          apply: (damage) => {
+            f.hp -= damage;
+            if (f.hp <= 0 && f.state !== 'done') this.finishEye(f, true);
+            return f.hp <= 0;
+          },
+        };
+      }
     }
-    if (best) {
-      best.f.hp -= best.f.def.shotDamage;
-      this.audio.beep([best.f.mesh.position.x, best.f.mesh.position.y, best.f.mesh.position.z], 2200, 0.05);
-      if (best.f.hp <= 0) this.finishEye(best.f, true);
-    }
+    return best;
   }
 
   finishEye(f, destroyed) {

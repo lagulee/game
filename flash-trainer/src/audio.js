@@ -198,10 +198,52 @@ export class AudioFX {
     this.noiseBurst(p, { dur: 0.5, gain: 1.2, freq: 140, q: 0.8, type: 'lowpass' });
   }
 
-  /** 사격음 (레이나 눈 쏘기) */
+  /** 내 총소리 */
   shot() {
     if (!this.ctx) return;
-    this.noiseBurst(this.master, { dur: 0.12, gain: 0.5, freq: 1800, q: 0.6, type: 'bandpass' });
+    this.noiseBurst(this.master, { dur: 0.12, gain: 0.55, freq: 1800, q: 0.6, type: 'bandpass' });
+    this.noiseBurst(this.master, { dur: 0.09, gain: 0.5, freq: 160, q: 0.7, type: 'lowpass' });
+  }
+
+  /** 맞힘 소리. 머리면 높은 "띵" */
+  hit(head) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    o.type = head ? 'triangle' : 'sine';
+    o.frequency.value = head ? 2400 : 900;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(head ? 0.35 : 0.18, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (head ? 0.25 : 0.06));
+    o.connect(g).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.3);
+  }
+
+  /** 처치 소리: 두 음 */
+  kill() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    [660, 990].forEach((f, i) => {
+      const o = this.ctx.createOscillator();
+      o.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + i * 0.07);
+      g.gain.exponentialRampToValueAtTime(0.2, t + i * 0.07 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.07 + 0.15);
+      o.connect(g).connect(this.master);
+      o.start(t + i * 0.07);
+      o.stop(t + i * 0.07 + 0.2);
+    });
+  }
+
+  /** 봇이 쏘는 소리 (위치가 있는 3연사) */
+  botShot(pos) {
+    if (!this.ctx) return;
+    const p = this.panner(pos);
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => this.noiseBurst(p, { dur: 0.1, gain: 0.9, freq: 1400, q: 0.6, type: 'bandpass' }), i * 103);
+    }
   }
 
   /**

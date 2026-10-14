@@ -10,6 +10,7 @@
 
 import { FLASH_TYPES, REACTION_START_DEG, GRADE } from './config/flash.js';
 import { planThrow } from './flash.js';
+import { BOT } from './config/combat.js';
 
 /** 구간 [a, b] 들의 합집합 길이 */
 export function unionLength(intervals) {
@@ -35,8 +36,9 @@ export function grade(sec) {
 }
 
 export class Training {
-  constructor({ flashes, look, eye, settings }) {
+  constructor({ flashes, combat, look, eye, settings }) {
     this.flashes = flashes;
+    this.combat = combat;
     this.look = look;
     this.eye = eye;
     this.settings = settings;
@@ -49,6 +51,7 @@ export class Training {
     this.dirty = true;
 
     flashes.onResult((r) => this.onResult(r));
+    if (combat) combat.onBotResult((r) => this.onBotResult(r));
     look.listeners.push((dYaw, dPitch) => this.onLook(dYaw, dPitch));
   }
 
@@ -56,7 +59,8 @@ export class Training {
 
   resume() {
     // 감도 테스트 모드를 다녀오면 진행 중이던 플래시가 지워졌을 수 있다 → 라운드를 새로 시작
-    if (this.state === 'live' && this.flashes.active.length === 0 && this.pending.length === 0) {
+    if (this.state === 'live' && this.flashes.active.length === 0 && this.pending.length === 0
+      && !(this.combat && this.combat.hasPeekBots())) {
       this.state = 'waiting';
       this.round = null;
       this.nextAt = this.flashes.time + 1.0;
@@ -103,9 +107,14 @@ export class Training {
     for (const p of ready) {
       const plan = planThrow(p.typeId, {
         eye: this.eye(), yawDeg: this.look.yawDeg, distMin: t.distMin, distMax: t.distMax,
-        allowBehind: t.allowBehind, windupScale: t.windupScale,
+        allowBehind: t.allowBehind, windupScale: t.windupScale, fastScale: t.fastScale,
       });
       this.flashes.launch(plan, this.round.no);
+      // 플래시와 함께 피킹: 플래시가 터지는 순간 봇이 폭발 지점 뒤에서 튀어나온다
+      if (this.combat && this.settings.combat.botMode === 'peek') {
+        this.round.expected++;
+        this.combat.spawnPeek({ roundId: this.round.no, pop: plan.pop, at: now + plan.throwAnim + plan.popTime + BOT.peekDelay });
+      }
     }
   }
 
@@ -116,14 +125,26 @@ export class Training {
     if (round.results.length >= round.expected) this.finishRound();
   }
 
+  onBotResult(r) {
+    const round = this.round;
+    if (!round || r.roundId !== round.no) return;
+    round.results.push({ kind: 'bot', popAt: this.flashes.time, blindSec: 0, ...r });
+    if (round.results.length >= round.expected) this.finishRound();
+  }
+
   finishRound() {
     const round = this.round;
     const flashIntervals = round.results.filter((r) => r.kind === 'flash').map((r) => [r.popAt, r.popAt + r.blindSec]);
     const near = round.results.filter((r) => r.kind === 'nearsight').reduce((s, r) => s + r.blindSec, 0);
     const blind = unionLength(flashIntervals) + near;
     const lastEnd = Math.max(...round.results.map((r) => r.popAt + (r.kind === 'flash' ? r.hold + r.fade : 0)), this.flashes.time);
+    const bots = round.results.filter((r) => r.kind === 'bot' && !r.skipped);
+    const kills = bots.filter((r) => r.killed);
     this.history.unshift({
-      no: round.no, blind, reaction: round.reaction, types: round.types.slice(), detail: round.results.map(summarize),
+      no: round.no, blind, reaction: round.reaction, types: round.types.slice(),
+      detail: round.results.filter((r) => r.kind !== 'bot').map(summarize),
+      bots: bots.length, kills: kills.length, died: bots.some((r) => !r.killed),
+      ttk: kills.length ? Math.max(...kills.map((r) => r.ttk)) : null,
     });
     if (this.history.length > 200) this.history.pop();
     const t = this.settings.training;
@@ -150,10 +171,16 @@ export class Training {
       perfect: blinds.filter((b) => b <= GRADE[0].max).length,
       avgReact: reacts.length ? reacts.reduce((a, b) => a + b, 0) / reacts.length : null,
       bestReact: reacts.length ? Math.min(...reacts) : null,
+      botRounds: h.filter((x) => x.bots > 0).length,
+      won: h.filter((x) => x.bots > 0 && !x.died).length,
+      avgTtk: avg(h.map((x) => x.ttk).filter((x) => x != null)),
     };
   }
 
   render() {
+    const c0 = this.combat && this.combat.stats;
+    const key = c0 ? `${c0.shots},${c0.hits},${c0.kills}` : '';
+    if (key !== this.combatKey) { this.combatKey = key; this.dirty = true; }
     if (!this.dirty) return;
     this.dirty = false;
     const t = this.settings.training;
@@ -165,13 +192,27 @@ export class Training {
         + `평균 눈뽕 <b>${s.avg.toFixed(2)}s</b> · 최고 <b>${s.best.toFixed(2)}s</b><br>`
         + `평균 반응 <b>${fmtMs(s.avgReact)}</b> · 최고 반응 <b>${fmtMs(s.bestReact)}</b>`
       : '첫 플래시를 기다리는 중… 소리를 잘 들으세요.';
+    const c = this.combat && this.combat.stats;
+    if (c && c.shots) {
+      document.getElementById('hud-stats').innerHTML += `<br>처치 <b>${c.kills}</b> · 명중 <b>${pct(c.hits, c.shots)}</b> · 헤드 <b>${pct(c.heads, c.hits)}</b>`
+        + (s && s.botRounds ? `<br>피킹 승리 <b>${s.won}/${s.botRounds}</b> · 평균 처치 <b>${fmtMs(s.avgTtk)}</b>` : '');
+    }
     document.getElementById('hud-log').innerHTML = this.history.slice(0, 8).map((x) => {
       const g = grade(x.blind);
       const names = x.types.map((id) => FLASH_TYPES[id].short).join('+');
-      return `<div class="${g.cls}">#${x.no} ${names} — ${x.blind.toFixed(2)}s ${g.label} · 반응 ${fmtMs(x.reaction)}`
+      const fight = !x.bots ? '' : x.died ? ' · <b>당함</b>' : ` · 처치 ${fmtMs(x.ttk)}`;
+      return `<div class="${x.died ? 'bad' : g.cls}">#${x.no} ${names} — ${x.blind.toFixed(2)}s ${g.label} · 반응 ${fmtMs(x.reaction)}${fight}`
         + `<br><span class="dim">${x.detail.join(' / ')}</span></div>`;
     }).join('');
   }
+}
+
+function avg(xs) {
+  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+}
+
+function pct(a, b) {
+  return b ? `${Math.round((a / b) * 100)}%` : '—';
 }
 
 function fmtMs(sec) {

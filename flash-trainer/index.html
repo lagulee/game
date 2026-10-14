@@ -15,8 +15,13 @@
   <!-- 니어사이트(레이나 Leer): 가장자리부터 흐리고 어둡게 -->
   <div id="nearsight"></div>
 
+  <!-- 맞았을 때 붉은 테두리 -->
+  <div id="hurt"></div>
+
   <!-- 조준점 -->
   <div id="crosshair"></div>
+  <!-- 탄약 -->
+  <div id="ammo"></div>
 
   <!-- 게임 정보 (오른쪽 위) -->
   <div id="hud" class="hidden">
@@ -57,7 +62,7 @@
         <button id="btn-train" class="primary">훈련 시작</button>
         <button id="btn-senstest">감도 테스트 모드</button>
       </div>
-      <p class="sub small">시작하면 마우스가 잠깁니다. <b>Esc</b>로 이 화면으로 돌아옵니다. 이동: WASD · Shift 걷기</p>
+      <p class="sub small">시작하면 마우스가 잠깁니다. <b>Esc</b>로 이 화면으로 돌아옵니다. 이동: WASD · Shift 걷기 · 좌클릭 사격 · R 재장전</p>
 
       <div class="cols">
         <section>
@@ -93,11 +98,23 @@
             <input id="in-dmax" type="number" min="2" max="30" step="0.5"></span></label>
           <label>윈드업 배율 <input id="in-windup" type="number" min="0.5" max="3" step="0.1">
             <span class="small">(1.0 = 실제 값, 크게 하면 쉬움)</span></label>
+          <label>터지는 시간 배율 <input id="in-fast" type="number" min="0.4" max="1" step="0.05">
+            <span class="small">(브리치 제외, 1.0 = 실제, 작을수록 어려움)</span></label>
           <label>동시 투척 수 <input id="in-count" type="number" min="1" max="3" step="1"></label>
           <label>라운드 간격(초) <span class="pair">
             <input id="in-gapmin" type="number" min="0.5" max="10" step="0.5"> ~
             <input id="in-gapmax" type="number" min="0.5" max="15" step="0.5"></span></label>
           <label>등 뒤에서도 투척 <input id="in-behind" type="checkbox"></label>
+
+          <h2>사격 · 봇</h2>
+          <label>봇 <select id="in-botmode">
+            <option value="peek">플래시와 함께 피킹</option>
+            <option value="always">사격장처럼 상주</option>
+            <option value="off">끔</option>
+          </select></label>
+          <label>피킹 봇 처치 제한(초) <input id="in-botreact" type="number" min="0.3" max="5" step="0.1"></label>
+          <label>상주 봇 수 <input id="in-botcount" type="number" min="1" max="6" step="1"></label>
+          <p class="small">총: 밴달 (머리 160 · 몸 40 · 다리 34, 9.75발/s, 25발). 좌클릭 사격(누르고 있으면 연사) · R 재장전</p>
 
           <h2>소리</h2>
           <label>효과음 <input id="in-vol" type="range" min="0" max="1" step="0.05"></label>

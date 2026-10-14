@@ -4,6 +4,7 @@
 
 import { DEFAULT_SETTINGS, OTHER_GAME_YAW } from './config/view.js';
 import { FLASH_TYPES, TRAINING_DEFAULTS } from './config/flash.js';
+import { COMBAT_DEFAULTS } from './config/combat.js';
 import { eDPI, cmPer360, degPerCount, toValorantSens } from './input.js';
 
 const KEY = 'flash-trainer.settings.v1';
@@ -19,6 +20,7 @@ export function loadSettings() {
   const s = { ...DEFAULT_SETTINGS, ...saved };
   s.training = { ...TRAINING_DEFAULTS, ...(saved.training || {}) };
   s.training.enabled = { ...TRAINING_DEFAULTS.enabled, ...((saved.training || {}).enabled || {}) };
+  s.combat = { ...COMBAT_DEFAULTS, ...(saved.combat || {}) };
   return s;
 }
 
@@ -68,6 +70,10 @@ export function bindMenu(settings, onChange) {
     $('in-dmin').value = t.distMin;
     $('in-dmax').value = t.distMax;
     $('in-windup').value = t.windupScale;
+    $('in-fast').value = t.fastScale;
+    $('in-botmode').value = settings.combat.botMode;
+    $('in-botreact').value = settings.combat.botReact;
+    $('in-botcount').value = settings.combat.alwaysCount;
     $('in-count').value = t.count;
     $('in-gapmin').value = t.gapMin;
     $('in-gapmax').value = t.gapMax;
@@ -99,6 +105,11 @@ export function bindMenu(settings, onChange) {
     t.distMin = num($('in-dmin').value, t.distMin, 2, 30);
     t.distMax = Math.max(t.distMin, num($('in-dmax').value, t.distMax, 2, 30));
     t.windupScale = num($('in-windup').value, t.windupScale, 0.5, 3);
+    t.fastScale = num($('in-fast').value, t.fastScale, 0.4, 1);
+    const bm = $('in-botmode').value;
+    settings.combat.botMode = ['off', 'peek', 'always'].includes(bm) ? bm : 'peek';
+    settings.combat.botReact = num($('in-botreact').value, settings.combat.botReact, 0.3, 5);
+    settings.combat.alwaysCount = Math.round(num($('in-botcount').value, settings.combat.alwaysCount, 1, 6));
     t.count = Math.round(num($('in-count').value, t.count, 1, 3));
     t.gapMin = num($('in-gapmin').value, t.gapMin, 0.5, 10);
     t.gapMax = Math.max(t.gapMin, num($('in-gapmax').value, t.gapMax, 0.5, 15));
@@ -110,6 +121,7 @@ export function bindMenu(settings, onChange) {
   }
 
   $('in-map').addEventListener('change', read);
+  $('in-botmode').addEventListener('change', read);
   for (const el of document.querySelectorAll('#menu input')) {
     if (el.id === 'conv-in') continue;
     el.addEventListener('input', read);

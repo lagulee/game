@@ -95,8 +95,7 @@ export const FLASH_TYPES = {
     hp: 60,               // [2차 출처] 체력 60
     path: 'eye',
     throwAnim: 0.25,      // [근사값]
-    viewAngleDeg: 55,     // [근사값] 이 각도 안에서 눈을 바라보면 근시 (≈ 수평 FOV 의 절반)
-    shotDamage: 40,       // [근사값] 좌클릭 한 발 피해 (60HP → 두 발에 파괴)
+    viewAngleDeg: 55,     // [근사값] 이 각도 안에서 눈을 바라보면 근시 (≈ 수평 FOV 의 절반). 총으로 쏴서 부술 수 있다(밴달 몸 피해 40 → 2발)
     color: 0xd060ff,
   },
 };
@@ -136,7 +135,8 @@ export const TRAINING_DEFAULTS = {
   enabled: { phoenix: true, skye: true, yoru: true, kayoOver: true, kayoUnder: true, breach: true, reyna: false },
   distMin: 5,
   distMax: 14,
-  windupScale: 1.0,   // 1.0 = 실제 윈드업. 연습용으로만 늘리거나 줄인다
+  windupScale: 1.0,   // 1.0 = 실제 윈드업. 연습용으로만 늘리거나 줄인다 (모든 플래시)
+  fastScale: 0.7,     // [훈련 난이도] 브리치를 뺀 플래시의 "던진 뒤 터질 때까지" 시간 배율. 1.0 = 실제, 0.7 = 30% 빠름
   count: 1,
   gapMin: 1.5,
   gapMax: 4.0,

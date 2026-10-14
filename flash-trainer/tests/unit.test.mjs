@@ -243,3 +243,85 @@ test('겹치는 눈뽕 구간은 합집합으로 센다', () => {
   close(unionLength([[0, 1], [2, 3]]), 2);
   close(unionLength([[0, 0], [5, 5]]), 0);
 });
+
+// ---------------- 터지는 시간 배율 (브리치 제외) ----------------
+test('fastScale: 브리치만 빼고 터지는 시간 · 던지는 모션이 줄어든다', () => {
+  setMap('open');
+  const opt = { eye: [0, 1.6, 0], yawDeg: 0, distMin: 5, distMax: 12, allowBehind: false, fastScale: 0.7 };
+  const ph = planThrow('phoenix', { ...opt, rng: seeded(11) });
+  close(ph.popTime, 0.6 * 0.7, 1e-9);
+  close(ph.throwAnim, FLASH_TYPES.phoenix.throwAnim * 0.7, 1e-9);
+  const br = planThrow('breach', { ...opt, rng: seeded(12) });
+  close(br.popTime, 0.5, 1e-9);
+  close(br.throwAnim, FLASH_TYPES.breach.throwAnim, 1e-9);
+  for (let k = 0; k < 10; k++) {
+    const real = planThrow('kayoOver', { ...opt, fastScale: 1, rng: seeded(300 + k) });
+    const fast = planThrow('kayoOver', { ...opt, rng: seeded(300 + k) });
+    assert.ok(fast.popTime < real.popTime, '케이/오도 빨라져야 함');
+    assert.ok(fast.popTime <= 1.6 * 0.7 + 1e-9);
+  }
+  // 기본값(fastScale 생략) = 실제 값
+  close(planThrow('phoenix', { ...opt, fastScale: undefined, rng: seeded(13) }).popTime, 0.6, 1e-9);
+  setMap('course');
+});
+
+// ---------------- 총 · 봇 ----------------
+import { damageFor, rayHitBot, wallDistance, spreadDeg, jitterDir, peekSpot } from '../src/combat.js';
+import { GUN, BOT } from '../src/config/combat.js';
+
+test('밴달 피해량 · 연사 속도 · 봇 체력', () => {
+  close(damageFor('head'), 160); close(damageFor('body'), 40); close(damageFor('legs'), 34);
+  close(GUN.fireRate, 9.75); close(GUN.magazine, 25); close(BOT.hp, 150);
+  assert.ok(damageFor('head') >= BOT.hp, '머리 한 방');
+  assert.equal(Math.ceil(BOT.hp / damageFor('body')), 4, '몸 4발');
+});
+
+test('봇 부위 판정: 머리 / 몸 / 다리 / 빗나감', () => {
+  const bot = { x: 0, z: -10 };
+  const eye = [0, 1.6, 0];
+  const aim = (y) => { const d = [0, y - 1.6, -10]; const l = Math.hypot(...d); return d.map((v) => v / l); };
+  assert.equal(rayHitBot(eye, aim(BOT.headY), bot).part, 'head');
+  assert.equal(rayHitBot(eye, aim(1.1), bot).part, 'body');
+  assert.equal(rayHitBot(eye, aim(0.4), bot).part, 'legs');
+  assert.equal(rayHitBot(eye, [0.3, 0, -0.954], bot), null);
+  close(rayHitBot(eye, aim(BOT.headY), bot).dist, 10 - BOT.headR, 0.01);
+});
+
+test('벽 뒤 봇은 벽이 먼저 맞는다', () => {
+  setMap('course');
+  // 가운데 가림벽(z -5.5 ~ -6) 너머의 봇
+  const eye = [0, 1.6, -2];
+  const bot = { x: 0, z: -9 };
+  const d = [0, 0, -1];
+  assert.ok(wallDistance(eye, d) < rayHitBot(eye, d, bot).dist);
+  setMap('open');
+  assert.ok(wallDistance([0, 1.6, 0], d) > rayHitBot([0, 1.6, 0], d, { x: 0, z: -7 }).dist);
+});
+
+test('탄 퍼짐: 멈춘 첫 발은 정확, 연사 · 이동하면 넓어짐', () => {
+  close(spreadDeg(0, 'still'), 0);
+  assert.ok(spreadDeg(5, 'still') > 0);
+  assert.ok(spreadDeg(100, 'still') <= GUN.maxSprayDeg + 1e-9);
+  assert.ok(spreadDeg(0, 'run') > spreadDeg(0, 'walk'));
+  const d = jitterDir([0, 0, -1], 0);
+  assert.deepEqual(d, [0, 0, -1]);
+  for (let i = 0; i < 50; i++) {
+    const j = jitterDir([0, 0, -1], 3);
+    const ang = Math.acos(-j[2]) * 180 / Math.PI;
+    assert.ok(ang <= 3 + 1e-6, `퍼짐 ${ang}`);
+  }
+});
+
+test('피킹 봇은 플래시 폭발 지점 뒤, 보이는 곳에 나온다', () => {
+  setMap('open');
+  const eye = [0, 1.6, 0];
+  const pop = [0, 2, -8];
+  for (let k = 0; k < 20; k++) {
+    const s = peekSpot(eye, pop, seeded(700 + k));
+    assert.ok(s);
+    const d = Math.hypot(s.x, s.z);
+    assert.ok(d >= 8 + BOT.peekBehind[0] - 1e-6 && d <= 8 + BOT.peekBehind[1] + 1e-6, `거리 ${d}`);
+    assert.ok(!segmentBlocked(eye, [s.x, BOT.headY, s.z]));
+  }
+  setMap('course');
+});

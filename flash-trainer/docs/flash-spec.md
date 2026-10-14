@@ -149,3 +149,19 @@ $$\text{수직 FOV} = 2\arctan\!\left(\frac{\tan(103°/2)}{\text{가로}/\text{�
 | 레이나 Leer | 니어사이트 1.6 s | 0.4 s, 60 HP | 🟡 |
 | 공통 페이드 | 지속시간 뒤 1.0 s | | 🟡 |
 | 각도 곡선 / 거리 감쇠 / 던지는 모션 / 투사체 속도 | 근사 | | ❌ |
+
+---
+
+## 6. 총 · 봇 (사격 기능 추가 때 조사)
+
+| 항목 | 값 | 상태 | 출처 |
+|---|---|---|---|
+| 밴달 피해량 (0~50 m) | 머리 160 / 몸 40 / 다리 34 | ✅ | [Liquipedia Vandal](https://liquipedia.net/valorant/Vandal), [Dexerto](https://www.dexerto.com/valorant/how-to-use-the-vandal-valorant-weapon-guide-1367476/) |
+| 밴달 연사 속도 | 9.75발/s (1.07에서 9.25 → 9.75) | ✅ | Liquipedia |
+| 밴달 탄창 | 25 | ✅ | Liquipedia |
+| 체력 | 100 + 중방어구 50 = 150 (몸 4발, 머리 1발) | ✅(2차 둘) | [Dodge.gg](https://www.dodge.gg/en-US/valorant/news/vandal-weapon-guide-2026), Dexerto |
+| 반동 패턴 · 이동 부정확도 · 재장전 시간 | — | ❌ | 근사 (`src/config/combat.js`) |
+
+## 7. 훈련용 난이도 (발로란트 값 아님)
+
+- **터지는 시간 배율**(기본 0.7): 브리치를 뺀 플래시의 던지는 모션 · 비행 · 윈드업 시간에 곱한다. 사용자 요청으로 실제보다 어렵게 만든 값이다. 1.0으로 두면 5절 표의 실제 값과 같다.

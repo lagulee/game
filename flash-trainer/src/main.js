@@ -14,6 +14,7 @@ import { loadSettings, bindMenu, toast, round } from './ui.js';
 import { AudioFX } from './audio.js';
 import { FlashSystem } from './flash.js';
 import { Training } from './game.js';
+import { Combat } from './combat.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -129,7 +130,8 @@ function eye() {
 
 // ---------- 플래시 · 훈련 ----------
 const flashes = new FlashSystem({ scene, audio, look, eye, settings });
-const training = new Training({ flashes, look, eye, settings, audio });
+const combat = new Combat({ scene, camera, audio, flashes, eye, look, settings });
+const training = new Training({ flashes, combat, look, eye, settings, audio });
 
 // ---------- 모드 · 포인터 락 ----------
 let mode = 'train';
@@ -154,7 +156,10 @@ document.addEventListener('pointerlockchange', () => {
   running = document.pointerLockElement === canvas;
   $('menu').classList.toggle('hidden', running);
   if (running) enterMode();
-  else training.pause();
+  else {
+    combat.setFiring(false);
+    training.pause();
+  }
 });
 document.addEventListener('pointerlockerror', () => toast('포인터 락 오류. 다시 클릭해 주세요.'));
 
@@ -162,9 +167,12 @@ function enterMode() {
   const isTest = mode === 'senstest';
   $('senstest').classList.toggle('hidden', !isTest);
   $('hud').classList.toggle('hidden', isTest);
+  $('ammo').classList.toggle('hidden', isTest);
+  combat.gun.visible = !isTest;
   markers.visible = isTest;
   if (isTest) {
     flashes.clear();
+    combat.clear();
     look.resetTest();
     look.pitchDeg = 0;
   } else {
@@ -178,19 +186,25 @@ document.addEventListener('mousemove', (e) => {
   look.applyMouse(e.movementX, e.movementY);
 });
 
-// 마우스 버튼: 레이나 눈 쏘기
+// 마우스 왼쪽 버튼: 사격 (누르고 있으면 연사)
 document.addEventListener('mousedown', (e) => {
-  if (!running || e.button !== 0) return;
-  if (mode === 'train') flashes.shoot(eye(), look.forward());
+  if (!running || e.button !== 0 || mode !== 'train') return;
+  combat.setFiring(true);
+});
+document.addEventListener('mouseup', (e) => {
+  if (e.button === 0) combat.setFiring(false);
 });
 
 addEventListener('keydown', (e) => {
   if (!running) return;
   if (e.code === 'KeyR' && mode === 'senstest') look.resetTest();
+  if (e.code === 'KeyR' && mode === 'train') combat.reload();
 });
 
 // ---------- 화면 갱신 ----------
+let moveState = 'still'; // 이동 사격 퍼짐 계산용: still | walk | run
 function updateMovement(dt) {
+  moveState = 'still';
   let f = 0;
   let s = 0;
   if (keys.has('KeyW')) f += 1;
@@ -199,7 +213,9 @@ function updateMovement(dt) {
   if (keys.has('KeyA')) s -= 1;
   if (!f && !s) return;
   const len = Math.hypot(f, s);
-  const speed = RUN_SPEED * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? WALK_MULT : 1);
+  const walking = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  moveState = walking ? 'walk' : 'run';
+  const speed = RUN_SPEED * (walking ? WALK_MULT : 1);
   const yaw = (look.yawDeg * Math.PI) / 180;
   const fx = Math.sin(yaw);
   const fz = -Math.cos(yaw);
@@ -252,6 +268,7 @@ function step(dt) {
   }
   // 플래시는 일시정지 중에도 연출(페이드)이 끝나도록 계속 갱신하되, 새 투척은 training 이 막는다
   flashes.update(running ? dt : 0, settings.showDebug);
+  if (mode === 'train') combat.update(running ? dt : 0, { running, moveState });
   training.render();
 
   renderer.render(scene, camera);
@@ -259,4 +276,4 @@ function step(dt) {
 requestAnimationFrame(frame);
 
 // 자동 검사(tests/smoke)용 손잡이. 게임 동작에는 영향 없음
-window.__ft = { look, settings, player, flashes, training, camera, setMode: (m) => { mode = m; enterMode(); }, setRunning: (v) => { running = v; } };
+window.__ft = { look, settings, player, flashes, training, combat, camera, setMode: (m) => { mode = m; enterMode(); }, setRunning: (v) => { running = v; } };

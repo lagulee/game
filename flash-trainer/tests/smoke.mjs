@@ -65,6 +65,8 @@ async function oneRound(face) {
   return page.evaluate(async (face) => {
     const ft = window.__ft;
     ft.setMode('train');
+    ft.settings.combat.botMode = 'off'; // 눈뽕 시간 측정만 (봇이 있으면 라운드가 늦게 끝난다)
+    ft.settings.training.fastScale = 1;  // 실제 발로란트 값으로 측정
     ft.settings.training.enabled = { phoenix: true };
     ft.settings.training.count = 1;
     ft.flashes.clear();
@@ -136,6 +138,74 @@ const all = await page.evaluate(async () => {
 for (const line of all) console.log('     ' + line);
 check(all.length === 7, '7종 모두 라운드 완료');
 await page.screenshot({ path: path.join(OUT, 'shot-train.png') });
+
+// ---- 사격: 피킹 봇을 머리로 한 방에 잡기 ----
+const fight = await page.evaluate(async () => {
+  const ft = window.__ft;
+  ft.settings.training.enabled = { phoenix: true };
+  ft.settings.training.count = 1;
+  ft.settings.combat.botMode = 'peek';
+  ft.settings.combat.botReact = 3;
+  ft.flashes.clear(); ft.combat.clear();
+  ft.player.x = 0; ft.player.z = 0;
+  const before = ft.training.history.length;
+  const shotsBefore = ft.combat.stats.shots;
+  ft.training.state = 'waiting'; ft.training.round = null; ft.training.nextAt = ft.flashes.time;
+  const t0 = performance.now();
+  let fired = false;
+  await new Promise((resolve, reject) => {
+    const tick = () => {
+      const bot = ft.combat.bots.find((b) => b.alive);
+      if (bot && !fired) {
+        // 봇 머리를 정확히 조준하고 한 발
+        const e = [ft.player.x, 1.6, ft.player.z];
+        ft.look.yawDeg = Math.atan2(bot.x - e[0], -(bot.z - e[2])) * 180 / Math.PI;
+        ft.look.pitchDeg = Math.atan2(1.55 - 1.6, Math.hypot(bot.x - e[0], bot.z - e[2])) * 180 / Math.PI;
+        ft.combat.moveState = 'still';
+        ft.combat.lastShot = -Infinity;
+        ft.combat.setFiring(true);
+        ft.combat.setFiring(false);
+        fired = true;
+      }
+      if (ft.training.history.length > before) resolve();
+      else if (performance.now() - t0 > 20000) reject(new Error('사격 라운드가 20초 안에 끝나지 않음'));
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  const h = ft.training.history[0];
+  return { kills: h.kills, died: h.died, ttk: h.ttk, shots: ft.combat.stats.shots - shotsBefore, heads: ft.combat.stats.heads };
+});
+check(fight.kills === 1 && !fight.died && fight.shots === 1 && fight.heads >= 1, `피킹 봇 헤드샷 1발 처치 (처치 ${fight.kills}, 발사 ${fight.shots}, 처치 시간 ${fight.ttk && Math.round(fight.ttk * 1000)}ms)`);
+
+// 아무것도 안 하면 "당함"
+const lose = await page.evaluate(async () => {
+  const ft = window.__ft;
+  ft.settings.combat.botReact = 0.5;
+  const before = ft.training.history.length;
+  ft.training.state = 'waiting'; ft.training.round = null; ft.training.nextAt = ft.flashes.time;
+  const t0 = performance.now();
+  await new Promise((resolve, reject) => {
+    const tick = () => (ft.training.history.length > before ? resolve()
+      : performance.now() - t0 > 20000 ? reject(new Error('timeout')) : requestAnimationFrame(tick));
+    tick();
+  });
+  return ft.training.history[0];
+});
+check(lose.died === true && lose.kills === 0, '피킹 봇을 못 잡으면 당함으로 기록');
+await page.screenshot({ path: path.join(OUT, 'shot-combat.png') });
+
+// 상주 봇
+const always = await page.evaluate(async () => {
+  const ft = window.__ft;
+  ft.settings.combat.botMode = 'always';
+  ft.settings.combat.alwaysCount = 3;
+  ft.training.state = 'waiting'; ft.training.nextAt = ft.flashes.time + 999; // 플래시 멈춤
+  await new Promise((r) => setTimeout(r, 500));
+  return ft.combat.bots.filter((b) => b.kind === 'always' && b.alive).length;
+});
+check(always === 3, `상주 봇 ${always}마리`);
+await page.screenshot({ path: path.join(OUT, 'shot-always.png') });
 
 check(errors.length === 0, `콘솔 오류 없음 ${errors.join(' | ')}`);
 await browser.close();

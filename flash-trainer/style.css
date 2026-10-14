@@ -15,6 +15,19 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
 
 #crosshair { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
   background: #0f8; border-radius: 1px; box-shadow: 0 0 0 1px #000; z-index: 3; pointer-events: none; }
+/* 맞힘 표시: 조준점 주변 X (머리는 빨강) */
+#crosshair::before, #crosshair::after { content: ""; position: absolute; left: 50%; top: 50%; width: 14px; height: 2px;
+  margin: -1px 0 0 -7px; background: #fff; opacity: 0; }
+#crosshair::before { transform: rotate(45deg) scaleX(1.6); }
+#crosshair::after { transform: rotate(-45deg) scaleX(1.6); }
+#crosshair.hit::before, #crosshair.hit::after { animation: hitmark .18s ease-out; }
+#crosshair.head::before, #crosshair.head::after { background: #ff4040; animation: hitmark .3s ease-out; }
+@keyframes hitmark { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #crosshair.hit::before, #crosshair.hit::after, #crosshair.head::before, #crosshair.head::after { animation-duration: .01s; } }
+#hurt { position: fixed; inset: 0; pointer-events: none; z-index: 4; opacity: 0;
+  box-shadow: inset 0 0 120px 40px rgba(220,30,30,.85); }
+#ammo { position: fixed; right: calc(20px + env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  z-index: 3; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; pointer-events: none; }
 
 #hud { position: fixed; right: calc(12px + env(safe-area-inset-right, 0px)); top: calc(12px + env(safe-area-inset-top, 0px)); width: 270px; z-index: 3; font-size: 13px;
   background: rgba(0,0,0,.55); padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
