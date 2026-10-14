@@ -59,6 +59,7 @@ export function bindMenu(settings, onChange) {
   }
 
   function fill() {
+    $('in-map').value = settings.map;
     $('in-dpi').value = settings.dpi;
     $('in-sens').value = settings.sens;
     $('in-vol').value = settings.volume;
@@ -89,6 +90,7 @@ export function bindMenu(settings, onChange) {
   }
 
   function read() {
+    settings.map = $('in-map').value === 'course' ? 'course' : 'open';
     settings.dpi = num($('in-dpi').value, settings.dpi, 100, 32000);
     settings.sens = num($('in-sens').value, settings.sens, 0.001, 10);
     settings.volume = num($('in-vol').value, settings.volume, 0, 1);
@@ -107,6 +109,7 @@ export function bindMenu(settings, onChange) {
     onChange && onChange();
   }
 
+  $('in-map').addEventListener('change', read);
   for (const el of document.querySelectorAll('#menu input')) {
     if (el.id === 'conv-in') continue;
     el.addEventListener('input', read);

@@ -9,7 +9,7 @@
 import * as THREE from '../vendor/three.module.min.js';
 import { HORIZONTAL_FOV_DEG, EYE_HEIGHT, RUN_SPEED, WALK_MULT, PLAYER_RADIUS } from './config/view.js';
 import { LookState, Keys, lockPointer, verticalFovDeg, cmPer360, countsToCm } from './input.js';
-import { MAP_BOXES, PLAYER_SPAWN, ARENA_HALF, resolvePlayer } from './map.js';
+import { MAP_BOXES, PLAYER_SPAWN, ARENA_HALF, resolvePlayer, setMap } from './map.js';
 import { loadSettings, bindMenu, toast, round } from './ui.js';
 import { AudioFX } from './audio.js';
 import { FlashSystem } from './flash.js';
@@ -19,8 +19,12 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- 설정 ----------
 const settings = loadSettings();
+setMap(settings.map);
 const audio = new AudioFX(() => settings);
-bindMenu(settings, () => audio.applyVolume());
+bindMenu(settings, () => {
+  audio.applyVolume();
+  if (settings.map !== builtMap) buildMap(); // 맵을 바꾸면 바로 다시 짓는다
+});
 
 // ---------- Three.js 기본 ----------
 const canvas = $('view');
@@ -75,16 +79,30 @@ floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
 // 구조물: map.js 의 상자 데이터 그대로
-for (const b of MAP_BOXES) {
-  const sx = b.max[0] - b.min[0];
-  const sy = b.max[1] - b.min[1];
-  const sz = b.max[2] - b.min[2];
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshLambertMaterial({ color: b.color }));
-  mesh.position.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-  scene.add(mesh);
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0x222222 }));
-  edges.position.copy(mesh.position);
-  scene.add(edges);
+const mapGroup = new THREE.Group();
+scene.add(mapGroup);
+let builtMap = null;
+function buildMap() {
+  setMap(settings.map);
+  builtMap = settings.map;
+  for (const obj of [...mapGroup.children]) {
+    mapGroup.remove(obj);
+    obj.geometry.dispose();
+  }
+  for (const b of MAP_BOXES) {
+    const sx = b.max[0] - b.min[0];
+    const sy = b.max[1] - b.min[1];
+    const sz = b.max[2] - b.min[2];
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshLambertMaterial({ color: b.color }));
+    mesh.position.set((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
+    mapGroup.add(mesh);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0x222222 }));
+    edges.position.copy(mesh.position);
+    mapGroup.add(edges);
+  }
+  // 플레이어를 새 맵의 시작 위치로
+  player.x = PLAYER_SPAWN.x;
+  player.z = PLAYER_SPAWN.z;
 }
 
 // 감도 테스트용 방위 표시 기둥 (북=빨강, 동·서·남=흰색)
@@ -103,6 +121,7 @@ scene.add(markers);
 const look = new LookState(() => settings);
 const keys = new Keys();
 const player = { x: PLAYER_SPAWN.x, z: PLAYER_SPAWN.z };
+buildMap();
 
 function eye() {
   return [player.x, EYE_HEIGHT, player.z];

@@ -36,6 +36,7 @@ export const PLAYER_RADIUS = 0.35;
 
 // 설정 기본값 (localStorage 에 저장된 값이 없을 때)
 export const DEFAULT_SETTINGS = {
+  map: 'open',     // 'open' = 빈 훈련장, 'course' = 구조물 맵
   dpi: 800,
   sens: 0.4,
   volume: 0.6,      // 효과음 전체 볼륨 (0~1)

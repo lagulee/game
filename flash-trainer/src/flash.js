@@ -300,19 +300,27 @@ const PLANNERS = {
 
 /** 벽에 튕기는 경로: S → B(벽) → P. 벽에 닿은 뒤 windup 초 뒤 P 에서 폭발 */
 function planBounce(def, P, eye, windup, speed, tIn, rng, maxBlind) {
-  // P 근처의 벽을 찾는다 (수평 방향으로 광선)
-  for (let k = 0; k < 10; k++) {
-    const h = rng() * 360;
-    const far = add(P, mul(dirH(h), 5));
-    const hit = segmentHit(P, far);
-    if (!hit || hit.normal[1] !== 0) continue;
-    const n = hit.normal;
-    const B = add(hit.point, mul(n, 0.12));
+  // 1) P 근처의 벽을 찾는다 (수평 방향으로 광선). 2) 벽이 없으면 바닥에 튕긴다.
+  //    (요루 Blindside · 케이/오 플래시는 바닥에도 튕긴다 — 빈 훈련장에서 쓰는 경로)
+  for (let k = 0; k < 20; k++) {
+    let B;
+    let n;
+    if (k < 10) {
+      const far = add(P, mul(dirH(rng() * 360), 5));
+      const hit = segmentHit(P, far);
+      if (!hit || hit.normal[1] !== 0) continue;
+      n = hit.normal;
+      B = add(hit.point, mul(n, 0.12));
+    } else {
+      const off = mul(dirH(rng() * 360), 1 + rng() * 1.5);
+      n = [0, 1, 0];
+      B = [P[0] + off[0], 0.25, P[2] + off[2]]; // 공 반지름만큼 띄움 (inArena 는 y > 0.2 요구)
+    }
     const r = norm(sub(P, B));
-    if (dot(r, n) < 0.2) continue; // 벽에서 P 쪽으로 튕겨 나와야 한다
+    if (dot(r, n) < 0.2) continue; // 면에서 P 쪽으로 튕겨 나와야 한다
     const dIn = sub(r, mul(n, 2 * dot(r, n))); // 반사 법칙: 들어온 방향
     const S = sub(B, mul(dIn, speed * tIn));
-    S[1] = Math.max(0.8, Math.min(2.2, S[1]));
+    S[1] = n[1] === 1 ? Math.max(0.8, Math.min(5, S[1])) : Math.max(0.8, Math.min(2.2, S[1]));
     const pts = [S, B, P];
     if (!pathClear(pts)) continue;
     const path = (t) => (t <= tIn ? lerp3(S, B, t / tIn) : lerp3(B, P, Math.min(1, (t - tIn) / windup)));

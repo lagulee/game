@@ -9,7 +9,7 @@ import { FLASH_TYPES, BLIND } from '../src/config/flash.js';
 import {
   angleFactor, computeBlind, blindOpacity, skyeMaxBlind, kayoPopTime, planThrow, angleBetweenDeg,
 } from '../src/flash.js';
-import { segmentBlocked, segmentHit, MAP_BOXES, pointInsideAny } from '../src/map.js';
+import { segmentBlocked, segmentHit, MAP_BOXES, pointInsideAny, setMap, MAPS } from '../src/map.js';
 import { unionLength } from '../src/game.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps, `${a} ≉ ${b}`);
@@ -118,6 +118,7 @@ test('정면이면 최대 눈뽕, 등지면 0', () => {
 });
 
 test('벽에 가려지면 눈뽕 없음', () => {
+  setMap('course');
   // 가운데 가림벽 z -6 ~ -5.5, x -3 ~ 6
   const eye = [0, 1.6, -2];
   const P = [0, 1.6, -9];
@@ -155,8 +156,9 @@ function seeded(seed) {
   return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
 
-test('모든 종류: 계획한 경로가 정확히 폭발 지점에서 끝나고, 거리 범위를 지킨다', () => {
-  for (const typeId of Object.keys(FLASH_TYPES)) {
+test('모든 종류: 계획한 경로가 정확히 폭발 지점에서 끝나고, 거리 범위를 지킨다 (두 맵 모두)', () => {
+  for (const mapId of Object.keys(MAPS)) for (const typeId of Object.keys(FLASH_TYPES)) {
+    setMap(mapId);
     for (let k = 0; k < 30; k++) {
       const rng = seeded(k * 97 + typeId.length);
       const eye = [0, 1.6, 7];
@@ -171,6 +173,29 @@ test('모든 종류: 계획한 경로가 정확히 폭발 지점에서 끝나고
       }
     }
   }
+  setMap('course');
+});
+
+test('빈 훈련장: 구조물이 거의 없고, 튕기는 플래시도 대체 경로 없이 계획된다(바닥 튕김)', () => {
+  setMap('open');
+  assert.ok(MAP_BOXES.length <= 8, `상자 ${MAP_BOXES.length}개`);
+  const eye = [0, 1.6, 0];
+  for (const typeId of ['yoru', 'kayoOver', 'kayoUnder']) {
+    let bounced = 0;
+    for (let k = 0; k < 40; k++) {
+      const p = planThrow(typeId, { eye, yawDeg: 0, distMin: 5, distMax: 14, allowBehind: false, rng: seeded(900 + k) });
+      assert.ok(!p.fallback, `${typeId}: 대체 직선 경로가 쓰임`);
+      if (p.events.some((e) => e.kind === 'bounce')) bounced++;
+    }
+    // 언더핸드는 신관 1.0s - 윈드업 0.8s = 0.2s 라 튕김 윈드업이 사실상 의미가 없어(10.06 규칙) 튕김 계획을 하지 않는다
+    if (typeId !== 'kayoUnder') assert.ok(bounced > 0, `${typeId}: 튕김 경로가 하나도 없음`);
+  }
+  // 플레이어 주변 14m 안은 완전히 트여 있어야 한다
+  for (let h = 0; h < 360; h += 5) {
+    const a = h * Math.PI / 180;
+    assert.ok(!segmentBlocked(eye, [Math.sin(a) * 14, 1.6, -Math.cos(a) * 14]), `${h}° 방향이 막힘`);
+  }
+  setMap('course');
 });
 
 test('신관 시간: 피닉스 0.6s, 브리치 0.5s, 케이/오 오버 1.6s 또는 튕김 규칙, 윈드업 배율 적용', () => {
@@ -203,6 +228,7 @@ test('커브볼은 실제로 휜다 (좌/우 모두 나온다)', () => {
 });
 
 test('segmentHit: 벽 법선', () => {
+  setMap('course');
   const h = segmentHit([0, 1.6, -2], [0, 1.6, -9], MAP_BOXES);
   assert.ok(h);
   close(h.point[2], -5.5, 1e-9);

@@ -21,46 +21,77 @@ const PILLAR = 0x9a8f86;
 
 export const ARENA_HALF = 22; // 바깥벽 안쪽 반 너비(m)
 
-export const MAP_BOXES = [
-  // 바깥벽 (높이 6m)
+// 바깥벽 (높이 6m) — 모든 맵 공통
+const OUTER = [
   box(-ARENA_HALF - 1, -ARENA_HALF - 1, ARENA_HALF + 1, -ARENA_HALF, 6, WALL),
   box(-ARENA_HALF - 1, ARENA_HALF, ARENA_HALF + 1, ARENA_HALF + 1, 6, WALL),
   box(-ARENA_HALF - 1, -ARENA_HALF, -ARENA_HALF, ARENA_HALF, 6, WALL),
   box(ARENA_HALF, -ARENA_HALF, ARENA_HALF + 1, ARENA_HALF, 6, WALL),
-
-  // 왼쪽 복도 (x -12 ~ -8 사이가 통로)
-  box(-12.5, -16, -12, 4, 4, WALL2),
-  box(-8, -16, -7.5, -2, 4, WALL2),
-  box(-8, 1, -7.5, 4, 4, WALL2),
-
-  // 가운데 가림벽 + ㄱ자 모서리
-  box(-3, -6, 6, -5.5, 4, WALL2),
-  box(6, -6, 6.5, -1, 4, WALL2),
-
-  // 오른쪽 ㄴ자 모서리
-  box(11, 4, 11.5, 12, 4, WALL2),
-  box(11, 3.5, 17, 4, 4, WALL2),
-
-  // 뒤쪽 짧은 벽들
-  box(-6, 12, 0, 12.5, 3.5, WALL2),
-  box(3, 15, 8, 15.5, 3.5, WALL2),
-
-  // 상자
-  box(-2, 2, -0.5, 3.5, 1.5, CRATE),
-  box(2, -1, 3.5, 0.5, 3, CRATE), // 2단 높이 상자
-  box(-5, 6, -3.5, 7.5, 1.5, CRATE),
-  box(7, 8, 8.5, 9.5, 1.5, CRATE),
-  box(14, -10, 16, -8, 2, CRATE),
-  box(-17, 8, -15, 10, 2, CRATE),
-
-  // 기둥
-  box(-16, -6, -15, -5, 5, PILLAR),
-  box(15, 16, 16, 17, 5, PILLAR),
-  box(0, -14, 1, -13, 5, PILLAR),
-  box(10, -16, 11, -15, 5, PILLAR),
 ];
 
-export const PLAYER_SPAWN = { x: 0, z: 7 };
+// 맵 종류
+export const MAPS = {
+  // 빈 훈련장 (기본): 시야를 가리는 것이 거의 없어 "돌아서 피하기"만 연습한다.
+  // 멀리 있는 기둥 4개는 방향 감각용이다. 플래시는 최대 14m 안에서 터지므로 거의 가리지 않는다.
+  open: {
+    name: '빈 훈련장',
+    spawn: { x: 0, z: 0 },
+    boxes: [
+      ...OUTER,
+      box(-17, -17, -16, -16, 4, PILLAR),
+      box(16, -17, 17, -16, 4, PILLAR),
+      box(-17, 16, -16, 17, 4, PILLAR),
+      box(16, 16, 17, 17, 4, PILLAR),
+    ],
+  },
+  // 구조물 맵: 벽 · 상자 · 복도. 모서리 뒤에서 날아오는 플래시와 벽 가림을 연습한다.
+  course: {
+    name: '구조물 맵',
+    spawn: { x: 0, z: 7 },
+    boxes: [
+      ...OUTER,
+      // 왼쪽 복도 (x -12 ~ -8 사이가 통로)
+      box(-12.5, -16, -12, 4, 4, WALL2),
+      box(-8, -16, -7.5, -2, 4, WALL2),
+      box(-8, 1, -7.5, 4, 4, WALL2),
+      // 가운데 가림벽 + ㄱ자 모서리
+      box(-3, -6, 6, -5.5, 4, WALL2),
+      box(6, -6, 6.5, -1, 4, WALL2),
+      // 오른쪽 ㄴ자 모서리
+      box(11, 4, 11.5, 12, 4, WALL2),
+      box(11, 3.5, 17, 4, 4, WALL2),
+      // 뒤쪽 짧은 벽들
+      box(-6, 12, 0, 12.5, 3.5, WALL2),
+      box(3, 15, 8, 15.5, 3.5, WALL2),
+      // 상자
+      box(-2, 2, -0.5, 3.5, 1.5, CRATE),
+      box(2, -1, 3.5, 0.5, 3, CRATE), // 2단 높이 상자
+      box(-5, 6, -3.5, 7.5, 1.5, CRATE),
+      box(7, 8, 8.5, 9.5, 1.5, CRATE),
+      box(14, -10, 16, -8, 2, CRATE),
+      box(-17, 8, -15, 10, 2, CRATE),
+      // 기둥
+      box(-16, -6, -15, -5, 5, PILLAR),
+      box(15, 16, 16, 17, 5, PILLAR),
+      box(0, -14, 1, -13, 5, PILLAR),
+      box(10, -16, 11, -15, 5, PILLAR),
+    ],
+  },
+};
+
+// 지금 쓰는 맵의 상자 목록. 다른 파일은 이 배열을 그대로 참조하므로, 맵을 바꿀 때는 내용만 갈아 끼운다.
+export const MAP_BOXES = [...MAPS.open.boxes];
+export const PLAYER_SPAWN = { ...MAPS.open.spawn };
+
+export function setMap(id) {
+  const m = MAPS[id] || MAPS.open;
+  MAP_BOXES.length = 0;
+  MAP_BOXES.push(...m.boxes);
+  PLAYER_SPAWN.x = m.spawn.x;
+  PLAYER_SPAWN.z = m.spawn.z;
+  return m;
+}
+
 
 /**
  * 선분 a→b 가 상자에 가로막히는지 (slab 방법).
